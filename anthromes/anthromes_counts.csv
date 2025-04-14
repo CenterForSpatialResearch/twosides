@@ -1,0 +1,1576 @@
+year,anthrome,label,count
+-10000,11,Urban,0
+-10000,12,Mixed settlements,0
+-10000,21,Rice villages,0
+-10000,22,Irrigated villages,0
+-10000,23,Rainfed villages,0
+-10000,24,Pastoral villages,0
+-10000,31,Residential irrigated croplands,0
+-10000,32,Residential rainfed croplands,0
+-10000,33,Populated croplands,0
+-10000,34,Remote croplands,0
+-10000,41,Residential rangelands,0
+-10000,42,Populated rangelands,0
+-10000,43,Remote rangelands,0
+-10000,51,Residential woodlands,11
+-10000,52,Populated woodlands,2597
+-10000,53,Remote woodlands,655175
+-10000,54,Inhabited drylands,761297
+-10000,61,Wild woodlands,319120
+-10000,62,Wild drylands,354065
+-10000,63,Ice (uninhabited),133137
+-10000,70,No land,0
+-9000,11,Urban,0
+-9000,12,Mixed settlements,0
+-9000,21,Rice villages,0
+-9000,22,Irrigated villages,0
+-9000,23,Rainfed villages,0
+-9000,24,Pastoral villages,0
+-9000,31,Residential irrigated croplands,0
+-9000,32,Residential rainfed croplands,0
+-9000,33,Populated croplands,0
+-9000,34,Remote croplands,0
+-9000,41,Residential rangelands,0
+-9000,42,Populated rangelands,0
+-9000,43,Remote rangelands,0
+-9000,51,Residential woodlands,15
+-9000,52,Populated woodlands,3967
+-9000,53,Remote woodlands,665663
+-9000,54,Inhabited drylands,772510
+-9000,61,Wild woodlands,307263
+-9000,62,Wild drylands,343014
+-9000,63,Ice (uninhabited),132970
+-9000,70,No land,0
+-8000,11,Urban,0
+-8000,12,Mixed settlements,0
+-8000,21,Rice villages,0
+-8000,22,Irrigated villages,0
+-8000,23,Rainfed villages,0
+-8000,24,Pastoral villages,0
+-8000,31,Residential irrigated croplands,0
+-8000,32,Residential rainfed croplands,0
+-8000,33,Populated croplands,0
+-8000,34,Remote croplands,0
+-8000,41,Residential rangelands,0
+-8000,42,Populated rangelands,0
+-8000,43,Remote rangelands,0
+-8000,51,Residential woodlands,21
+-8000,52,Populated woodlands,5756
+-8000,53,Remote woodlands,670013
+-8000,54,Inhabited drylands,778480
+-8000,61,Wild woodlands,301120
+-8000,62,Wild drylands,337358
+-8000,63,Ice (uninhabited),132654
+-8000,70,No land,0
+-7000,11,Urban,0
+-7000,12,Mixed settlements,2
+-7000,21,Rice villages,0
+-7000,22,Irrigated villages,0
+-7000,23,Rainfed villages,0
+-7000,24,Pastoral villages,0
+-7000,31,Residential irrigated croplands,0
+-7000,32,Residential rainfed croplands,0
+-7000,33,Populated croplands,0
+-7000,34,Remote croplands,0
+-7000,41,Residential rangelands,0
+-7000,42,Populated rangelands,0
+-7000,43,Remote rangelands,0
+-7000,51,Residential woodlands,36
+-7000,52,Populated woodlands,8522
+-7000,53,Remote woodlands,680568
+-7000,54,Inhabited drylands,785194
+-7000,61,Wild woodlands,287774
+-7000,62,Wild drylands,330971
+-7000,63,Ice (uninhabited),132335
+-7000,70,No land,0
+-6000,11,Urban,0
+-6000,12,Mixed settlements,2
+-6000,21,Rice villages,0
+-6000,22,Irrigated villages,0
+-6000,23,Rainfed villages,0
+-6000,24,Pastoral villages,0
+-6000,31,Residential irrigated croplands,0
+-6000,32,Residential rainfed croplands,10
+-6000,33,Populated croplands,4
+-6000,34,Remote croplands,1
+-6000,41,Residential rangelands,0
+-6000,42,Populated rangelands,0
+-6000,43,Remote rangelands,0
+-6000,51,Residential woodlands,112
+-6000,52,Populated woodlands,16930
+-6000,53,Remote woodlands,690808
+-6000,54,Inhabited drylands,791757
+-6000,61,Wild woodlands,269027
+-6000,62,Wild drylands,324859
+-6000,63,Ice (uninhabited),131892
+-6000,70,No land,0
+-5000,11,Urban,0
+-5000,12,Mixed settlements,0
+-5000,21,Rice villages,0
+-5000,22,Irrigated villages,0
+-5000,23,Rainfed villages,2
+-5000,24,Pastoral villages,0
+-5000,31,Residential irrigated croplands,0
+-5000,32,Residential rainfed croplands,36
+-5000,33,Populated croplands,91
+-5000,34,Remote croplands,21
+-5000,41,Residential rangelands,0
+-5000,42,Populated rangelands,0
+-5000,43,Remote rangelands,1
+-5000,51,Residential woodlands,167
+-5000,52,Populated woodlands,33814
+-5000,53,Remote woodlands,675256
+-5000,54,Inhabited drylands,795581
+-5000,61,Wild woodlands,267534
+-5000,62,Wild drylands,321062
+-5000,63,Ice (uninhabited),131837
+-5000,70,No land,0
+-4000,11,Urban,0
+-4000,12,Mixed settlements,1
+-4000,21,Rice villages,0
+-4000,22,Irrigated villages,0
+-4000,23,Rainfed villages,3
+-4000,24,Pastoral villages,0
+-4000,31,Residential irrigated croplands,55
+-4000,32,Residential rainfed croplands,174
+-4000,33,Populated croplands,1910
+-4000,34,Remote croplands,277
+-4000,41,Residential rangelands,0
+-4000,42,Populated rangelands,0
+-4000,43,Remote rangelands,5
+-4000,51,Residential woodlands,319
+-4000,52,Populated woodlands,60252
+-4000,53,Remote woodlands,654531
+-4000,54,Inhabited drylands,797968
+-4000,61,Wild woodlands,261457
+-4000,62,Wild drylands,316674
+-4000,63,Ice (uninhabited),131776
+-4000,70,No land,0
+-3000,11,Urban,0
+-3000,12,Mixed settlements,5
+-3000,21,Rice villages,0
+-3000,22,Irrigated villages,0
+-3000,23,Rainfed villages,9
+-3000,24,Pastoral villages,0
+-3000,31,Residential irrigated croplands,182
+-3000,32,Residential rainfed croplands,604
+-3000,33,Populated croplands,2947
+-3000,34,Remote croplands,351
+-3000,41,Residential rangelands,0
+-3000,42,Populated rangelands,0
+-3000,43,Remote rangelands,39
+-3000,51,Residential woodlands,2490
+-3000,52,Populated woodlands,80599
+-3000,53,Remote woodlands,639167
+-3000,54,Inhabited drylands,802233
+-3000,61,Wild woodlands,253833
+-3000,62,Wild drylands,311220
+-3000,63,Ice (uninhabited),131723
+-3000,70,No land,0
+-2000,11,Urban,0
+-2000,12,Mixed settlements,28
+-2000,21,Rice villages,0
+-2000,22,Irrigated villages,1
+-2000,23,Rainfed villages,20
+-2000,24,Pastoral villages,0
+-2000,31,Residential irrigated croplands,224
+-2000,32,Residential rainfed croplands,1521
+-2000,33,Populated croplands,4003
+-2000,34,Remote croplands,505
+-2000,41,Residential rangelands,1
+-2000,42,Populated rangelands,4
+-2000,43,Remote rangelands,68
+-2000,51,Residential woodlands,8733
+-2000,52,Populated woodlands,106020
+-2000,53,Remote woodlands,620344
+-2000,54,Inhabited drylands,806787
+-2000,61,Wild woodlands,239429
+-2000,62,Wild drylands,306356
+-2000,63,Ice (uninhabited),131358
+-2000,70,No land,0
+-1000,11,Urban,0
+-1000,12,Mixed settlements,86
+-1000,21,Rice villages,2
+-1000,22,Irrigated villages,27
+-1000,23,Rainfed villages,33
+-1000,24,Pastoral villages,0
+-1000,31,Residential irrigated croplands,223
+-1000,32,Residential rainfed croplands,3733
+-1000,33,Populated croplands,8472
+-1000,34,Remote croplands,1123
+-1000,41,Residential rangelands,5
+-1000,42,Populated rangelands,1342
+-1000,43,Remote rangelands,10861
+-1000,51,Residential woodlands,18413
+-1000,52,Populated woodlands,115741
+-1000,53,Remote woodlands,597184
+-1000,54,Inhabited drylands,793887
+-1000,61,Wild woodlands,238661
+-1000,62,Wild drylands,304281
+-1000,63,Ice (uninhabited),131328
+-1000,70,No land,0
+0,11,Urban,1
+0,12,Mixed settlements,476
+0,21,Rice villages,13
+0,22,Irrigated villages,103
+0,23,Rainfed villages,346
+0,24,Pastoral villages,1
+0,31,Residential irrigated croplands,293
+0,32,Residential rainfed croplands,20149
+0,33,Populated croplands,6794
+0,34,Remote croplands,2023
+0,41,Residential rangelands,332
+0,42,Populated rangelands,8613
+0,43,Remote rangelands,13165
+0,51,Residential woodlands,48272
+0,52,Populated woodlands,117977
+0,53,Remote woodlands,555551
+0,54,Inhabited drylands,781579
+0,61,Wild woodlands,236130
+0,62,Wild drylands,302376
+0,63,Ice (uninhabited),131208
+0,70,No land,0
+100,11,Urban,1
+100,12,Mixed settlements,582
+100,21,Rice villages,13
+100,22,Irrigated villages,105
+100,23,Rainfed villages,374
+100,24,Pastoral villages,1
+100,31,Residential irrigated croplands,282
+100,32,Residential rainfed croplands,20033
+100,33,Populated croplands,7621
+100,34,Remote croplands,2452
+100,41,Residential rangelands,404
+100,42,Populated rangelands,9350
+100,43,Remote rangelands,13854
+100,51,Residential woodlands,48928
+100,52,Populated woodlands,124298
+100,53,Remote woodlands,548650
+100,54,Inhabited drylands,780034
+100,61,Wild woodlands,235720
+100,62,Wild drylands,301489
+100,63,Ice (uninhabited),131211
+100,70,No land,0
+200,11,Urban,1
+200,12,Mixed settlements,721
+200,21,Rice villages,16
+200,22,Irrigated villages,121
+200,23,Rainfed villages,407
+200,24,Pastoral villages,1
+200,31,Residential irrigated croplands,295
+200,32,Residential rainfed croplands,19338
+200,33,Populated croplands,7412
+200,34,Remote croplands,2503
+200,41,Residential rangelands,445
+200,42,Populated rangelands,9908
+200,43,Remote rangelands,14130
+200,51,Residential woodlands,48993
+200,52,Populated woodlands,132089
+200,53,Remote woodlands,541985
+200,54,Inhabited drylands,779155
+200,61,Wild woodlands,235562
+200,62,Wild drylands,301092
+200,63,Ice (uninhabited),131228
+200,70,No land,0
+300,11,Urban,1
+300,12,Mixed settlements,868
+300,21,Rice villages,15
+300,22,Irrigated villages,126
+300,23,Rainfed villages,502
+300,24,Pastoral villages,0
+300,31,Residential irrigated croplands,212
+300,32,Residential rainfed croplands,14589
+300,33,Populated croplands,6693
+300,34,Remote croplands,2223
+300,41,Residential rangelands,550
+300,42,Populated rangelands,10110
+300,43,Remote rangelands,13750
+300,51,Residential woodlands,40337
+300,52,Populated woodlands,148359
+300,53,Remote woodlands,538823
+300,54,Inhabited drylands,780384
+300,61,Wild woodlands,235444
+300,62,Wild drylands,301168
+300,63,Ice (uninhabited),131248
+300,70,No land,0
+400,11,Urban,0
+400,12,Mixed settlements,1078
+400,21,Rice villages,13
+400,22,Irrigated villages,130
+400,23,Rainfed villages,576
+400,24,Pastoral villages,2
+400,31,Residential irrigated croplands,228
+400,32,Residential rainfed croplands,14723
+400,33,Populated croplands,6969
+400,34,Remote croplands,2185
+400,41,Residential rangelands,493
+400,42,Populated rangelands,10444
+400,43,Remote rangelands,13058
+400,51,Residential woodlands,44949
+400,52,Populated woodlands,152151
+400,53,Remote woodlands,529847
+400,54,Inhabited drylands,781547
+400,61,Wild woodlands,234958
+400,62,Wild drylands,300820
+400,63,Ice (uninhabited),131231
+400,70,No land,0
+500,11,Urban,0
+500,12,Mixed settlements,1204
+500,21,Rice villages,9
+500,22,Irrigated villages,101
+500,23,Rainfed villages,707
+500,24,Pastoral villages,2
+500,31,Residential irrigated croplands,351
+500,32,Residential rainfed croplands,14247
+500,33,Populated croplands,7100
+500,34,Remote croplands,2098
+500,41,Residential rangelands,632
+500,42,Populated rangelands,11856
+500,43,Remote rangelands,17592
+500,51,Residential woodlands,47576
+500,52,Populated woodlands,156856
+500,53,Remote woodlands,522613
+500,54,Inhabited drylands,776322
+500,61,Wild woodlands,234307
+500,62,Wild drylands,300605
+500,63,Ice (uninhabited),131224
+500,70,No land,0
+600,11,Urban,0
+600,12,Mixed settlements,1308
+600,21,Rice villages,9
+600,22,Irrigated villages,69
+600,23,Rainfed villages,809
+600,24,Pastoral villages,6
+600,31,Residential irrigated croplands,411
+600,32,Residential rainfed croplands,15301
+600,33,Populated croplands,6851
+600,34,Remote croplands,2127
+600,41,Residential rangelands,1584
+600,42,Populated rangelands,14529
+600,43,Remote rangelands,25922
+600,51,Residential woodlands,50211
+600,52,Populated woodlands,159586
+600,53,Remote woodlands,516219
+600,54,Inhabited drylands,765744
+600,61,Wild woodlands,233908
+600,62,Wild drylands,299614
+600,63,Ice (uninhabited),131194
+600,70,No land,0
+700,11,Urban,0
+700,12,Mixed settlements,1416
+700,21,Rice villages,16
+700,22,Irrigated villages,107
+700,23,Rainfed villages,976
+700,24,Pastoral villages,6
+700,31,Residential irrigated croplands,405
+700,32,Residential rainfed croplands,14670
+700,33,Populated croplands,6918
+700,34,Remote croplands,2417
+700,41,Residential rangelands,1501
+700,42,Populated rangelands,15534
+700,43,Remote rangelands,35633
+700,51,Residential woodlands,51110
+700,52,Populated woodlands,167558
+700,53,Remote woodlands,507240
+700,54,Inhabited drylands,755594
+700,61,Wild woodlands,233861
+700,62,Wild drylands,299230
+700,63,Ice (uninhabited),131210
+700,70,No land,0
+800,11,Urban,0
+800,12,Mixed settlements,1551
+800,21,Rice villages,20
+800,22,Irrigated villages,123
+800,23,Rainfed villages,1140
+800,24,Pastoral villages,8
+800,31,Residential irrigated croplands,335
+800,32,Residential rainfed croplands,14993
+800,33,Populated croplands,6714
+800,34,Remote croplands,2657
+800,41,Residential rangelands,3105
+800,42,Populated rangelands,20818
+800,43,Remote rangelands,38978
+800,51,Residential woodlands,48638
+800,52,Populated woodlands,173140
+800,53,Remote woodlands,497863
+800,54,Inhabited drylands,751285
+800,61,Wild woodlands,233758
+800,62,Wild drylands,299058
+800,63,Ice (uninhabited),131218
+800,70,No land,0
+900,11,Urban,0
+900,12,Mixed settlements,1691
+900,21,Rice villages,20
+900,22,Irrigated villages,141
+900,23,Rainfed villages,1313
+900,24,Pastoral villages,7
+900,31,Residential irrigated croplands,416
+900,32,Residential rainfed croplands,18647
+900,33,Populated croplands,6735
+900,34,Remote croplands,2948
+900,41,Residential rangelands,4939
+900,42,Populated rangelands,27155
+900,43,Remote rangelands,41756
+900,51,Residential woodlands,51570
+900,52,Populated woodlands,171645
+900,53,Remote woodlands,487926
+900,54,Inhabited drylands,744830
+900,61,Wild woodlands,233728
+900,62,Wild drylands,298770
+900,63,Ice (uninhabited),131165
+900,70,No land,0
+1000,11,Urban,1
+1000,12,Mixed settlements,1772
+1000,21,Rice villages,23
+1000,22,Irrigated villages,154
+1000,23,Rainfed villages,1463
+1000,24,Pastoral villages,7
+1000,31,Residential irrigated croplands,389
+1000,32,Residential rainfed croplands,20293
+1000,33,Populated croplands,6847
+1000,34,Remote croplands,3137
+1000,41,Residential rangelands,5668
+1000,42,Populated rangelands,30087
+1000,43,Remote rangelands,44792
+1000,51,Residential woodlands,51969
+1000,52,Populated woodlands,176434
+1000,53,Remote woodlands,479843
+1000,54,Inhabited drylands,739380
+1000,61,Wild woodlands,233666
+1000,62,Wild drylands,298633
+1000,63,Ice (uninhabited),130844
+1000,70,No land,0
+1100,11,Urban,4
+1100,12,Mixed settlements,1972
+1100,21,Rice villages,16
+1100,22,Irrigated villages,148
+1100,23,Rainfed villages,1993
+1100,24,Pastoral villages,13
+1100,31,Residential irrigated croplands,496
+1100,32,Residential rainfed croplands,31653
+1100,33,Populated croplands,6713
+1100,34,Remote croplands,3257
+1100,41,Residential rangelands,7610
+1100,42,Populated rangelands,33762
+1100,43,Remote rangelands,45811
+1100,51,Residential woodlands,60875
+1100,52,Populated woodlands,180222
+1100,53,Remote woodlands,453788
+1100,54,Inhabited drylands,735697
+1100,61,Wild woodlands,233620
+1100,62,Wild drylands,296979
+1100,63,Ice (uninhabited),130773
+1100,70,No land,0
+1200,11,Urban,2
+1200,12,Mixed settlements,2142
+1200,21,Rice villages,33
+1200,22,Irrigated villages,140
+1200,23,Rainfed villages,2502
+1200,24,Pastoral villages,15
+1200,31,Residential irrigated croplands,494
+1200,32,Residential rainfed croplands,39819
+1200,33,Populated croplands,6546
+1200,34,Remote croplands,3801
+1200,41,Residential rangelands,10971
+1200,42,Populated rangelands,33352
+1200,43,Remote rangelands,46874
+1200,51,Residential woodlands,64245
+1200,52,Populated woodlands,189739
+1200,53,Remote woodlands,435566
+1200,54,Inhabited drylands,734096
+1200,61,Wild woodlands,232359
+1200,62,Wild drylands,293245
+1200,63,Ice (uninhabited),129461
+1200,70,No land,0
+1300,11,Urban,2
+1300,12,Mixed settlements,2274
+1300,21,Rice villages,38
+1300,22,Irrigated villages,161
+1300,23,Rainfed villages,2232
+1300,24,Pastoral villages,17
+1300,31,Residential irrigated croplands,511
+1300,32,Residential rainfed croplands,43499
+1300,33,Populated croplands,5239
+1300,34,Remote croplands,3654
+1300,41,Residential rangelands,12567
+1300,42,Populated rangelands,33534
+1300,43,Remote rangelands,47643
+1300,51,Residential woodlands,65409
+1300,52,Populated woodlands,193020
+1300,53,Remote woodlands,427599
+1300,54,Inhabited drylands,733041
+1300,61,Wild woodlands,232314
+1300,62,Wild drylands,293166
+1300,63,Ice (uninhabited),129482
+1300,70,No land,0
+1400,11,Urban,2
+1400,12,Mixed settlements,2410
+1400,21,Rice villages,37
+1400,22,Irrigated villages,138
+1400,23,Rainfed villages,2129
+1400,24,Pastoral villages,21
+1400,31,Residential irrigated croplands,467
+1400,32,Residential rainfed croplands,34901
+1400,33,Populated croplands,6554
+1400,34,Remote croplands,3510
+1400,41,Residential rangelands,11529
+1400,42,Populated rangelands,37499
+1400,43,Remote rangelands,48146
+1400,51,Residential woodlands,66250
+1400,52,Populated woodlands,202813
+1400,53,Remote woodlands,422465
+1400,54,Inhabited drylands,731895
+1400,61,Wild woodlands,232307
+1400,62,Wild drylands,292981
+1400,63,Ice (uninhabited),129348
+1400,70,No land,0
+1500,11,Urban,2
+1500,12,Mixed settlements,2703
+1500,21,Rice villages,38
+1500,22,Irrigated villages,145
+1500,23,Rainfed villages,2729
+1500,24,Pastoral villages,15
+1500,31,Residential irrigated croplands,589
+1500,32,Residential rainfed croplands,43246
+1500,33,Populated croplands,6728
+1500,34,Remote croplands,4293
+1500,41,Residential rangelands,13376
+1500,42,Populated rangelands,38971
+1500,43,Remote rangelands,51228
+1500,51,Residential woodlands,71999
+1500,52,Populated woodlands,205904
+1500,53,Remote woodlands,406359
+1500,54,Inhabited drylands,723525
+1500,61,Wild woodlands,232240
+1500,62,Wild drylands,292079
+1500,63,Ice (uninhabited),129233
+1500,70,No land,0
+1600,11,Urban,3
+1600,12,Mixed settlements,2992
+1600,21,Rice villages,43
+1600,22,Irrigated villages,165
+1600,23,Rainfed villages,3826
+1600,24,Pastoral villages,32
+1600,31,Residential irrigated croplands,529
+1600,32,Residential rainfed croplands,45658
+1600,33,Populated croplands,4060
+1600,34,Remote croplands,5998
+1600,41,Residential rangelands,15418
+1600,42,Populated rangelands,46329
+1600,43,Remote rangelands,57075
+1600,51,Residential woodlands,70566
+1600,52,Populated woodlands,171085
+1600,53,Remote woodlands,441480
+1600,54,Inhabited drylands,707515
+1600,61,Wild woodlands,232407
+1600,62,Wild drylands,291098
+1600,63,Ice (uninhabited),129123
+1600,70,No land,0
+1700,11,Urban,5
+1700,12,Mixed settlements,5245
+1700,21,Rice villages,41
+1700,22,Irrigated villages,124
+1700,23,Rainfed villages,5413
+1700,24,Pastoral villages,114
+1700,31,Residential irrigated croplands,516
+1700,32,Residential rainfed croplands,49241
+1700,33,Populated croplands,3534
+1700,34,Remote croplands,6691
+1700,41,Residential rangelands,17174
+1700,42,Populated rangelands,51686
+1700,43,Remote rangelands,62638
+1700,51,Residential woodlands,70377
+1700,52,Populated woodlands,175787
+1700,53,Remote woodlands,427862
+1700,54,Inhabited drylands,697377
+1700,61,Wild woodlands,232667
+1700,62,Wild drylands,290977
+1700,63,Ice (uninhabited),127933
+1700,70,No land,0
+1710,11,Urban,7
+1710,12,Mixed settlements,5333
+1710,21,Rice villages,49
+1710,22,Irrigated villages,108
+1710,23,Rainfed villages,6063
+1710,24,Pastoral villages,108
+1710,31,Residential irrigated croplands,593
+1710,32,Residential rainfed croplands,51729
+1710,33,Populated croplands,3378
+1710,34,Remote croplands,7219
+1710,41,Residential rangelands,17047
+1710,42,Populated rangelands,51711
+1710,43,Remote rangelands,64108
+1710,51,Residential woodlands,70879
+1710,52,Populated woodlands,178351
+1710,53,Remote woodlands,423474
+1710,54,Inhabited drylands,690927
+1710,61,Wild woodlands,233108
+1710,62,Wild drylands,290782
+1710,63,Ice (uninhabited),130428
+1710,70,No land,0
+1720,11,Urban,9
+1720,12,Mixed settlements,5229
+1720,21,Rice villages,63
+1720,22,Irrigated villages,106
+1720,23,Rainfed villages,6916
+1720,24,Pastoral villages,107
+1720,31,Residential irrigated croplands,673
+1720,32,Residential rainfed croplands,53704
+1720,33,Populated croplands,3465
+1720,34,Remote croplands,8099
+1720,41,Residential rangelands,17040
+1720,42,Populated rangelands,54396
+1720,43,Remote rangelands,68723
+1720,51,Residential woodlands,72369
+1720,52,Populated woodlands,180710
+1720,53,Remote woodlands,417321
+1720,54,Inhabited drylands,682610
+1720,61,Wild woodlands,233146
+1720,62,Wild drylands,290300
+1720,63,Ice (uninhabited),130416
+1720,70,No land,0
+1730,11,Urban,13
+1730,12,Mixed settlements,5224
+1730,21,Rice villages,73
+1730,22,Irrigated villages,98
+1730,23,Rainfed villages,7702
+1730,24,Pastoral villages,110
+1730,31,Residential irrigated croplands,759
+1730,32,Residential rainfed croplands,55834
+1730,33,Populated croplands,3579
+1730,34,Remote croplands,9337
+1730,41,Residential rangelands,16990
+1730,42,Populated rangelands,59054
+1730,43,Remote rangelands,76958
+1730,51,Residential woodlands,73324
+1730,52,Populated woodlands,183129
+1730,53,Remote woodlands,411391
+1730,54,Inhabited drylands,671139
+1730,61,Wild woodlands,233145
+1730,62,Wild drylands,287135
+1730,63,Ice (uninhabited),130408
+1730,70,No land,0
+1740,11,Urban,12
+1740,12,Mixed settlements,5281
+1740,21,Rice villages,102
+1740,22,Irrigated villages,94
+1740,23,Rainfed villages,9177
+1740,24,Pastoral villages,106
+1740,31,Residential irrigated croplands,823
+1740,32,Residential rainfed croplands,57974
+1740,33,Populated croplands,3588
+1740,34,Remote croplands,10631
+1740,41,Residential rangelands,16758
+1740,42,Populated rangelands,64183
+1740,43,Remote rangelands,87114
+1740,51,Residential woodlands,74568
+1740,52,Populated woodlands,183693
+1740,53,Remote woodlands,406773
+1740,54,Inhabited drylands,655500
+1740,61,Wild woodlands,232876
+1740,62,Wild drylands,285752
+1740,63,Ice (uninhabited),130397
+1740,70,No land,0
+1750,11,Urban,12
+1750,12,Mixed settlements,5082
+1750,21,Rice villages,178
+1750,22,Irrigated villages,95
+1750,23,Rainfed villages,11892
+1750,24,Pastoral villages,107
+1750,31,Residential irrigated croplands,819
+1750,32,Residential rainfed croplands,60849
+1750,33,Populated croplands,3541
+1750,34,Remote croplands,11760
+1750,41,Residential rangelands,16412
+1750,42,Populated rangelands,74343
+1750,43,Remote rangelands,112219
+1750,51,Residential woodlands,75819
+1750,52,Populated woodlands,182873
+1750,53,Remote woodlands,402512
+1750,54,Inhabited drylands,619118
+1750,61,Wild woodlands,232793
+1750,62,Wild drylands,284630
+1750,63,Ice (uninhabited),130348
+1750,70,No land,0
+1760,11,Urban,16
+1760,12,Mixed settlements,4458
+1760,21,Rice villages,245
+1760,22,Irrigated villages,94
+1760,23,Rainfed villages,14226
+1760,24,Pastoral villages,127
+1760,31,Residential irrigated croplands,890
+1760,32,Residential rainfed croplands,64433
+1760,33,Populated croplands,3579
+1760,34,Remote croplands,12824
+1760,41,Residential rangelands,17070
+1760,42,Populated rangelands,80727
+1760,43,Remote rangelands,116612
+1760,51,Residential woodlands,75132
+1760,52,Populated woodlands,182334
+1760,53,Remote woodlands,398766
+1760,54,Inhabited drylands,606580
+1760,61,Wild woodlands,232662
+1760,62,Wild drylands,284320
+1760,63,Ice (uninhabited),130307
+1760,70,No land,0
+1770,11,Urban,21
+1770,12,Mixed settlements,4042
+1770,21,Rice villages,409
+1770,22,Irrigated villages,90
+1770,23,Rainfed villages,16992
+1770,24,Pastoral villages,133
+1770,31,Residential irrigated croplands,873
+1770,32,Residential rainfed croplands,66935
+1770,33,Populated croplands,3808
+1770,34,Remote croplands,13427
+1770,41,Residential rangelands,18626
+1770,42,Populated rangelands,87017
+1770,43,Remote rangelands,118843
+1770,51,Residential woodlands,74462
+1770,52,Populated woodlands,181658
+1770,53,Remote woodlands,395176
+1770,54,Inhabited drylands,596294
+1770,61,Wild woodlands,232623
+1770,62,Wild drylands,283876
+1770,63,Ice (uninhabited),130097
+1770,70,No land,0
+1780,11,Urban,29
+1780,12,Mixed settlements,4589
+1780,21,Rice villages,687
+1780,22,Irrigated villages,91
+1780,23,Rainfed villages,21607
+1780,24,Pastoral villages,179
+1780,31,Residential irrigated croplands,763
+1780,32,Residential rainfed croplands,67291
+1780,33,Populated croplands,4086
+1780,34,Remote croplands,13827
+1780,41,Residential rangelands,21841
+1780,42,Populated rangelands,93651
+1780,43,Remote rangelands,118879
+1780,51,Residential woodlands,73492
+1780,52,Populated woodlands,180463
+1780,53,Remote woodlands,391461
+1780,54,Inhabited drylands,586372
+1780,61,Wild woodlands,232613
+1780,62,Wild drylands,283469
+1780,63,Ice (uninhabited),130012
+1780,70,No land,0
+1790,11,Urban,31
+1790,12,Mixed settlements,4899
+1790,21,Rice villages,816
+1790,22,Irrigated villages,96
+1790,23,Rainfed villages,23552
+1790,24,Pastoral villages,233
+1790,31,Residential irrigated croplands,779
+1790,32,Residential rainfed croplands,69560
+1790,33,Populated croplands,4514
+1790,34,Remote croplands,14288
+1790,41,Residential rangelands,22955
+1790,42,Populated rangelands,96752
+1790,43,Remote rangelands,120420
+1790,51,Residential woodlands,73169
+1790,52,Populated woodlands,179864
+1790,53,Remote woodlands,388159
+1790,54,Inhabited drylands,579511
+1790,61,Wild woodlands,232585
+1790,62,Wild drylands,283211
+1790,63,Ice (uninhabited),130008
+1790,70,No land,0
+1800,11,Urban,37
+1800,12,Mixed settlements,4592
+1800,21,Rice villages,850
+1800,22,Irrigated villages,98
+1800,23,Rainfed villages,24201
+1800,24,Pastoral villages,231
+1800,31,Residential irrigated croplands,876
+1800,32,Residential rainfed croplands,73104
+1800,33,Populated croplands,5147
+1800,34,Remote croplands,14890
+1800,41,Residential rangelands,22714
+1800,42,Populated rangelands,99172
+1800,43,Remote rangelands,128340
+1800,51,Residential woodlands,73596
+1800,52,Populated woodlands,181872
+1800,53,Remote woodlands,382446
+1800,54,Inhabited drylands,568340
+1800,61,Wild woodlands,232617
+1800,62,Wild drylands,282271
+1800,63,Ice (uninhabited),130008
+1800,70,No land,0
+1810,11,Urban,59
+1810,12,Mixed settlements,5607
+1810,21,Rice villages,1270
+1810,22,Irrigated villages,144
+1810,23,Rainfed villages,26502
+1810,24,Pastoral villages,368
+1810,31,Residential irrigated croplands,1263
+1810,32,Residential rainfed croplands,74867
+1810,33,Populated croplands,5992
+1810,34,Remote croplands,14627
+1810,41,Residential rangelands,24776
+1810,42,Populated rangelands,102766
+1810,43,Remote rangelands,128858
+1810,51,Residential woodlands,73734
+1810,52,Populated woodlands,182562
+1810,53,Remote woodlands,376638
+1810,54,Inhabited drylands,560873
+1810,61,Wild woodlands,232597
+1810,62,Wild drylands,281929
+1810,63,Ice (uninhabited),129970
+1810,70,No land,0
+1820,11,Urban,65
+1820,12,Mixed settlements,5780
+1820,21,Rice villages,1517
+1820,22,Irrigated villages,213
+1820,23,Rainfed villages,28056
+1820,24,Pastoral villages,441
+1820,31,Residential irrigated croplands,1789
+1820,32,Residential rainfed croplands,77172
+1820,33,Populated croplands,6920
+1820,34,Remote croplands,14845
+1820,41,Residential rangelands,25681
+1820,42,Populated rangelands,105387
+1820,43,Remote rangelands,130236
+1820,51,Residential woodlands,74365
+1820,52,Populated woodlands,183287
+1820,53,Remote woodlands,370624
+1820,54,Inhabited drylands,554715
+1820,61,Wild woodlands,232618
+1820,62,Wild drylands,281728
+1820,63,Ice (uninhabited),129963
+1820,70,No land,0
+1830,11,Urban,91
+1830,12,Mixed settlements,6561
+1830,21,Rice villages,1812
+1830,22,Irrigated villages,333
+1830,23,Rainfed villages,30354
+1830,24,Pastoral villages,665
+1830,31,Residential irrigated croplands,2232
+1830,32,Residential rainfed croplands,79900
+1830,33,Populated croplands,8806
+1830,34,Remote croplands,16062
+1830,41,Residential rangelands,27865
+1830,42,Populated rangelands,112672
+1830,43,Remote rangelands,145096
+1830,51,Residential woodlands,75254
+1830,52,Populated woodlands,183334
+1830,53,Remote woodlands,362653
+1830,54,Inhabited drylands,533383
+1830,61,Wild woodlands,232642
+1830,62,Wild drylands,275751
+1830,63,Ice (uninhabited),129936
+1830,70,No land,0
+1840,11,Urban,113
+1840,12,Mixed settlements,7008
+1840,21,Rice villages,2015
+1840,22,Irrigated villages,415
+1840,23,Rainfed villages,31874
+1840,24,Pastoral villages,804
+1840,31,Residential irrigated croplands,2784
+1840,32,Residential rainfed croplands,87139
+1840,33,Populated croplands,13237
+1840,34,Remote croplands,15569
+1840,41,Residential rangelands,29876
+1840,42,Populated rangelands,119180
+1840,43,Remote rangelands,144135
+1840,51,Residential woodlands,75923
+1840,52,Populated woodlands,183238
+1840,53,Remote woodlands,352514
+1840,54,Inhabited drylands,521678
+1840,61,Wild woodlands,232630
+1840,62,Wild drylands,275357
+1840,63,Ice (uninhabited),129913
+1840,70,No land,0
+1850,11,Urban,144
+1850,12,Mixed settlements,7505
+1850,21,Rice villages,2286
+1850,22,Irrigated villages,609
+1850,23,Rainfed villages,33525
+1850,24,Pastoral villages,885
+1850,31,Residential irrigated croplands,3250
+1850,32,Residential rainfed croplands,93190
+1850,33,Populated croplands,16227
+1850,34,Remote croplands,15233
+1850,41,Residential rangelands,32363
+1850,42,Populated rangelands,120960
+1850,43,Remote rangelands,143930
+1850,51,Residential woodlands,75323
+1850,52,Populated woodlands,181935
+1850,53,Remote woodlands,345365
+1850,54,Inhabited drylands,515032
+1850,61,Wild woodlands,232623
+1850,62,Wild drylands,275108
+1850,63,Ice (uninhabited),129909
+1850,70,No land,0
+1860,11,Urban,192
+1860,12,Mixed settlements,8054
+1860,21,Rice villages,2626
+1860,22,Irrigated villages,796
+1860,23,Rainfed villages,34466
+1860,24,Pastoral villages,834
+1860,31,Residential irrigated croplands,3661
+1860,32,Residential rainfed croplands,103316
+1860,33,Populated croplands,22152
+1860,34,Remote croplands,13410
+1860,41,Residential rangelands,33706
+1860,42,Populated rangelands,120759
+1860,43,Remote rangelands,144269
+1860,51,Residential woodlands,76451
+1860,52,Populated woodlands,180412
+1860,53,Remote woodlands,336362
+1860,54,Inhabited drylands,507003
+1860,61,Wild woodlands,232147
+1860,62,Wild drylands,274884
+1860,63,Ice (uninhabited),129902
+1860,70,No land,0
+1870,11,Urban,191
+1870,12,Mixed settlements,7455
+1870,21,Rice villages,2822
+1870,22,Irrigated villages,987
+1870,23,Rainfed villages,34620
+1870,24,Pastoral villages,769
+1870,31,Residential irrigated croplands,4094
+1870,32,Residential rainfed croplands,111310
+1870,33,Populated croplands,24899
+1870,34,Remote croplands,13480
+1870,41,Residential rangelands,32335
+1870,42,Populated rangelands,118775
+1870,43,Remote rangelands,147311
+1870,51,Residential woodlands,78035
+1870,52,Populated woodlands,179358
+1870,53,Remote woodlands,331916
+1870,54,Inhabited drylands,500128
+1870,61,Wild woodlands,232130
+1870,62,Wild drylands,274884
+1870,63,Ice (uninhabited),129903
+1870,70,No land,0
+1880,11,Urban,249
+1880,12,Mixed settlements,8238
+1880,21,Rice villages,3138
+1880,22,Irrigated villages,1196
+1880,23,Rainfed villages,36150
+1880,24,Pastoral villages,921
+1880,31,Residential irrigated croplands,4554
+1880,32,Residential rainfed croplands,121043
+1880,33,Populated croplands,30841
+1880,34,Remote croplands,16049
+1880,41,Residential rangelands,33745
+1880,42,Populated rangelands,120253
+1880,43,Remote rangelands,173164
+1880,51,Residential woodlands,78035
+1880,52,Populated woodlands,175209
+1880,53,Remote woodlands,325157
+1880,54,Inhabited drylands,461972
+1880,61,Wild woodlands,231967
+1880,62,Wild drylands,273620
+1880,63,Ice (uninhabited),129901
+1880,70,No land,0
+1890,11,Urban,373
+1890,12,Mixed settlements,9180
+1890,21,Rice villages,3542
+1890,22,Irrigated villages,1486
+1890,23,Rainfed villages,38696
+1890,24,Pastoral villages,1001
+1890,31,Residential irrigated croplands,4970
+1890,32,Residential rainfed croplands,128307
+1890,33,Populated croplands,36343
+1890,34,Remote croplands,18733
+1890,41,Residential rangelands,35438
+1890,42,Populated rangelands,126079
+1890,43,Remote rangelands,198486
+1890,51,Residential woodlands,78656
+1890,52,Populated woodlands,173524
+1890,53,Remote woodlands,316757
+1890,54,Inhabited drylands,426705
+1890,61,Wild woodlands,231912
+1890,62,Wild drylands,265320
+1890,63,Ice (uninhabited),129894
+1890,70,No land,0
+1900,11,Urban,526
+1900,12,Mixed settlements,10185
+1900,21,Rice villages,3863
+1900,22,Irrigated villages,1862
+1900,23,Rainfed villages,41099
+1900,24,Pastoral villages,1151
+1900,31,Residential irrigated croplands,5343
+1900,32,Residential rainfed croplands,134571
+1900,33,Populated croplands,39638
+1900,34,Remote croplands,19511
+1900,41,Residential rangelands,38022
+1900,42,Populated rangelands,142318
+1900,43,Remote rangelands,271918
+1900,51,Residential woodlands,78312
+1900,52,Populated woodlands,169345
+1900,53,Remote woodlands,310289
+1900,54,Inhabited drylands,342711
+1900,61,Wild woodlands,231680
+1900,62,Wild drylands,253167
+1900,63,Ice (uninhabited),129891
+1900,70,No land,0
+1910,11,Urban,817
+1910,12,Mixed settlements,11197
+1910,21,Rice villages,4455
+1910,22,Irrigated villages,2339
+1910,23,Rainfed villages,42280
+1910,24,Pastoral villages,1513
+1910,31,Residential irrigated croplands,6751
+1910,32,Residential rainfed croplands,143972
+1910,33,Populated croplands,46317
+1910,34,Remote croplands,20822
+1910,41,Residential rangelands,41383
+1910,42,Populated rangelands,152392
+1910,43,Remote rangelands,277908
+1910,51,Residential woodlands,78142
+1910,52,Populated woodlands,167832
+1910,53,Remote woodlands,299521
+1910,54,Inhabited drylands,315437
+1910,61,Wild woodlands,231377
+1910,62,Wild drylands,250948
+1910,63,Ice (uninhabited),129999
+1910,70,No land,0
+1920,11,Urban,1104
+1920,12,Mixed settlements,12552
+1920,21,Rice villages,5143
+1920,22,Irrigated villages,3047
+1920,23,Rainfed villages,42877
+1920,24,Pastoral villages,1646
+1920,31,Residential irrigated croplands,7808
+1920,32,Residential rainfed croplands,147445
+1920,33,Populated croplands,57798
+1920,34,Remote croplands,24255
+1920,41,Residential rangelands,44044
+1920,42,Populated rangelands,160516
+1920,43,Remote rangelands,280334
+1920,51,Residential woodlands,77551
+1920,52,Populated woodlands,161802
+1920,53,Remote woodlands,296019
+1920,54,Inhabited drylands,290148
+1920,61,Wild woodlands,231469
+1920,62,Wild drylands,249894
+1920,63,Ice (uninhabited),129950
+1920,70,No land,0
+1930,11,Urban,1486
+1930,12,Mixed settlements,13416
+1930,21,Rice villages,6010
+1930,22,Irrigated villages,3960
+1930,23,Rainfed villages,45311
+1930,24,Pastoral villages,2006
+1930,31,Residential irrigated croplands,8470
+1930,32,Residential rainfed croplands,153873
+1930,33,Populated croplands,66668
+1930,34,Remote croplands,25510
+1930,41,Residential rangelands,49114
+1930,42,Populated rangelands,166363
+1930,43,Remote rangelands,281580
+1930,51,Residential woodlands,76230
+1930,52,Populated woodlands,154599
+1930,53,Remote woodlands,289508
+1930,54,Inhabited drylands,271173
+1930,61,Wild woodlands,231277
+1930,62,Wild drylands,248965
+1930,63,Ice (uninhabited),129883
+1930,70,No land,0
+1940,11,Urban,1841
+1940,12,Mixed settlements,13795
+1940,21,Rice villages,6298
+1940,22,Irrigated villages,5459
+1940,23,Rainfed villages,48548
+1940,24,Pastoral villages,2479
+1940,31,Residential irrigated croplands,9213
+1940,32,Residential rainfed croplands,164152
+1940,33,Populated croplands,70451
+1940,34,Remote croplands,27752
+1940,41,Residential rangelands,53362
+1940,42,Populated rangelands,174431
+1940,43,Remote rangelands,286441
+1940,51,Residential woodlands,73076
+1940,52,Populated woodlands,147220
+1940,53,Remote woodlands,281291
+1940,54,Inhabited drylands,251120
+1940,61,Wild woodlands,230844
+1940,62,Wild drylands,247749
+1940,63,Ice (uninhabited),129880
+1940,70,No land,0
+1950,11,Urban,2392
+1950,12,Mixed settlements,15045
+1950,21,Rice villages,7808
+1950,22,Irrigated villages,5888
+1950,23,Rainfed villages,51670
+1950,24,Pastoral villages,2888
+1950,31,Residential irrigated croplands,9376
+1950,32,Residential rainfed croplands,169512
+1950,33,Populated croplands,76102
+1950,34,Remote croplands,29503
+1950,41,Residential rangelands,59740
+1950,42,Populated rangelands,176701
+1950,43,Remote rangelands,285132
+1950,51,Residential woodlands,71149
+1950,52,Populated woodlands,143372
+1950,53,Remote woodlands,277372
+1950,54,Inhabited drylands,234053
+1950,61,Wild woodlands,231089
+1950,62,Wild drylands,246744
+1950,63,Ice (uninhabited),129866
+1950,70,No land,0
+1960,11,Urban,3308
+1960,12,Mixed settlements,17078
+1960,21,Rice villages,10480
+1960,22,Irrigated villages,10101
+1960,23,Rainfed villages,55123
+1960,24,Pastoral villages,3811
+1960,31,Residential irrigated croplands,9124
+1960,32,Residential rainfed croplands,179730
+1960,33,Populated croplands,81165
+1960,34,Remote croplands,30161
+1960,41,Residential rangelands,67792
+1960,42,Populated rangelands,179492
+1960,43,Remote rangelands,274556
+1960,51,Residential woodlands,71285
+1960,52,Populated woodlands,141373
+1960,53,Remote woodlands,266390
+1960,54,Inhabited drylands,218051
+1960,61,Wild woodlands,230975
+1960,62,Wild drylands,245582
+1960,63,Ice (uninhabited),129825
+1960,70,No land,0
+1970,11,Urban,4325
+1970,12,Mixed settlements,20301
+1970,21,Rice villages,11659
+1970,22,Irrigated villages,12732
+1970,23,Rainfed villages,63295
+1970,24,Pastoral villages,5721
+1970,31,Residential irrigated croplands,8978
+1970,32,Residential rainfed croplands,176179
+1970,33,Populated croplands,78769
+1970,34,Remote croplands,32365
+1970,41,Residential rangelands,77930
+1970,42,Populated rangelands,178092
+1970,43,Remote rangelands,263310
+1970,51,Residential woodlands,72897
+1970,52,Populated woodlands,140144
+1970,53,Remote woodlands,259393
+1970,54,Inhabited drylands,213296
+1970,61,Wild woodlands,230892
+1970,62,Wild drylands,245326
+1970,63,Ice (uninhabited),129798
+1970,70,No land,0
+1980,11,Urban,5299
+1980,12,Mixed settlements,22906
+1980,21,Rice villages,12755
+1980,22,Irrigated villages,16543
+1980,23,Rainfed villages,69090
+1980,24,Pastoral villages,7935
+1980,31,Residential irrigated croplands,10330
+1980,32,Residential rainfed croplands,171453
+1980,33,Populated croplands,77350
+1980,34,Remote croplands,33648
+1980,41,Residential rangelands,89206
+1980,42,Populated rangelands,176440
+1980,43,Remote rangelands,254731
+1980,51,Residential woodlands,74039
+1980,52,Populated woodlands,139808
+1980,53,Remote woodlands,251922
+1980,54,Inhabited drylands,205085
+1980,61,Wild woodlands,230782
+1980,62,Wild drylands,246305
+1980,63,Ice (uninhabited),129775
+1980,70,No land,0
+1990,11,Urban,6493
+1990,12,Mixed settlements,22862
+1990,21,Rice villages,13220
+1990,22,Irrigated villages,19905
+1990,23,Rainfed villages,78895
+1990,24,Pastoral villages,8915
+1990,31,Residential irrigated croplands,11307
+1990,32,Residential rainfed croplands,169881
+1990,33,Populated croplands,77062
+1990,34,Remote croplands,35313
+1990,41,Residential rangelands,94197
+1990,42,Populated rangelands,172413
+1990,43,Remote rangelands,247430
+1990,51,Residential woodlands,74500
+1990,52,Populated woodlands,137652
+1990,53,Remote woodlands,246544
+1990,54,Inhabited drylands,203069
+1990,61,Wild woodlands,230742
+1990,62,Wild drylands,245241
+1990,63,Ice (uninhabited),129761
+1990,70,No land,0
+2000,11,Urban,7987
+2000,12,Mixed settlements,24974
+2000,21,Rice villages,13835
+2000,22,Irrigated villages,24326
+2000,23,Rainfed villages,80773
+2000,24,Pastoral villages,10797
+2000,31,Residential irrigated croplands,12294
+2000,32,Residential rainfed croplands,166311
+2000,33,Populated croplands,76484
+2000,34,Remote croplands,36430
+2000,41,Residential rangelands,101014
+2000,42,Populated rangelands,165370
+2000,43,Remote rangelands,248005
+2000,51,Residential woodlands,74287
+2000,52,Populated woodlands,130985
+2000,53,Remote woodlands,248243
+2000,54,Inhabited drylands,197655
+2000,61,Wild woodlands,230662
+2000,62,Wild drylands,245232
+2000,63,Ice (uninhabited),129738
+2000,70,No land,0
+2001,11,Urban,8115
+2001,12,Mixed settlements,25137
+2001,21,Rice villages,13822
+2001,22,Irrigated villages,25275
+2001,23,Rainfed villages,80346
+2001,24,Pastoral villages,11113
+2001,31,Residential irrigated croplands,12423
+2001,32,Residential rainfed croplands,165925
+2001,33,Populated croplands,76486
+2001,34,Remote croplands,36698
+2001,41,Residential rangelands,101366
+2001,42,Populated rangelands,164516
+2001,43,Remote rangelands,247240
+2001,51,Residential woodlands,74603
+2001,52,Populated woodlands,130505
+2001,53,Remote woodlands,248521
+2001,54,Inhabited drylands,197692
+2001,61,Wild woodlands,230654
+2001,62,Wild drylands,245227
+2001,63,Ice (uninhabited),129738
+2001,70,No land,0
+2002,11,Urban,8255
+2002,12,Mixed settlements,25384
+2002,21,Rice villages,13631
+2002,22,Irrigated villages,26252
+2002,23,Rainfed villages,80130
+2002,24,Pastoral villages,11255
+2002,31,Residential irrigated croplands,12557
+2002,32,Residential rainfed croplands,165291
+2002,33,Populated croplands,76240
+2002,34,Remote croplands,36621
+2002,41,Residential rangelands,101771
+2002,42,Populated rangelands,163890
+2002,43,Remote rangelands,246729
+2002,51,Residential woodlands,74912
+2002,52,Populated woodlands,130016
+2002,53,Remote woodlands,248830
+2002,54,Inhabited drylands,197880
+2002,61,Wild woodlands,230655
+2002,62,Wild drylands,245359
+2002,63,Ice (uninhabited),129744
+2002,70,No land,0
+2003,11,Urban,8395
+2003,12,Mixed settlements,25642
+2003,21,Rice villages,13739
+2003,22,Irrigated villages,27345
+2003,23,Rainfed villages,79458
+2003,24,Pastoral villages,11414
+2003,31,Residential irrigated croplands,12791
+2003,32,Residential rainfed croplands,165602
+2003,33,Populated croplands,76731
+2003,34,Remote croplands,36867
+2003,41,Residential rangelands,101277
+2003,42,Populated rangelands,162637
+2003,43,Remote rangelands,245822
+2003,51,Residential woodlands,74911
+2003,52,Populated woodlands,129450
+2003,53,Remote woodlands,249114
+2003,54,Inhabited drylands,198344
+2003,61,Wild woodlands,230639
+2003,62,Wild drylands,245482
+2003,63,Ice (uninhabited),129742
+2003,70,No land,0
+2004,11,Urban,8516
+2004,12,Mixed settlements,25770
+2004,21,Rice villages,14243
+2004,22,Irrigated villages,27388
+2004,23,Rainfed villages,79822
+2004,24,Pastoral villages,11418
+2004,31,Residential irrigated croplands,12879
+2004,32,Residential rainfed croplands,165324
+2004,33,Populated croplands,77125
+2004,34,Remote croplands,37028
+2004,41,Residential rangelands,101662
+2004,42,Populated rangelands,161674
+2004,43,Remote rangelands,245926
+2004,51,Residential woodlands,74854
+2004,52,Populated woodlands,128695
+2004,53,Remote woodlands,249325
+2004,54,Inhabited drylands,197961
+2004,61,Wild woodlands,230611
+2004,62,Wild drylands,245454
+2004,63,Ice (uninhabited),129727
+2004,70,No land,0
+2005,11,Urban,8697
+2005,12,Mixed settlements,26026
+2005,21,Rice villages,14843
+2005,22,Irrigated villages,27171
+2005,23,Rainfed villages,79931
+2005,24,Pastoral villages,11521
+2005,31,Residential irrigated croplands,12990
+2005,32,Residential rainfed croplands,165038
+2005,33,Populated croplands,77152
+2005,34,Remote croplands,36974
+2005,41,Residential rangelands,101363
+2005,42,Populated rangelands,159671
+2005,43,Remote rangelands,245843
+2005,51,Residential woodlands,75119
+2005,52,Populated woodlands,128785
+2005,53,Remote woodlands,249737
+2005,54,Inhabited drylands,198784
+2005,61,Wild woodlands,230611
+2005,62,Wild drylands,245417
+2005,63,Ice (uninhabited),129729
+2005,70,No land,0
+2006,11,Urban,8839
+2006,12,Mixed settlements,26395
+2006,21,Rice villages,15395
+2006,22,Irrigated villages,27196
+2006,23,Rainfed villages,79579
+2006,24,Pastoral villages,11810
+2006,31,Residential irrigated croplands,13031
+2006,32,Residential rainfed croplands,163711
+2006,33,Populated croplands,77010
+2006,34,Remote croplands,36732
+2006,41,Residential rangelands,102172
+2006,42,Populated rangelands,159116
+2006,43,Remote rangelands,245964
+2006,51,Residential woodlands,75541
+2006,52,Populated woodlands,128317
+2006,53,Remote woodlands,250069
+2006,54,Inhabited drylands,198725
+2006,61,Wild woodlands,230615
+2006,62,Wild drylands,245451
+2006,63,Ice (uninhabited),129734
+2006,70,No land,0
+2007,11,Urban,8991
+2007,12,Mixed settlements,26524
+2007,21,Rice villages,15663
+2007,22,Irrigated villages,27255
+2007,23,Rainfed villages,79845
+2007,24,Pastoral villages,11969
+2007,31,Residential irrigated croplands,13087
+2007,32,Residential rainfed croplands,163045
+2007,33,Populated croplands,77111
+2007,34,Remote croplands,36729
+2007,41,Residential rangelands,102701
+2007,42,Populated rangelands,158434
+2007,43,Remote rangelands,245944
+2007,51,Residential woodlands,75564
+2007,52,Populated woodlands,127656
+2007,53,Remote woodlands,250420
+2007,54,Inhabited drylands,198624
+2007,61,Wild woodlands,230619
+2007,62,Wild drylands,245489
+2007,63,Ice (uninhabited),129732
+2007,70,No land,0
+2008,11,Urban,9147
+2008,12,Mixed settlements,26621
+2008,21,Rice villages,16246
+2008,22,Irrigated villages,26897
+2008,23,Rainfed villages,80194
+2008,24,Pastoral villages,12151
+2008,31,Residential irrigated croplands,13188
+2008,32,Residential rainfed croplands,163114
+2008,33,Populated croplands,77578
+2008,34,Remote croplands,36948
+2008,41,Residential rangelands,102404
+2008,42,Populated rangelands,157375
+2008,43,Remote rangelands,245855
+2008,51,Residential woodlands,75419
+2008,52,Populated woodlands,127117
+2008,53,Remote woodlands,250733
+2008,54,Inhabited drylands,198571
+2008,61,Wild woodlands,230618
+2008,62,Wild drylands,245494
+2008,63,Ice (uninhabited),129732
+2008,70,No land,0
+2009,11,Urban,9321
+2009,12,Mixed settlements,26774
+2009,21,Rice villages,15971
+2009,22,Irrigated villages,27573
+2009,23,Rainfed villages,80200
+2009,24,Pastoral villages,12301
+2009,31,Residential irrigated croplands,13103
+2009,32,Residential rainfed croplands,162981
+2009,33,Populated croplands,77769
+2009,34,Remote croplands,36960
+2009,41,Residential rangelands,102428
+2009,42,Populated rangelands,156526
+2009,43,Remote rangelands,245797
+2009,51,Residential woodlands,75417
+2009,52,Populated woodlands,126679
+2009,53,Remote woodlands,251036
+2009,54,Inhabited drylands,198684
+2009,61,Wild woodlands,230624
+2009,62,Wild drylands,245526
+2009,63,Ice (uninhabited),129732
+2009,70,No land,0
+2010,11,Urban,9491
+2010,12,Mixed settlements,26916
+2010,21,Rice villages,15979
+2010,22,Irrigated villages,28135
+2010,23,Rainfed villages,80107
+2010,24,Pastoral villages,12465
+2010,31,Residential irrigated croplands,13242
+2010,32,Residential rainfed croplands,162065
+2010,33,Populated croplands,77660
+2010,34,Remote croplands,36782
+2010,41,Residential rangelands,102833
+2010,42,Populated rangelands,155988
+2010,43,Remote rangelands,245678
+2010,51,Residential woodlands,75482
+2010,52,Populated woodlands,126177
+2010,53,Remote woodlands,251451
+2010,54,Inhabited drylands,198798
+2010,61,Wild woodlands,230618
+2010,62,Wild drylands,245803
+2010,63,Ice (uninhabited),129732
+2010,70,No land,0
+2011,11,Urban,9639
+2011,12,Mixed settlements,26980
+2011,21,Rice villages,16147
+2011,22,Irrigated villages,28356
+2011,23,Rainfed villages,80438
+2011,24,Pastoral villages,12581
+2011,31,Residential irrigated croplands,13311
+2011,32,Residential rainfed croplands,161756
+2011,33,Populated croplands,78196
+2011,34,Remote croplands,37082
+2011,41,Residential rangelands,102660
+2011,42,Populated rangelands,154090
+2011,43,Remote rangelands,245687
+2011,51,Residential woodlands,75538
+2011,52,Populated woodlands,125603
+2011,53,Remote woodlands,251767
+2011,54,Inhabited drylands,199686
+2011,61,Wild woodlands,230619
+2011,62,Wild drylands,245534
+2011,63,Ice (uninhabited),129732
+2011,70,No land,0
+2012,11,Urban,9813
+2012,12,Mixed settlements,27085
+2012,21,Rice villages,15998
+2012,22,Irrigated villages,28772
+2012,23,Rainfed villages,80959
+2012,24,Pastoral villages,12546
+2012,31,Residential irrigated croplands,13307
+2012,32,Residential rainfed croplands,162168
+2012,33,Populated croplands,78631
+2012,34,Remote croplands,37492
+2012,41,Residential rangelands,102142
+2012,42,Populated rangelands,153071
+2012,43,Remote rangelands,245370
+2012,51,Residential woodlands,75425
+2012,52,Populated woodlands,125039
+2012,53,Remote woodlands,252050
+2012,54,Inhabited drylands,199561
+2012,61,Wild woodlands,230610
+2012,62,Wild drylands,245631
+2012,63,Ice (uninhabited),129732
+2012,70,No land,0
+2013,11,Urban,10066
+2013,12,Mixed settlements,27347
+2013,21,Rice villages,16206
+2013,22,Irrigated villages,29017
+2013,23,Rainfed villages,81282
+2013,24,Pastoral villages,12713
+2013,31,Residential irrigated croplands,13477
+2013,32,Residential rainfed croplands,161699
+2013,33,Populated croplands,78873
+2013,34,Remote croplands,37209
+2013,41,Residential rangelands,102527
+2013,42,Populated rangelands,152273
+2013,43,Remote rangelands,244925
+2013,51,Residential woodlands,75685
+2013,52,Populated woodlands,124668
+2013,53,Remote woodlands,252462
+2013,54,Inhabited drylands,200143
+2013,61,Wild woodlands,229944
+2013,62,Wild drylands,245410
+2013,63,Ice (uninhabited),129476
+2013,70,No land,0
+2014,11,Urban,10225
+2014,12,Mixed settlements,27512
+2014,21,Rice villages,16301
+2014,22,Irrigated villages,29374
+2014,23,Rainfed villages,81577
+2014,24,Pastoral villages,12809
+2014,31,Residential irrigated croplands,13549
+2014,32,Residential rainfed croplands,161616
+2014,33,Populated croplands,79248
+2014,34,Remote croplands,37442
+2014,41,Residential rangelands,102941
+2014,42,Populated rangelands,151473
+2014,43,Remote rangelands,243986
+2014,51,Residential woodlands,76008
+2014,52,Populated woodlands,124420
+2014,53,Remote woodlands,252051
+2014,54,Inhabited drylands,200072
+2014,61,Wild woodlands,229948
+2014,62,Wild drylands,245374
+2014,63,Ice (uninhabited),129476
+2014,70,No land,0
+2015,11,Urban,10391
+2015,12,Mixed settlements,27649
+2015,21,Rice villages,16309
+2015,22,Irrigated villages,29805
+2015,23,Rainfed villages,81928
+2015,24,Pastoral villages,12907
+2015,31,Residential irrigated croplands,13671
+2015,32,Residential rainfed croplands,161906
+2015,33,Populated croplands,79361
+2015,34,Remote croplands,37347
+2015,41,Residential rangelands,103013
+2015,42,Populated rangelands,150892
+2015,43,Remote rangelands,243215
+2015,51,Residential woodlands,76279
+2015,52,Populated woodlands,124321
+2015,53,Remote woodlands,251618
+2015,54,Inhabited drylands,200003
+2015,61,Wild woodlands,229945
+2015,62,Wild drylands,245366
+2015,63,Ice (uninhabited),129476
+2015,70,No land,0
+2016,11,Urban,10576
+2016,12,Mixed settlements,27744
+2016,21,Rice villages,16358
+2016,22,Irrigated villages,30135
+2016,23,Rainfed villages,82329
+2016,24,Pastoral villages,13056
+2016,31,Residential irrigated croplands,13768
+2016,32,Residential rainfed croplands,161932
+2016,33,Populated croplands,79534
+2016,34,Remote croplands,37391
+2016,41,Residential rangelands,103337
+2016,42,Populated rangelands,150286
+2016,43,Remote rangelands,242200
+2016,51,Residential woodlands,76521
+2016,52,Populated woodlands,124122
+2016,53,Remote woodlands,251265
+2016,54,Inhabited drylands,199926
+2016,61,Wild woodlands,229940
+2016,62,Wild drylands,245506
+2016,63,Ice (uninhabited),129476
+2016,70,No land,0
+2017,11,Urban,10705
+2017,12,Mixed settlements,27920
+2017,21,Rice villages,16411
+2017,22,Irrigated villages,30503
+2017,23,Rainfed villages,82652
+2017,24,Pastoral villages,13180
+2017,31,Residential irrigated croplands,13847
+2017,32,Residential rainfed croplands,161737
+2017,33,Populated croplands,79692
+2017,34,Remote croplands,37398
+2017,41,Residential rangelands,103881
+2017,42,Populated rangelands,149642
+2017,43,Remote rangelands,241360
+2017,51,Residential woodlands,76755
+2017,52,Populated woodlands,124020
+2017,53,Remote woodlands,250891
+2017,54,Inhabited drylands,199867
+2017,61,Wild woodlands,229935
+2017,62,Wild drylands,245530
+2017,63,Ice (uninhabited),129476
+2017,70,No land,0

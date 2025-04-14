@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Radial Tree – Interactive Export</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    @font-face {
+      font-family: "Pelikan";
+      src: url("ABCPelikan-Regular-Trial.woff") format("woff");
+    }
+    body {
+      margin: 0;
+      font-family: "Pelikan", sans-serif;
+      background: #0e0b16;
+      color: white;
+    }
+    #controls {
+      display: none;
+      justify-content: center;
+      margin: 10px;
+      gap: 20px;
+    }
+    #legend {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      margin: 20px auto;
+      max-width: 90%;
+      font-size: 14px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+    svg {
+      display: block;
+      margin: auto;
+      background: #0e0b16;
+    }
+    .region-path {
+      fill-opacity: 1.0;
+      stroke: none;
+    }
+    .region-label {
+      font-size: 32px;
+      fill: white;
+      font-family: "Pelikan", sans-serif;
+      font-weight: 300;
+      text-anchor: middle;
+      dominant-baseline: middle;
+    }
+    .internal-label {
+      font-size: 6px;
+      fill: white;
+      font-family: "Pelikan", sans-serif;
+      stroke: none;
+      text-anchor: end;
+    }
+    .node circle {
+      stroke: white;
+      stroke-width: 0.4;
+    }
+    .link {
+      fill: none;
+      transition: stroke 0.2s ease;
+    }
+    .link.hovered {
+      stroke-width: 1.5;
+      stroke-opacity: 1.0;
+    }
+    .node.hovered circle {
+      stroke-width: 2.5;
+    }
+    #tooltip {
+      position: absolute;
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      font-size: 13px;
+      padding: 6px 10px;
+      border: 1px solid #555;
+      pointer-events: none;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+<div id="controls">
+  <label>View Size:
+    <select id="viewMode">
+      <option value="preview">Preview (1200x1200)</option>
+      <option value="full" selected>Full Export (6400x6400)</option>
+    </select>
+  </label>
+  <button id="export">Export SVG</button>
+</div>
+<svg id="chart"></svg>
+<div id="legend"></div>
+<div id="tooltip" class="tooltip" style="position: absolute; background: rgba(0, 0, 0, 0.7); color: white; padding: 5px; border-radius: 3px; pointer-events: none;"></div>
+<script>
+// Config
+const svg = d3.select("#chart");
+const g = svg.append("g");
+const defs = svg.append("defs");
+const fullSize = 6400, previewSize = 1200;
+const fullRadius = 3000, previewRadius = 550;
+let currentSize = "full";
+let currentTension = 0.95;
+let backgroundColor = "#0e0b16";
+
+const tree = d3.cluster();
+const colorMapping = {
+  "Actinobacteria": "#1385eb", "Bacteroidetes": "#b1f16e", "Candidatus_Gracilibacteria": "#eb9c13",
+  "Candidatus_Melainabacteria": "#ebe013", "Candidatus_Saccharibacteria": "#6eeb13", "Chlamydiae": "#eb139c",
+  "Cyanobacteria": "#4717f6", "Deinococcus_Thermus": "#13eb85", "Elusimicrobia": "#eb1357",
+  "Euryarchaeota": "#eb13e0", "Firmicutes": "#AA55DA", "Fusobacteria": "#c77dff",
+  "Planctomycetes": "#5f0f40", "Proteobacteria": "#13ebc9", "Spirochaetes": "#fb5607",
+  "Synergistetes": "#ff006e", "Tenericutes": "#8338ec", "Unknown": "#13eb40", "Verrucomicrobia": "#3a86ff"
+};
+
+const tooltip = d3.select("#tooltip");
+
+function customSort(a, b) {
+  return b.descendants().length - a.descendants().length;
+}
+
+function render(size = "full") {
+  const dim = size === "full" ? fullSize : previewSize;
+  const radius = size === "full" ? fullRadius : previewRadius;
+  tree.size([2 * Math.PI, radius]);
+  svg.attr("viewBox", `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
+  g.selectAll("*").remove();
+  defs.selectAll("*").remove();
+
+  d3.json("sgb_taxonomy_tree.json").then(data => {
+    const root = d3.hierarchy(data);
+    root.sort(customSort);
+    tree(root);
+    const maxDepth = d3.max(root.descendants(), d => d.depth);
+    const line = d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(d => d.x).radius(d => d.y);
+
+    const regionLayer = g.append("g").attr("id", "group-regions");
+    const regionLabelLayer = g.append("g").attr("id", "group-region-labels");
+    const linkLayer = g.append("g").attr("id", "group-links");
+    const nodeLayer = g.append("g").attr("id", "group-nodes");
+    const barLayer = g.append("g").attr("id", "group-bars");
+    const labelLayer = g.append("g").attr("id", "group-internal-labels");
+    let labelID = 0;
+
+for (let depth = 1; depth <= maxDepth; depth++) {
+  const nodesAtDepth = root.descendants().filter(d => d.depth === depth);
+  const groups = d3.groups(nodesAtDepth, d => d.data?.phylum || "Unknown");
+
+  for (const [phylum, group] of groups) {
+    if (group.length < 2) continue;
+    const sorted = group.sort((a, b) => a.x - b.x);
+    const innerRadius = sorted[0].y - (radius / maxDepth) * 0.75;
+    const outerRadius = sorted[0].y;
+
+    const outer = sorted.map(d => [d.x, outerRadius]);
+    const inner = sorted.map(d => [d.x, innerRadius]).reverse();
+    const points = outer.concat(inner);
+
+    const pathData = d3.lineRadial().curve(d3.curveCardinalClosed.tension(0.7))(points);
+
+    const gradID = `grad-${phylum}-${depth}`;
+    defs.append("radialGradient")
+      .attr("id", gradID)
+      .selectAll("stop")
+      .data([
+        { offset: "0%", color: backgroundColor, opacity: 0 },
+        { offset: "100%", color: colorMapping[phylum], opacity: 1 }
+      ])
+      .enter()
+      .append("stop")
+      .attr("offset", d => d.offset)
+      .attr("stop-color", d => d.color)
+      .attr("stop-opacity", d => d.opacity);
+
+    regionLayer.append("path")
+      .attr("d", pathData)
+      .attr("fill", `url(#${gradID})`)
+      .attr("class", "region-path");
+
+    // --- Place label at centroid ---
+    const meanAngle = d3.mean(group, d => d.x);
+    const meanRadius = d3.mean(group, d => d.y);
+    const labelX = Math.cos(meanAngle - Math.PI / 2) * meanRadius;
+    const labelY = Math.sin(meanAngle - Math.PI / 2) * meanRadius;
+
+    if (depth !== maxDepth -3) {
+    regionLabelLayer.append("text")
+      .attr("class", "region-label")
+      .attr("x", labelX)
+      .attr("y", labelY)
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .text(phylum.replace("Candidatus_", "Ca. "));
+    }
+  }
+}
+
+const linkSelection = linkLayer.selectAll("path")
+  .data(root.links().filter(d => !d.target.children))
+  .join("path")
+  .attr("class", "link")
+  .attr("stroke", "white")
+  .attr("stroke-width", 0.5)
+  .attr("d", d => line(d.target.ancestors().reverse()))
+  .attr("data-target", d => d.target.data.name);
+
+const nodeSelection = nodeLayer.selectAll("g")
+  .data(root.descendants())
+  .join("g")
+  .attr("transform", d => `rotate(${d.x * 180 / Math.PI - 90}) translate(${d.y},0)`);
+
+
+nodeSelection.append("circle")
+  .attr("r", d => d.children ? 0 : 2.5)
+  .attr("fill", d => colorMapping[d.data?.phylum || "Unknown"] || "#ccc")
+  .attr("stroke", "white")
+  .attr("data-name", d => d.data.name)
+  .on("mouseover", function (event, d) {
+    d3.select(this).attr("r", 25).attr("stroke-width", 5);
+    linkSelection
+        .filter(l => l.target.data.name === d.data.name)
+        .attr("stroke", colorMapping[d.data?.phylum || "Unknown"])
+        .attr("stroke-width", 25)
+        .raise();
+
+    const metadata = d.data?.metadata || {};
+    const phylum = d.data?.phylum || "Unknown";
+    const name = d.data?.name || "—";
+    const rank = d.data?.rank || "—";
+    const abundance = metadata.average_abundance ? metadata.average_abundance.toFixed(4) : "—";
+    const descendants = d.children ? d.descendants().length : "—";
+
+    tooltip
+        .style("visibility", "visible")
+        .html(`
+        <strong>${name}</strong><br/>
+        <em>Phylum:</em> ${phylum}<br/>
+        <em>Rank:</em> ${rank}<br/>
+        <em>Abundance:</em> ${abundance}<br/>
+        ${d.children ? `<em>Descendants:</em> ${descendants}` : ""}
+        `);
+    })
+  .on("mousemove", function (event) {
+    tooltip.style("top", `${event.pageY - 10}px`).style("left", `${event.pageX + 10}px`);
+  })
+  .on("mouseout", function (event, d) {
+    d3.select(this).attr("r", 2.5).attr("stroke-width", 0.4);
+    linkSelection
+      .filter(l => l.target.data.name === d.data.name)
+      .attr("stroke", "white")
+      .attr("stroke-width", 0.5);
+
+    tooltip.style("visibility", "hidden");
+  });
+
+linkSelection
+    .on("mouseover", function (event, d) {
+    d3.select(this)
+        .attr("stroke", colorMapping[d.target.data?.phylum || "Unknown"])
+        .attr("stroke-width", 25)
+        .raise();
+
+    nodeSelection.selectAll("circle")
+        .filter(n => n.data.name === d.target.data.name)
+        .attr("r", 25)
+        .attr("stroke-width", 5);
+
+    const metadata = d.target.data?.metadata || {};
+    const phylum = d.target.data?.phylum || "Unknown";
+    const name = d.target.data?.name || "—";
+    const rank = d.target.data?.rank || "—";
+    const abundance = metadata.average_abundance ? metadata.average_abundance.toFixed(4) : "—";
+
+    tooltip
+        .style("visibility", "visible")
+        .html(`
+        <strong>${name}</strong><br/>
+        <em>Phylum:</em> ${phylum}<br/>
+        <em>Rank:</em> ${rank}<br/>
+        <em>Abundance:</em> ${abundance}
+        `);
+    })
+
+  .on("mousemove", function (event) {
+    tooltip.style("top", `${event.pageY - 10}px`).style("left", `${event.pageX + 10}px`);
+  })
+  .on("mouseout", function (event, d) {
+    d3.select(this)
+      .attr("stroke", "white")
+      .attr("stroke-width", 0.5);
+
+    nodeSelection.selectAll("circle")
+      .filter(n => n.data.name === d.target.data.name)
+      .attr("r", 2.5)
+      .attr("stroke-width", 0.4);
+
+    tooltip.style("visibility", "hidden");
+  });
+
+
+      labelLayer.selectAll("text")
+        .data(root.descendants().filter(d => d.children))
+        .join("text")
+        .attr("transform", d => {
+            const angle = d.x * 180 / Math.PI - 90;
+            return `rotate(${angle}) translate(${d.y + 0},0)`; // push outward
+        })
+        .attr("dy", "0.35em")
+        .attr("text-anchor", "start")
+        .attr("alignment-baseline", "middle")
+        .attr("class", "internal-label")
+        .text(d => d.data.name?.split("_").pop() || "");
+
+    barLayer.selectAll("path")
+      .data(root.leaves().filter(d => d.data?.metadata?.average_abundance > 0))
+      .join("path")
+      .attr("d", d => {
+        const r0 = d.y + 4;
+        const r1 = r0 + Math.log1p(d.data.metadata.average_abundance) * 20;
+        const a = d.x;
+        return d3.arc()({
+          innerRadius: r0,
+          outerRadius: r1,
+          startAngle: a - 0.002,
+          endAngle: a + 0.002
+        });
+      })
+      .attr("fill", d => colorMapping[d.data?.phylum || "Unknown"] || "#ccc");
+
+    const legend = d3.select("#legend");
+    Object.entries(colorMapping).forEach(([phylum, color]) => {
+      const item = legend.append("div").attr("class", "legend-item");
+      item.append("div").attr("class", "legend-swatch").style("background-color", color);
+      item.append("span").text(phylum);
+    });
+  });
+}
+
+render();
+</script>
+</body>
+</html>
