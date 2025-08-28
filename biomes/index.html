@@ -2,353 +2,436 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Radial Tree – Interactive Export</title>
+  <title>Radial Tree – Interactive + Tooltips</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    @font-face {
-      font-family: "Pelikan";
-      src: url("ABCPelikan-Regular-Trial.woff") format("woff");
+    @font-face { font-family: "Pelikan"; src: url("ABCPelikan-Regular-Trial.woff") format("woff"); }
+    :root{
+      --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0; --panel:#141226; --accent:#7ad7ff;
+      --shadow:0 10px 30px rgba(0,0,0,.35);
     }
-    body {
-      margin: 0;
-      font-family: "Pelikan", sans-serif;
-      background: #0e0b16;
-      color: white;
-    }
-    #controls {
-      display: none;
-      justify-content: center;
-      margin: 10px;
-      gap: 20px;
-    }
-    #legend {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 12px;
-      margin: 20px auto;
-      max-width: 90%;
-      font-size: 14px;
-    }
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .legend-swatch {
-      width: 14px;
-      height: 14px;
-      border-radius: 3px;
-    }
-    svg {
-      display: block;
-      margin: auto;
-      background: #0e0b16;
-    }
-    .region-path {
-      fill-opacity: 1.0;
-      stroke: none;
-    }
-    .region-label {
-      font-size: 32px;
-      fill: white;
-      font-family: "Pelikan", sans-serif;
-      font-weight: 300;
-      text-anchor: middle;
-      dominant-baseline: middle;
-    }
-    .internal-label {
-      font-size: 6px;
-      fill: white;
-      font-family: "Pelikan", sans-serif;
-      stroke: none;
-      text-anchor: end;
-    }
-    .node circle {
-      stroke: white;
-      stroke-width: 0.4;
-    }
-    .link {
-      fill: none;
-      transition: stroke 0.2s ease;
-    }
-    .link.hovered {
-      stroke-width: 1.5;
-      stroke-opacity: 1.0;
-    }
-    .node.hovered circle {
-      stroke-width: 2.5;
-    }
-    #tooltip {
-      position: absolute;
-      background: rgba(0, 0, 0, 0.85);
-      color: white;
-      font-size: 13px;
-      padding: 6px 10px;
-      border: 1px solid #555;
-      pointer-events: none;
-      z-index: 10;
-    }
+    html,body{height:100%;}
+    body{ margin:0; font-family:"Pelikan",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif; background:var(--bg); color:var(--fg);}    
+    #controls{ position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:center; padding:10px 12px; background:linear-gradient(180deg, rgba(14,11,22,.95), rgba(14,11,22,.75)); backdrop-filter: blur(6px); border-bottom:1px solid rgba(255,255,255,.08);}    
+    #controls label{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted);}    
+    #controls select, #controls input[type="range"], #controls button{ background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px 10px; }
+    #controls input[type="range"]{ accent-color: var(--accent);}    
+    #controls button{ cursor:pointer; box-shadow: var(--shadow); }
+
+    svg{ display:block; margin:auto; background:var(--bg); }
+
+    .region-path{ fill-opacity:1; stroke:none; }
+    .region-label{ font-size:24px; fill:var(--fg); font-family:"Pelikan",sans-serif; font-weight:300; }
+    .internal-label{ font-size:6px; fill:var(--fg); font-family:"Pelikan",sans-serif; }
+    .node circle{ stroke:white; stroke-width:.4; }
+    .link{ fill:none; stroke:var(--fg); stroke-width:.5; stroke-opacity:.35; }
+    .sgb-line{ stroke:var(--fg); stroke-width:.5; fill:none; opacity:.8; }
+    .bar{ }
+    .usgb{ }
+    .western{ }
+    .bar-axis line{ stroke:var(--fg); stroke-width:1; }
+    .bar-axis text{ fill:var(--fg); font-size:10px; }
+
+    /* Hover/active affordances */
+    .hover-target{ cursor:crosshair; }
+    .is-hover .link{ stroke-opacity:.6; stroke-width:.9; }
+    .is-hover .node circle{ r: 3.2; }
+    .is-hover.bar, .is-hover.usgb, .is-hover.western{ filter:drop-shadow(0 0 6px rgba(255,255,255,.6)); }
+
+    /* Tooltip */
+    #tooltip{ position:fixed; left:0; top:0; transform: translate(-50%, calc(-100% - 14px)); pointer-events:none; z-index:10; background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.14); border-radius:12px; box-shadow: var(--shadow); max-width:360px; min-width:240px; padding:12px 14px; line-height:1.35; }
+    #tooltip.hidden{ display:none; }
+    #tooltip .tip-header{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+    #tooltip .swatch{ width:12px; height:12px; border-radius:50%; border:1px solid rgba(255,255,255,.45); }
+    #tooltip .title{ font-size:16px; font-weight:600; }
+    #tooltip .subtitle{ font-size:12px; color:var(--muted); }
+    #tooltip .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 10px; margin-top:8px; font-size:12px; }
+    #tooltip .kv div{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #tooltip .kv .k{ color:var(--muted);}    
+    #tooltip .actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+    #tooltip button{ pointer-events:auto; background:#1d1a33; border:1px solid rgba(255,255,255,.12); color:var(--fg); border-radius:8px; padding:6px 8px; font-size:12px; cursor:pointer; }
+    #tooltip.pinned{ pointer-events:auto; }
+
+    /* Legend group in-SVG */
+    .legend-text{ fill:var(--fg); font-size:12px; }
   </style>
 </head>
 <body>
-<div id="controls">
-  <label>View Size:
-    <select id="viewMode">
-      <option value="preview">Preview (1200x1200)</option>
-      <option value="full" selected>Full Export (6400x6400)</option>
-    </select>
-  </label>
-  <button id="export">Export SVG</button>
-</div>
-<svg id="chart"></svg>
-<div id="legend"></div>
-<div id="tooltip" class="tooltip" style="position: absolute; background: rgba(0, 0, 0, 0.7); color: white; padding: 5px; border-radius: 3px; pointer-events: none;"></div>
+  <div id="controls">
+    <label>View Size:
+      <select id="viewMode">
+        <option value="preview">Preview (1200×1200)</option>
+        <option value="full" selected>Full Export (6400×6400)</option>
+      </select>
+    </label>
+    <label>Bundling Tension: <span id="tensionLabel">0.95</span>
+      <input type="range" id="tensionSlider" min="0.1" max="1.0" step="0.05" value="0.95" />
+    </label>
+    <button id="export">Export SVG</button>
+    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin.</span>
+  </div>
+
+  <svg id="chart" aria-label="Radial phylogenetic tree visualization" role="img"></svg>
+  <div id="legend"></div>
+  <div id="tooltip" class="hidden" role="dialog" aria-live="polite"></div>
+
 <script>
-// Config
+// ================= Base setup =================
 const svg = d3.select("#chart");
 const g = svg.append("g");
 const defs = svg.append("defs");
-const fullSize = 6400, previewSize = 1200;
+const fullSize = 7000, previewSize = 1200;
 const fullRadius = 3000, previewRadius = 550;
-let currentSize = "full";
-let currentTension = 0.95;
-let backgroundColor = "#0e0b16";
-
+let currentSize = "full";            // default to 6400 view
+let currentTension = 0.95;            // default bundling tension
+const backgroundColor = "#0e0b16";
 const tree = d3.cluster();
+const tooltip = d3.select('#tooltip');
+let pinnedDatum = null; // when set, tooltip stays until cleared
+
+// ================= Color mapping =================
 const colorMapping = {
-  "Actinobacteria": "#1385eb", "Bacteroidetes": "#b1f16e", "Candidatus_Gracilibacteria": "#eb9c13",
-  "Candidatus_Melainabacteria": "#ebe013", "Candidatus_Saccharibacteria": "#6eeb13", "Chlamydiae": "#eb139c",
-  "Cyanobacteria": "#4717f6", "Deinococcus_Thermus": "#13eb85", "Elusimicrobia": "#eb1357",
-  "Euryarchaeota": "#eb13e0", "Firmicutes": "#AA55DA", "Fusobacteria": "#c77dff",
-  "Planctomycetes": "#5f0f40", "Proteobacteria": "#13ebc9", "Spirochaetes": "#fb5607",
-  "Synergistetes": "#ff006e", "Tenericutes": "#8338ec", "Unknown": "#13eb40", "Verrucomicrobia": "#3a86ff"
+  "Actinobacteria": "#1385eb",
+  "Bacteroidetes": "#b1f16e",
+  "Candidatus_Gracilibacteria": "#eb9c13",
+  "Candidatus_Melainabacteria": "#ebe013",
+  "Candidatus_Saccharibacteria": "#6eeb13",
+  "Chlamydiae": "#eb139c",
+  "Cyanobacteria": "#4717f6",
+  "Deinococcus_Thermus": "#13eb85",
+  "Elusimicrobia": "#eb1357",
+  "Euryarchaeota": "#eb13e0",
+  "Firmicutes": "#AA55DA",
+  "Fusobacteria": "#c77dff",
+  "Planctomycetes": "#5f0f40",
+  "Proteobacteria": "#13ebc9",
+  "Spirochaetes": "#fb5607",
+  "Synergistetes": "#ff006e",
+  "Tenericutes": "#8338ec",
+  "Unknown": "#13eb40",
+  "Verrucomicrobia": "#3a86ff",
+  "Other": "#cccccc"
 };
 
-const tooltip = d3.select("#tooltip");
-
-function customSort(a, b) {
-  return b.descendants().length - a.descendants().length;
-}
-
-function render(size = "full") {
-  const dim = size === "full" ? fullSize : previewSize;
-  const radius = size === "full" ? fullRadius : previewRadius;
-  tree.size([2 * Math.PI, radius]);
-  svg.attr("viewBox", `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
-  g.selectAll("*").remove();
-  defs.selectAll("*").remove();
-
-  d3.json("sgb_taxonomy_tree.json").then(data => {
-    const root = d3.hierarchy(data);
-    root.sort(customSort);
-    tree(root);
-    const maxDepth = d3.max(root.descendants(), d => d.depth);
-    const line = d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(d => d.x).radius(d => d.y);
-
-    const regionLayer = g.append("g").attr("id", "group-regions");
-    const regionLabelLayer = g.append("g").attr("id", "group-region-labels");
-    const linkLayer = g.append("g").attr("id", "group-links");
-    const nodeLayer = g.append("g").attr("id", "group-nodes");
-    const barLayer = g.append("g").attr("id", "group-bars");
-    const labelLayer = g.append("g").attr("id", "group-internal-labels");
-    let labelID = 0;
-
-for (let depth = 1; depth <= maxDepth; depth++) {
-  const nodesAtDepth = root.descendants().filter(d => d.depth === depth);
-  const groups = d3.groups(nodesAtDepth, d => d.data?.phylum || "Unknown");
-
-  for (const [phylum, group] of groups) {
-    if (group.length < 2) continue;
-    const sorted = group.sort((a, b) => a.x - b.x);
-    const innerRadius = sorted[0].y - (radius / maxDepth) * 0.75;
-    const outerRadius = sorted[0].y;
-
-    const outer = sorted.map(d => [d.x, outerRadius]);
-    const inner = sorted.map(d => [d.x, innerRadius]).reverse();
-    const points = outer.concat(inner);
-
-    const pathData = d3.lineRadial().curve(d3.curveCardinalClosed.tension(0.7))(points);
-
-    const gradID = `grad-${phylum}-${depth}`;
-    defs.append("radialGradient")
-      .attr("id", gradID)
-      .selectAll("stop")
-      .data([
-        { offset: "0%", color: backgroundColor, opacity: 0 },
-        { offset: "100%", color: colorMapping[phylum], opacity: 1 }
-      ])
-      .enter()
-      .append("stop")
-      .attr("offset", d => d.offset)
-      .attr("stop-color", d => d.color)
-      .attr("stop-opacity", d => d.opacity);
-
-    regionLayer.append("path")
-      .attr("d", pathData)
-      .attr("fill", `url(#${gradID})`)
-      .attr("class", "region-path");
-
-    // --- Place label at centroid ---
-    const meanAngle = d3.mean(group, d => d.x);
-    const meanRadius = d3.mean(group, d => d.y);
-    const labelX = Math.cos(meanAngle - Math.PI / 2) * meanRadius;
-    const labelY = Math.sin(meanAngle - Math.PI / 2) * meanRadius;
-
-    if (depth !== maxDepth -3) {
-    regionLabelLayer.append("text")
-      .attr("class", "region-label")
-      .attr("x", labelX)
-      .attr("y", labelY)
-      .attr("text-anchor", "middle")
-      .attr("dominant-baseline", "middle")
-      .text(phylum.replace("Candidatus_", "Ca. "));
-    }
+// ================= Helpers =================
+function getPhylum(d){
+  if (d?.data?.phylum) return d.data.phylum;
+  const ancestor = d.ancestors().find(n => n.depth === 2);
+  if (ancestor){
+    const parts = (ancestor.data.name||'').split("__");
+    return parts.length>1 ? parts[1] : (ancestor.data.name||'Other');
   }
+  return 'Other';
+}
+function prettyName(d){
+  const raw = (d?.data?.name||'').split("__").pop();
+  return raw ? raw.replace(/_/g,' ') : '(unnamed)';
+}
+function lineage(d){
+  return d.ancestors().slice(0,-1).map(a=> (a.data.name||'').split("__").pop()?.replace(/_/g,' ') || '').filter(Boolean).reverse().join(' › ');
+}
+function safe(val, fallback='—'){ return (val!==undefined && val!==null && val!=='' ? val : fallback); }
+
+function buildTooltipHTML(d){
+  const phylum = getPhylum(d);
+  const meta = d?.data?.metadata || {};
+  const rec = +meta["#_Reconstructed_genomes"] || 0;
+  const uSGB = meta.uSGB || '—';
+  const west = Array.isArray(meta.Westernized_List) ? meta.Westernized_List.join(', ') : (meta.Westernized_List||'—');
+  const leaf = !d.children;
+  return `
+    <div class="tip-header">
+      <span class="swatch" style="background:${colorMapping[phylum]||colorMapping.Other}"></span>
+      <div>
+        <div class="title">${prettyName(d)}</div>
+        <div class="subtitle">${phylum.replace(/_/g,' ')}${lineage(d) ? ' • ' + lineage(d) : ''}</div>
+      </div>
+    </div>
+    <div class="kv">
+      <div class="k">Node type</div><div>${leaf? 'Leaf' : 'Internal'}</div>
+      <div class="k">Reconstructed genomes</div><div>${rec.toLocaleString()}</div>
+      <div class="k">uSGB</div><div>${safe(uSGB)}</div>
+      <div class="k">Westernized</div><div>${safe(west)}</div>
+    </div>
+    ${leaf ? `<div class="actions">
+      <button data-act="isolate">Isolate leaf</button>
+      <button data-act="copy-name">Copy name</button>
+    </div>`:''}
+  `;
 }
 
-const linkSelection = linkLayer.selectAll("path")
-  .data(root.links().filter(d => !d.target.children))
-  .join("path")
-  .attr("class", "link")
-  .attr("stroke", "white")
-  .attr("stroke-width", 0.5)
-  .attr("d", d => line(d.target.ancestors().reverse()))
-  .attr("data-target", d => d.target.data.name);
+function positionTooltip(evt){
+  const pad = 18;
+  const x = evt.clientX + pad; // offset from cursor
+  const y = evt.clientY + pad;
+  tooltip.style('left', x+'px').style('top', y+'px');
+}
 
-const nodeSelection = nodeLayer.selectAll("g")
-  .data(root.descendants())
-  .join("g")
-  .attr("transform", d => `rotate(${d.x * 180 / Math.PI - 90}) translate(${d.y},0)`);
+function showTooltip(d,evt){
+  tooltip.html(buildTooltipHTML(d)).classed('hidden', false);
+  positionTooltip(evt);
+}
+function hideTooltip(){
+  if (pinnedDatum) return; // keep if pinned
+  tooltip.classed('hidden', true).classed('pinned', false);
+}
+function pinTooltip(d){ pinnedDatum = d; tooltip.classed('pinned', true); }
+function unpinTooltip(){ pinnedDatum = null; hideTooltip(); }
 
+function attachTooltipHandlers(selection, accessor=(d)=>d){
+  selection
+    .classed('hover-target', true)
+    .on('mousemove', function(evt,d){ if(!pinnedDatum){ showTooltip(accessor(d), evt); }} )
+    .on('mouseover', function(evt,d){ d3.select(this).classed('is-hover', true); if(!pinnedDatum){ showTooltip(accessor(d), evt);} })
+    .on('mouseout', function(){ d3.select(this).classed('is-hover', false); hideTooltip(); })
+    .on('click', function(evt,d){
+      const datum = accessor(d);
+      if (pinnedDatum && pinnedDatum === datum){ unpinTooltip(); return; }
+      pinTooltip(datum); showTooltip(datum, evt);
+      evt.stopPropagation();
+    });
+}
 
-nodeSelection.append("circle")
-  .attr("r", d => d.children ? 0 : 2.5)
-  .attr("fill", d => colorMapping[d.data?.phylum || "Unknown"] || "#ccc")
-  .attr("stroke", "white")
-  .attr("data-name", d => d.data.name)
-  .on("mouseover", function (event, d) {
-    d3.select(this).attr("r", 25).attr("stroke-width", 5);
-    linkSelection
-        .filter(l => l.target.data.name === d.data.name)
-        .attr("stroke", colorMapping[d.data?.phylum || "Unknown"])
-        .attr("stroke-width", 25)
-        .raise();
+// click outside to unpin
+window.addEventListener('click', (e)=>{
+  const t = e.target; 
+  if (t.closest('#tooltip')) return; // clicks inside tooltip allowed
+  unpinTooltip();
+});
 
-    const metadata = d.data?.metadata || {};
-    const phylum = d.data?.phylum || "Unknown";
-    const name = d.data?.name || "—";
-    const rank = d.data?.rank || "—";
-    const abundance = metadata.average_abundance ? metadata.average_abundance.toFixed(4) : "—";
-    const descendants = d.children ? d.descendants().length : "—";
+// Interactive actions inside tooltip
+tooltip.on('click', (e)=>{
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const act = btn.getAttribute('data-act');
+  if (!pinnedDatum) return;
+  if (act==='copy-name'){
+    navigator.clipboard?.writeText(prettyName(pinnedDatum));
+    btn.textContent = 'Copied!'; setTimeout(()=>btn.textContent='Copy name', 900);
+  }
+  if (act==='isolate'){
+    // simple isolate: fade others
+    g.classed('isolated', true);
+    const keep = new Set(pinnedDatum.ancestors().map(a=>a));
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', function(d){
+      const datum = d?.target ? d.target : d; // links store d.target
+      return keep.has(datum) || (!datum.children && datum===pinnedDatum) ? 1 : 0.08;
+    });
+  }
+});
 
-    tooltip
-        .style("visibility", "visible")
-        .html(`
-        <strong>${name}</strong><br/>
-        <em>Phylum:</em> ${phylum}<br/>
-        <em>Rank:</em> ${rank}<br/>
-        <em>Abundance:</em> ${abundance}<br/>
-        ${d.children ? `<em>Descendants:</em> ${descendants}` : ""}
-        `);
-    })
-  .on("mousemove", function (event) {
-    tooltip.style("top", `${event.pageY - 10}px`).style("left", `${event.pageX + 10}px`);
-  })
-  .on("mouseout", function (event, d) {
-    d3.select(this).attr("r", 2.5).attr("stroke-width", 0.4);
-    linkSelection
-      .filter(l => l.target.data.name === d.data.name)
-      .attr("stroke", "white")
-      .attr("stroke-width", 0.5);
+// reset isolate via ESC
+window.addEventListener('keydown', (e)=>{
+  if (e.key==='Escape'){
+    g.classed('isolated', false);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null);
+    unpinTooltip();
+  }
+});
 
-    tooltip.style("visibility", "hidden");
-  });
+function customSort(a,b){ return b.descendants().length - a.descendants().length; }
 
-linkSelection
-    .on("mouseover", function (event, d) {
-    d3.select(this)
-        .attr("stroke", colorMapping[d.target.data?.phylum || "Unknown"])
-        .attr("stroke-width", 25)
-        .raise();
+// ================= Render =================
+function render(size = 'full'){
+  const dim = size==='full' ? fullSize : previewSize;
+  const radius = size==='full' ? fullRadius : previewRadius;
+  svg.attr('viewBox', `${-dim/2} ${-dim/2} ${dim} ${dim}`);
+  g.selectAll('*').remove();
+  defs.selectAll('*').remove();
+  tree.size([2*Math.PI, radius]);
 
-    nodeSelection.selectAll("circle")
-        .filter(n => n.data.name === d.target.data.name)
-        .attr("r", 25)
-        .attr("stroke-width", 5);
+  d3.json('sgb_taxonomy_tree.json').then(data => {
+    const root = d3.hierarchy(data);
+    root.sort(customSort); tree(root);
 
-    const metadata = d.target.data?.metadata || {};
-    const phylum = d.target.data?.phylum || "Unknown";
-    const name = d.target.data?.name || "—";
-    const rank = d.target.data?.rank || "—";
-    const abundance = metadata.average_abundance ? metadata.average_abundance.toFixed(4) : "—";
+    // ring constants
+    const angleWidth = 0.0005;
+    const usgbInner = radius + 20;
+    const usgbOuter = usgbInner + 24;
+    const sepR = (usgbInner + usgbOuter)/2;
+    const westInner = usgbOuter + 12;
+    const westOuter = westInner + 24;
+    const sep2R = (westInner + westOuter)/2;
 
-    tooltip
-        .style("visibility", "visible")
-        .html(`
-        <strong>${name}</strong><br/>
-        <em>Phylum:</em> ${phylum}<br/>
-        <em>Rank:</em> ${rank}<br/>
-        <em>Abundance:</em> ${abundance}
-        `);
-    })
+    // genome bar scale
+    const reconstructedCounts = root.leaves().map(d => d.data.metadata?.["#_Reconstructed_genomes"] || 0);
+    const maxRec = d3.max(reconstructedCounts);
+    const barMaxLength = radius * 0.05;
+    const barScale = d3.scaleSymlog().domain([0, maxRec]).range([0, barMaxLength]).constant(1);
+    const barInner = westOuter + 30;
 
-  .on("mousemove", function (event) {
-    tooltip.style("top", `${event.pageY - 10}px`).style("left", `${event.pageX + 10}px`);
-  })
-  .on("mouseout", function (event, d) {
-    d3.select(this)
-      .attr("stroke", "white")
-      .attr("stroke-width", 0.5);
+    // bundle curve
+    const line = d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(d=>d.x).radius(d=>d.y);
 
-    nodeSelection.selectAll("circle")
-      .filter(n => n.data.name === d.target.data.name)
-      .attr("r", 2.5)
-      .attr("stroke-width", 0.4);
-
-    tooltip.style("visibility", "hidden");
-  });
-
-
-      labelLayer.selectAll("text")
-        .data(root.descendants().filter(d => d.children))
-        .join("text")
-        .attr("transform", d => {
-            const angle = d.x * 180 / Math.PI - 90;
-            return `rotate(${angle}) translate(${d.y + 0},0)`; // push outward
-        })
-        .attr("dy", "0.35em")
-        .attr("text-anchor", "start")
-        .attr("alignment-baseline", "middle")
-        .attr("class", "internal-label")
-        .text(d => d.data.name?.split("_").pop() || "");
-
-    barLayer.selectAll("path")
-      .data(root.leaves().filter(d => d.data?.metadata?.average_abundance > 0))
-      .join("path")
-      .attr("d", d => {
-        const r0 = d.y + 4;
-        const r1 = r0 + Math.log1p(d.data.metadata.average_abundance) * 20;
-        const a = d.x;
-        return d3.arc()({
-          innerRadius: r0,
-          outerRadius: r1,
-          startAngle: a - 0.002,
-          endAngle: a + 0.002
+    // ----- 0. SGB extension lines (to bars)
+    const sgbLines = g.append('g').selectAll('path.sgb-line')
+      .data(root.leaves())
+      .join('path')
+        .attr('class','sgb-line')
+        .attr('d', d => {
+          const theta = d.x - Math.PI/2;
+          const x0 = Math.cos(theta)*d.y, y0 = Math.sin(theta)*d.y;
+          const outerRadius = barInner + barScale(d.data.metadata?.["#_Reconstructed_genomes"]||0);
+          const x1 = Math.cos(theta)*outerRadius, y1 = Math.sin(theta)*outerRadius;
+          return `M${x0},${y0}L${x1},${y1}`;
         });
-      })
-      .attr("fill", d => colorMapping[d.data?.phylum || "Unknown"] || "#ccc");
+    attachTooltipHandlers(sgbLines);
 
-    const legend = d3.select("#legend");
-    Object.entries(colorMapping).forEach(([phylum, color]) => {
-      const item = legend.append("div").attr("class", "legend-item");
-      item.append("div").attr("class", "legend-swatch").style("background-color", color);
-      item.append("span").text(phylum);
+    // ----- 1. Region hulls + labels
+    const regions = g.append('g');
+    const labels = g.append('g');
+    let id = 0; const maxDepth = d3.max(root.descendants(), d=>d.depth);
+    for (let depth=2; depth<=maxDepth; depth++){
+      const nodes = root.descendants().filter(d=>d.depth===depth);
+      d3.groups(nodes, d=>getPhylum(d)).forEach(([phylum, group]) => {
+        if (group.length < 2) return;
+        const sorted = group.sort((a,b)=>a.x-b.x);
+        const innerR = sorted[0].y - (radius/maxDepth)*0.75;
+        const outerR = sorted[0].y;
+        const ptsOuter = sorted.map(d=>[d.x, outerR]);
+        const ptsInner = sorted.map(d=>[d.x, innerR]).reverse();
+        const pathData = d3.lineRadial().curve(d3.curveCardinalClosed.tension(.7))(ptsOuter.concat(ptsInner));
+        const gradID = `grad-${phylum}-${depth}`;
+        defs.append('radialGradient').attr('id', gradID)
+          .selectAll('stop').data([
+            {offset:'0%', color:backgroundColor, opacity:0},
+            {offset:'100%', color: colorMapping[phylum]||colorMapping.Other, opacity:1}
+          ]).join('stop')
+            .attr('offset', d=>d.offset).attr('stop-color', d=>d.color).attr('stop-opacity', d=>d.opacity);
+        const region = regions.append('path').attr('class','region-path').attr('d', pathData).attr('fill', `url(#${gradID})`);
+        attachTooltipHandlers(region, ()=> ({data:{name:`${phylum} depth ${depth}`}, metadata:{}}));
+
+        const arcID = `arc-${id++}`;
+        defs.append('path').attr('id', arcID)
+          .attr('d', d3.arc()({innerRadius: outerR-12, outerRadius: outerR-12, startAngle: sorted[0].x, endAngle: sorted[sorted.length-1].x }));
+        labels.append('text').attr('class','region-label').append('textPath').attr('xlink:href',`#${arcID}`).attr('startOffset','50%').text(phylum.replace(/_/g,' '));
+      });
+    }
+
+    // ----- 2. Links (only to leaves for clarity)
+    const links = g.append('g').selectAll('path.link')
+      .data(root.links().filter(d=>!d.target.children))
+      .join('path').attr('class','link').attr('d', d=> line(d.target.ancestors().reverse()));
+    attachTooltipHandlers(links, d=>d.target);
+
+    // ----- 3. Nodes
+    const nodes = g.append('g').selectAll('g.node')
+      .data(root.descendants())
+      .join('g').attr('class','node')
+        .attr('transform', d=>`rotate(${d.x*180/Math.PI-90}) translate(${d.y},0)`);
+    nodes.append('circle').attr('r', d=> d.children? 0 : 2.5).attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
+    attachTooltipHandlers(nodes);
+
+    // ----- 4. Internal labels
+    g.append('g').selectAll('text.internal-label')
+      .data(root.descendants().filter(d=>d.children))
+      .join('text')
+        .attr('class','internal-label')
+        .attr('transform', d => `rotate(${d.x*180/Math.PI-90}) translate(${d.y},0)` + (d.x>=Math.PI? ' rotate(180)':''))
+        .attr('dy','0.31em')
+        .attr('x', d=> d.x < Math.PI ? 6 : -6)
+        .attr('text-anchor', d=> d.x < Math.PI ? 'start' : 'end')
+        .text(d=> (d.data.name||'').split('__').pop().replace(/_/g,' '));
+
+    // ----- 5. Genome count bars
+    const bars = g.append('g').selectAll('path.bar')
+      .data(root.leaves())
+      .join('path').attr('class','bar')
+        .attr('d', d => {
+          const count = d.data.metadata?.["#_Reconstructed_genomes"] || 0;
+          const r0 = barInner, r1 = barInner + barScale(count);
+          return d3.arc()({innerRadius:r0, outerRadius:r1, startAngle: d.x - angleWidth, endAngle: d.x + angleWidth});
+        })
+        .attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
+    attachTooltipHandlers(bars);
+
+    // ----- 5b. Axis
+    const axisGroup = g.append('g').attr('class','bar-axis');
+    axisGroup.append('line').attr('x1',0).attr('y1',barInner).attr('x2',0).attr('y2',barInner+barMaxLength).attr('stroke','white');
+    const ticks = [1,10,100,500].filter(v=>v<=maxRec);
+    ticks.forEach(t=>{ const y = barInner + barScale(t);
+      axisGroup.append('line').attr('x1',0).attr('y1',y).attr('x2',8).attr('y2',y);
+      axisGroup.append('text').attr('x',10).attr('y',y).attr('dy','.32em').text(t);
+    });
+
+    // ----- 6. uSGB ring
+    const usgb = g.append('g').selectAll('path.usgb')
+      .data(root.leaves())
+      .join('path').attr('class','usgb')
+        .attr('d', d=> d3.arc()({innerRadius:usgbInner, outerRadius:usgbOuter, startAngle:d.x-angleWidth, endAngle:d.x+angleWidth}))
+        .attr('fill', d=> (d.data.metadata?.uSGB === 'Yes') ? 'white' : 'black')
+        .attr('opacity', d=> (d.data.metadata?.uSGB === 'Yes') ? 1 : .5);
+    attachTooltipHandlers(usgb);
+
+    // ----- 7. Separator ring
+    g.append('circle').attr('r',sepR).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
+
+    // ----- 8. Westernized ring
+    const west = g.append('g').selectAll('path.western')
+      .data(root.leaves())
+      .join('path').attr('class','western')
+        .attr('d', d=> d3.arc()({innerRadius:westInner, outerRadius:westOuter, startAngle:d.x-angleWidth, endAngle:d.x+angleWidth}))
+        .attr('fill', d=> {
+          const w = d?.data?.metadata?.Westernized_List; 
+          const no = Array.isArray(w) ? w.includes('No') : (w==='No');
+          return no ? 'white' : 'black';
+        })
+        .attr('opacity', d=> {
+          const w = d?.data?.metadata?.Westernized_List; 
+          const no = Array.isArray(w) ? w.includes('No') : (w==='No');
+          return no ? 1 : .5;
+        });
+    attachTooltipHandlers(west);
+
+    // ----- 8b. Second separator
+    g.append('circle').attr('r',sep2R).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
+
+    // ----- 9. Static labels
+    const gapCenter = Math.PI/2;
+    const ux = Math.cos(gapCenter)*((usgbInner+usgbOuter)/2);
+    const uy = Math.sin(gapCenter)*((usgbInner+usgbOuter)/2);
+    g.append('text').attr('x',ux).attr('y',uy).attr('text-anchor','middle').attr('dominant-baseline','middle').attr('fill','black').text('Unknown');
+    const wx = Math.cos(gapCenter)*((westInner+westOuter)/2);
+    const wy = Math.sin(gapCenter)*((westInner+westOuter)/2);
+    g.append('text').attr('x',wx).attr('y',wy).attr('text-anchor','middle').attr('dominant-baseline','middle').attr('fill','white').text('Westernized');
+
+    // ----- 10. Legend (size ~ genomes sum per phylum)
+    const phylumCounts = {}; root.leaves().forEach(d=>{ const ph = getPhylum(d); const c = +d.data.metadata?.["#_Reconstructed_genomes"]||0; phylumCounts[ph]=(phylumCounts[ph]||0)+c; });
+    const sizeScale = d3.scaleLinear().domain([0, d3.max(Object.values(phylumCounts))]).range([10, 100]);
+    const legendGroup = g.append('g').attr('id','legend-svg');
+    const legendX = dim/2 - 250; const legendY = -dim/2 + 250; const rowHeight = 34; let row = 0;
+    Object.entries(phylumCounts).forEach(([phylum,count])=>{
+      const yOffset = legendY + row*rowHeight; const group = legendGroup.append('g').attr('transform',`translate(${legendX},${yOffset})`);
+      group.append('circle').attr('r', sizeScale(count)).attr('cx',0).attr('cy',0).attr('fill', colorMapping[phylum]||colorMapping.Other);
+      group.append('text').attr('x', sizeScale(count)+8).attr('y',4).attr('class','legend-text').text(`${phylum.replace(/_/g,' ')} (${count})`);
+      attachTooltipHandlers(group, ()=> ({data:{name:phylum.replace(/_/g,' ')}, metadata:{}}));
+      row++;
     });
   });
 }
 
-render();
+function exportSVG(){
+  const dim = currentSize==='full' ? fullSize : previewSize;
+  const clone = svg.node().cloneNode(true);
+  const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x', -dim/2); rect.setAttribute('y', -dim/2); rect.setAttribute('width', dim); rect.setAttribute('height', dim); rect.setAttribute('fill', backgroundColor);
+  clone.insertBefore(rect, clone.firstChild);
+  clone.querySelectorAll('*').forEach(el=>{
+    const cs = getComputedStyle(el); let style = '';
+    for (let i=0; i<cs.length; i++){ const prop = cs[i]; if(!prop.startsWith('-')) style += `${prop}:${cs.getPropertyValue(prop)};`; }
+    el.setAttribute('style', style);
+  });
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)], {type:'image/svg+xml;charset=utf-8'});
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `radial_tree_export_${currentSize}.svg`; a.click(); URL.revokeObjectURL(url);
+}
+
+// ================= Event handlers =================
+d3.select('#tensionSlider').on('input', function(){ currentTension = +this.value; d3.select('#tensionLabel').text(currentTension.toFixed(2)); render(currentSize); });
+d3.select('#viewMode').on('change', function(){ currentSize = this.value; render(currentSize); });
+d3.select('#export').on('click', exportSVG);
+
+// ================= Initial render =================
+render('full');
 </script>
 </body>
 </html>
