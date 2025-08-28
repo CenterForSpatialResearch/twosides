@@ -6,58 +6,98 @@
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     @font-face { font-family: "Pelikan"; src: url("ABCPelikan-Regular-Trial.woff") format("woff"); }
-    :root{
-      --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0; --panel:#141226; --accent:#7ad7ff;
-      --shadow:0 10px 30px rgba(0,0,0,.35);
-    }
+    :root{ --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0; --panel:#141226; --accent:#7ad7ff; --shadow:0 10px 30px rgba(0,0,0,.35); }
     html,body{height:100%;}
     body{ margin:0; font-family:"Pelikan",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif; background:var(--bg); color:var(--fg);}    
+
+    /* Controls header (hidden by default; toggled by gear) */
     #controls{ position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:center; padding:10px 12px; background:linear-gradient(180deg, rgba(14,11,22,.95), rgba(14,11,22,.75)); backdrop-filter: blur(6px); border-bottom:1px solid rgba(255,255,255,.08);}    
     #controls label{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted);}    
     #controls select, #controls input[type="range"], #controls button{ background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px 10px; }
     #controls input[type="range"]{ accent-color: var(--accent);}    
     #controls button{ cursor:pointer; box-shadow: var(--shadow); }
+    #controls.hidden{ display:none; }
+
+    /* Gear toggle */
+    #menuToggle{
+      position: fixed; top: 10px; right: 10px; z-index: 6;
+      background: var(--panel); border:1px solid rgba(255,255,255,.14);
+      width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; box-shadow: var(--shadow); font-size:16px; color:var(--muted);
+    }
+    #menuToggle:hover{ color:var(--fg); }
+
+    /* Left-side title */
+    #sideTitle{
+      position: fixed; left:14px; top:50%; transform:translateY(-50%);
+      writing-mode: vertical-rl; text-orientation: mixed;
+      letter-spacing: .08em; font-weight:600; font-size:14px; color:var(--muted);
+      opacity:.9; user-select:none; z-index: 4;
+    }
 
     svg{ display:block; margin:auto; background:var(--bg); }
 
     .region-path{ fill-opacity:1; stroke:none; }
     .region-label{ font-size:24px; fill:var(--fg); font-family:"Pelikan",sans-serif; font-weight:300; }
     .internal-label{ font-size:6px; fill:var(--fg); font-family:"Pelikan",sans-serif; }
-    .node circle{ stroke:white; stroke-width:.4; }
-    .link{ fill:none; stroke:var(--fg); stroke-width:.5; stroke-opacity:.35; }
-    .sgb-line{ stroke:var(--fg); stroke-width:.5; fill:none; opacity:.8; }
-    .bar{ }
-    .usgb{ }
-    .western{ }
+    .node circle{ stroke:white; stroke-width:.4; r:2.5; }
+
+    /* Visible strokes — slimmer, crisp */
+    .link{ fill:none; stroke:var(--fg); stroke-width:.5; stroke-opacity:.35; vector-effect: non-scaling-stroke; stroke-linecap:round; }
+    .sgb-line{ stroke:var(--fg); stroke-width:.5; fill:none; opacity:.8; vector-effect: non-scaling-stroke; stroke-linecap:round; }
+
+    /* Invisible, wide hit-areas for easy hover/click */
+    .hit{ fill:none; stroke:transparent; stroke-width:14; pointer-events:stroke; }
+    .hit.sgb-hit{ stroke-width:16; }
+
     .bar-axis line{ stroke:var(--fg); stroke-width:1; }
     .bar-axis text{ fill:var(--fg); font-size:10px; }
 
-    /* Hover/active affordances */
+    /* Interactivity: hover / selected */
     .hover-target{ cursor:crosshair; }
-    .is-hover .link{ stroke-opacity:.6; stroke-width:.9; }
-    .is-hover .node circle{ r: 3.2; }
-    .is-hover.bar, .is-hover.usgb, .is-hover.western{ filter:drop-shadow(0 0 6px rgba(255,255,255,.6)); }
+    .is-hover.link, .is-selected.link{ stroke-opacity:1; }
+    .is-hover.link{ stroke-width:1.2; }
+    .is-selected.link{ stroke-width:2; }
 
-    /* Tooltip */
-    #tooltip{ position:fixed; left:0; top:0; transform: translate(-50%, calc(-100% - 14px)); pointer-events:none; z-index:10; background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.14); border-radius:12px; box-shadow: var(--shadow); max-width:360px; min-width:240px; padding:12px 14px; line-height:1.35; }
+    .is-hover.sgb-line{ stroke-width:1.2; opacity:1; }
+    .is-selected.sgb-line{ stroke-width:2; opacity:1; }
+
+    .is-hover .node circle, .node.is-hover circle{ r:4; }
+    .node.is-selected circle{ r:5; stroke-width:1; }
+
+    .bar.is-hover, .usgb.is-hover, .western.is-hover{ filter:drop-shadow(0 0 6px rgba(255,255,255,.7)); }
+    .bar.is-selected, .usgb.is-selected, .western.is-selected{ filter:drop-shadow(0 0 10px rgba(255,255,255,.9)); }
+
+    /* Tooltip (no transform; we place it exactly) */
+    #tooltip{
+      position:fixed; left:0; top:0; pointer-events:none; z-index:10;
+      background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.14);
+      border-radius:12px; box-shadow: var(--shadow); max-width:380px; min-width:240px;
+      padding:12px 14px; line-height:1.45;
+    }
     #tooltip.hidden{ display:none; }
     #tooltip .tip-header{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
     #tooltip .swatch{ width:12px; height:12px; border-radius:50%; border:1px solid rgba(255,255,255,.45); }
     #tooltip .title{ font-size:16px; font-weight:600; }
-    #tooltip .subtitle{ font-size:12px; color:var(--muted); }
-    #tooltip .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 10px; margin-top:8px; font-size:12px; }
-    #tooltip .kv div{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    #tooltip .subtitle{ font-size:12px; color:var(--muted); margin-bottom:8px; }
+    #tooltip .summary{ font-size:13px; }
+    #tooltip .summary b{ font-weight:700; }
+    #tooltip .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 10px; margin-top:10px; font-size:12px; border-top:1px dashed rgba(255,255,255,.12); padding-top:8px; }
     #tooltip .kv .k{ color:var(--muted);}    
     #tooltip .actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
     #tooltip button{ pointer-events:auto; background:#1d1a33; border:1px solid rgba(255,255,255,.12); color:var(--fg); border-radius:8px; padding:6px 8px; font-size:12px; cursor:pointer; }
     #tooltip.pinned{ pointer-events:auto; }
 
-    /* Legend group in-SVG */
-    .legend-text{ fill:var(--fg); font-size:12px; }
+    /* Legend */
+    .legend-text{ fill:var(--fg); font-size:16px; }
+    .legend-panel{ fill:rgba(20,18,38,.85); stroke:rgba(255,255,255,.12); stroke-width:1; }
   </style>
 </head>
 <body>
-  <div id="controls">
+  <div id="sideTitle">BIOMES // 5000 LINES 5000 SPECIES</div>
+  <button id="menuToggle" aria-label="Toggle settings" title="Toggle settings">⚙️</button>
+
+  <div id="controls" class="hidden">
     <label>View Size:
       <select id="viewMode">
         <option value="preview">Preview (1200×1200)</option>
@@ -68,7 +108,7 @@
       <input type="range" id="tensionSlider" min="0.1" max="1.0" step="0.05" value="0.95" />
     </label>
     <button id="export">Export SVG</button>
-    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin.</span>
+    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press “m” to toggle menu, “Esc” to reset isolate.</span>
   </div>
 
   <svg id="chart" aria-label="Radial phylogenetic tree visualization" role="img"></svg>
@@ -82,12 +122,13 @@ const g = svg.append("g");
 const defs = svg.append("defs");
 const fullSize = 7000, previewSize = 1200;
 const fullRadius = 3000, previewRadius = 550;
-let currentSize = "full";            // default to 6400 view
-let currentTension = 0.95;            // default bundling tension
+let currentSize = "full";
+let currentTension = 0.95;
 const backgroundColor = "#0e0b16";
 const tree = d3.cluster();
 const tooltip = d3.select('#tooltip');
-let pinnedDatum = null; // when set, tooltip stays until cleared
+let pinnedDatum = null;
+let selectedLeafId = null;
 
 // ================= Color mapping =================
 const colorMapping = {
@@ -113,6 +154,38 @@ const colorMapping = {
   "Other": "#cccccc"
 };
 
+// ================= Flexible metadata access =================
+const KEYMAP = {
+  locations: ['Locations','Sample_Locations','Countries','SampleCountries','Sample Sites','sites','locations'],
+  uSGB:      ['uSGB','novel','Novel','unknownSGB','Unknown_SGB'],
+  western:   ['Westernized_List','Westernized','westernized','Westernization']
+};
+function getMeta(meta, keys){ for (const k of keys){ if (meta && meta[k] != null) return meta[k]; } }
+function locationsFromMeta(meta){
+  const v = getMeta(meta, KEYMAP.locations);
+  if (Array.isArray(v)) return v.slice(0,6).join(', ');
+  if (typeof v === 'string' && v.trim()) return v;
+  return 'various global sites';
+}
+function parseUSGB(meta){
+  const v = getMeta(meta, KEYMAP.uSGB);
+  if (v == null) return null;
+  const s = String(v).toLowerCase();
+  return (s==='yes'||s==='true'||s==='1'||s==='unknown'||s==='novel') ? 'Yes' : 'No';
+}
+function westernLabel(meta){
+  const v = getMeta(meta, KEYMAP.western);
+  if (Array.isArray(v)) return v.join(', ');
+  if (v == null || String(v).trim()==='') return '—';
+  return String(v);
+}
+function isWesternNo(meta){
+  const v = getMeta(meta, KEYMAP.western);
+  if (Array.isArray(v)) return v.includes('No') || v.includes('no');
+  const s = String(v||'').toLowerCase();
+  return s==='no' || s==='false';
+}
+
 // ================= Helpers =================
 function getPhylum(d){
   if (d?.data?.phylum) return d.data.phylum;
@@ -131,22 +204,42 @@ function lineage(d){
   return d.ancestors().slice(0,-1).map(a=> (a.data.name||'').split("__").pop()?.replace(/_/g,' ') || '').filter(Boolean).reverse().join(' › ');
 }
 function safe(val, fallback='—'){ return (val!==undefined && val!==null && val!=='' ? val : fallback); }
-
+function sgbLabel(d){
+  const nm = (d?.data?.name||'').split('__').pop() || '';
+  const m = nm.match(/SGB[_\s-]?(\d+)/i);
+  return m ? `SGB ${m[1]}` : prettyName(d);
+}
+function buildSummaryHTML(d){
+  const phylum = getPhylum(d).replace(/_/g,' ');
+  const meta = d?.data?.metadata || {};
+  const rec = +meta["#_Reconstructed_genomes"] || 0;
+  const loc = locationsFromMeta(meta);
+  const u = parseUSGB(meta);
+  const novelty = (u === 'Yes') ? 'was <b>previously unknown</b>' : 'was <b>previously known</b>';
+  const sgb = sgbLabel(d);
+  return `
+    <div class="summary">
+      <b>${sgb}</b> is composed of <b>${rec.toLocaleString()}</b> unique genomes, all within the <b>${phylum}</b> phylum.
+      It was identified in samples from <b>${loc}</b> and, prior to this study, ${novelty}.
+    </div>
+  `;
+}
 function buildTooltipHTML(d){
   const phylum = getPhylum(d);
   const meta = d?.data?.metadata || {};
   const rec = +meta["#_Reconstructed_genomes"] || 0;
-  const uSGB = meta.uSGB || '—';
-  const west = Array.isArray(meta.Westernized_List) ? meta.Westernized_List.join(', ') : (meta.Westernized_List||'—');
+  const uSGB = parseUSGB(meta) ?? '—';
+  const west = westernLabel(meta);
   const leaf = !d.children;
   return `
     <div class="tip-header">
       <span class="swatch" style="background:${colorMapping[phylum]||colorMapping.Other}"></span>
       <div>
-        <div class="title">${prettyName(d)}</div>
+        <div class="title">${sgbLabel(d)}</div>
         <div class="subtitle">${phylum.replace(/_/g,' ')}${lineage(d) ? ' • ' + lineage(d) : ''}</div>
       </div>
     </div>
+    ${buildSummaryHTML(d)}
     <div class="kv">
       <div class="k">Node type</div><div>${leaf? 'Leaf' : 'Internal'}</div>
       <div class="k">Reconstructed genomes</div><div>${rec.toLocaleString()}</div>
@@ -160,75 +253,118 @@ function buildTooltipHTML(d){
   `;
 }
 
+// Tooltip that follows mouse and clamps to viewport
 function positionTooltip(evt){
-  const pad = 18;
-  const x = evt.clientX + pad; // offset from cursor
-  const y = evt.clientY + pad;
+  const pad = 14;
+  const node = tooltip.node();
+  const rect = node.getBoundingClientRect(); // assumes tooltip is already visible
+  const tw = rect.width, th = rect.height;
+
+  // prefer right & above; flip if needed
+  let x = evt.clientX + pad;
+  let y = evt.clientY - pad - th;
+  if (y < 8) y = evt.clientY + pad;
+
+  x = Math.min(Math.max(8, x), window.innerWidth  - tw - 8);
+  y = Math.min(Math.max(8, y), window.innerHeight - th - 8);
+
   tooltip.style('left', x+'px').style('top', y+'px');
 }
-
 function showTooltip(d,evt){
   tooltip.html(buildTooltipHTML(d)).classed('hidden', false);
   positionTooltip(evt);
 }
 function hideTooltip(){
-  if (pinnedDatum) return; // keep if pinned
+  if (pinnedDatum) return;
   tooltip.classed('hidden', true).classed('pinned', false);
 }
 function pinTooltip(d){ pinnedDatum = d; tooltip.classed('pinned', true); }
 function unpinTooltip(){ pinnedDatum = null; hideTooltip(); }
 
+function clearSelected(){
+  selectedLeafId = null;
+  g.selectAll('.is-selected').classed('is-selected', false);
+}
+function toggleClassForLeaf(leafId, className, on=true){
+  if (leafId == null) return;
+  g.selectAll(`[data-leaf-id="${leafId}"]`).classed(className, on);
+}
+
+// Attach handlers
 function attachTooltipHandlers(selection, accessor=(d)=>d){
   selection
     .classed('hover-target', true)
-    .on('mousemove', function(evt,d){ if(!pinnedDatum){ showTooltip(accessor(d), evt); }} )
-    .on('mouseover', function(evt,d){ d3.select(this).classed('is-hover', true); if(!pinnedDatum){ showTooltip(accessor(d), evt);} })
-    .on('mouseout', function(){ d3.select(this).classed('is-hover', false); hideTooltip(); })
+    .on('mousemove', function(evt,d){
+      const datum = accessor(d);
+      if (pinnedDatum) return; // don't move when pinned
+      if (tooltip.classed('hidden')) { showTooltip(datum, evt); } else { positionTooltip(evt); }
+    })
+    .on('mouseover', function(evt,d){
+      const datum = accessor(d);
+      d3.select(this).classed('is-hover', true);
+      const lid = this.getAttribute('data-leaf-id');
+      if (lid) toggleClassForLeaf(lid, 'is-hover', true);
+      if(!pinnedDatum){ showTooltip(datum, evt); }
+    })
+    .on('mouseout', function(){
+      d3.select(this).classed('is-hover', false);
+      const lid = this.getAttribute('data-leaf-id');
+      if (lid) toggleClassForLeaf(lid, 'is-hover', false);
+      hideTooltip();
+    })
     .on('click', function(evt,d){
       const datum = accessor(d);
-      if (pinnedDatum && pinnedDatum === datum){ unpinTooltip(); return; }
+      const lid = this.getAttribute('data-leaf-id');
+      if (pinnedDatum && pinnedDatum === datum){
+        unpinTooltip();
+        clearSelected();
+        evt.stopPropagation();
+        return;
+      }
       pinTooltip(datum); showTooltip(datum, evt);
+      if (lid){
+        clearSelected();
+        selectedLeafId = lid;
+        toggleClassForLeaf(lid, 'is-selected', true);
+      }
       evt.stopPropagation();
     });
 }
 
-// click outside to unpin
 window.addEventListener('click', (e)=>{
   const t = e.target; 
-  if (t.closest('#tooltip')) return; // clicks inside tooltip allowed
+  if (t.closest('#tooltip') || t.closest('#menuToggle')) return;
   unpinTooltip();
+  clearSelected();
 });
-
-// Interactive actions inside tooltip
 tooltip.on('click', (e)=>{
   const btn = e.target.closest('button');
-  if (!btn) return;
+  if (!btn || !pinnedDatum) return;
   const act = btn.getAttribute('data-act');
-  if (!pinnedDatum) return;
   if (act==='copy-name'){
     navigator.clipboard?.writeText(prettyName(pinnedDatum));
     btn.textContent = 'Copied!'; setTimeout(()=>btn.textContent='Copy name', 900);
   }
   if (act==='isolate'){
-    // simple isolate: fade others
     g.classed('isolated', true);
     const keep = new Set(pinnedDatum.ancestors().map(a=>a));
     g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', function(d){
-      const datum = d?.target ? d.target : d; // links store d.target
+      const datum = d?.target ? d.target : d;
       return keep.has(datum) || (!datum.children && datum===pinnedDatum) ? 1 : 0.08;
     });
   }
 });
-
-// reset isolate via ESC
 window.addEventListener('keydown', (e)=>{
   if (e.key==='Escape'){
     g.classed('isolated', false);
     g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null);
     unpinTooltip();
+    clearSelected();
+  }
+  if (e.key.toLowerCase()==='m'){
+    document.getElementById('controls').classList.toggle('hidden');
   }
 });
-
 function customSort(a,b){ return b.descendants().length - a.descendants().length; }
 
 // ================= Render =================
@@ -244,7 +380,9 @@ function render(size = 'full'){
     const root = d3.hierarchy(data);
     root.sort(customSort); tree(root);
 
-    // ring constants
+    const leaves = root.leaves();
+    leaves.forEach((d,i)=> d.leafId = i);
+
     const angleWidth = 0.0005;
     const usgbInner = radius + 20;
     const usgbOuter = usgbInner + 24;
@@ -253,21 +391,21 @@ function render(size = 'full'){
     const westOuter = westInner + 24;
     const sep2R = (westInner + westOuter)/2;
 
-    // genome bar scale
-    const reconstructedCounts = root.leaves().map(d => d.data.metadata?.["#_Reconstructed_genomes"] || 0);
+    const reconstructedCounts = leaves.map(d => d.data.metadata?.["#_Reconstructed_genomes"] || 0);
     const maxRec = d3.max(reconstructedCounts);
     const barMaxLength = radius * 0.05;
     const barScale = d3.scaleSymlog().domain([0, maxRec]).range([0, barMaxLength]).constant(1);
     const barInner = westOuter + 30;
 
-    // bundle curve
     const line = d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(d=>d.x).radius(d=>d.y);
 
-    // ----- 0. SGB extension lines (to bars)
-    const sgbLines = g.append('g').selectAll('path.sgb-line')
-      .data(root.leaves())
+    // SGB extension lines + hit areas
+    const sgbGroup = g.append('g');
+    const sgbLines = sgbGroup.selectAll('path.sgb-line')
+      .data(leaves)
       .join('path')
         .attr('class','sgb-line')
+        .attr('data-leaf-id', d=>d.leafId)
         .attr('d', d => {
           const theta = d.x - Math.PI/2;
           const x0 = Math.cos(theta)*d.y, y0 = Math.sin(theta)*d.y;
@@ -275,9 +413,21 @@ function render(size = 'full'){
           const x1 = Math.cos(theta)*outerRadius, y1 = Math.sin(theta)*outerRadius;
           return `M${x0},${y0}L${x1},${y1}`;
         });
-    attachTooltipHandlers(sgbLines);
+    const sgbHits = sgbGroup.selectAll('path.sgb-hit')
+      .data(leaves)
+      .join('path')
+        .attr('class','hit sgb-hit')
+        .attr('data-leaf-id', d=>d.leafId)
+        .attr('d', d => {
+          const theta = d.x - Math.PI/2;
+          const x0 = Math.cos(theta)*d.y, y0 = Math.sin(theta)*d.y;
+          const outerRadius = barInner + barScale(d.data.metadata?.["#_Reconstructed_genomes"]||0);
+          const x1 = Math.cos(theta)*outerRadius, y1 = Math.sin(theta)*outerRadius;
+          return `M${x0},${y0}L${x1},${y1}`;
+        });
+    attachTooltipHandlers(sgbHits, d=>d);
 
-    // ----- 1. Region hulls + labels
+    // Region hulls + labels
     const regions = g.append('g');
     const labels = g.append('g');
     let id = 0; const maxDepth = d3.max(root.descendants(), d=>d.depth);
@@ -308,21 +458,35 @@ function render(size = 'full'){
       });
     }
 
-    // ----- 2. Links (only to leaves for clarity)
+    // Links (to leaves) + hit areas
+    const linkData = root.links().filter(d=>!d.target.children);
     const links = g.append('g').selectAll('path.link')
-      .data(root.links().filter(d=>!d.target.children))
-      .join('path').attr('class','link').attr('d', d=> line(d.target.ancestors().reverse()));
-    attachTooltipHandlers(links, d=>d.target);
+      .data(linkData)
+      .join('path')
+        .attr('class','link')
+        .attr('data-leaf-id', d=>d.target.leafId)
+        .attr('d', d=> line(d.target.ancestors().reverse()));
+    const linkHits = g.append('g').selectAll('path.hit-link')
+      .data(linkData)
+      .join('path')
+        .attr('class','hit')
+        .attr('data-leaf-id', d=>d.target.leafId)
+        .attr('d', d=> line(d.target.ancestors().reverse()));
+    attachTooltipHandlers(linkHits, d=>d.target);
 
-    // ----- 3. Nodes
+    // Nodes
     const nodes = g.append('g').selectAll('g.node')
       .data(root.descendants())
-      .join('g').attr('class','node')
+      .join('g')
+        .attr('class','node')
+        .attr('data-leaf-id', d=> d.children ? null : d.leafId)
         .attr('transform', d=>`rotate(${d.x*180/Math.PI-90}) translate(${d.y},0)`);
-    nodes.append('circle').attr('r', d=> d.children? 0 : 2.5).attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
-    attachTooltipHandlers(nodes);
+    nodes.append('circle')
+      .attr('r', d=> d.children? 0 : 2.5)
+      .attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
+    attachTooltipHandlers(nodes, d=>d);
 
-    // ----- 4. Internal labels
+    // Internal labels
     g.append('g').selectAll('text.internal-label')
       .data(root.descendants().filter(d=>d.children))
       .join('text')
@@ -333,10 +497,11 @@ function render(size = 'full'){
         .attr('text-anchor', d=> d.x < Math.PI ? 'start' : 'end')
         .text(d=> (d.data.name||'').split('__').pop().replace(/_/g,' '));
 
-    // ----- 5. Genome count bars
+    // Genome count bars
     const bars = g.append('g').selectAll('path.bar')
-      .data(root.leaves())
+      .data(leaves)
       .join('path').attr('class','bar')
+        .attr('data-leaf-id', d=>d.leafId)
         .attr('d', d => {
           const count = d.data.metadata?.["#_Reconstructed_genomes"] || 0;
           const r0 = barInner, r1 = barInner + barScale(count);
@@ -345,7 +510,7 @@ function render(size = 'full'){
         .attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
     attachTooltipHandlers(bars);
 
-    // ----- 5b. Axis
+    // Axis
     const axisGroup = g.append('g').attr('class','bar-axis');
     axisGroup.append('line').attr('x1',0).attr('y1',barInner).attr('x2',0).attr('y2',barInner+barMaxLength).attr('stroke','white');
     const ticks = [1,10,100,500].filter(v=>v<=maxRec);
@@ -354,39 +519,33 @@ function render(size = 'full'){
       axisGroup.append('text').attr('x',10).attr('y',y).attr('dy','.32em').text(t);
     });
 
-    // ----- 6. uSGB ring
+    // uSGB ring
     const usgb = g.append('g').selectAll('path.usgb')
-      .data(root.leaves())
+      .data(leaves)
       .join('path').attr('class','usgb')
+        .attr('data-leaf-id', d=>d.leafId)
         .attr('d', d=> d3.arc()({innerRadius:usgbInner, outerRadius:usgbOuter, startAngle:d.x-angleWidth, endAngle:d.x+angleWidth}))
-        .attr('fill', d=> (d.data.metadata?.uSGB === 'Yes') ? 'white' : 'black')
-        .attr('opacity', d=> (d.data.metadata?.uSGB === 'Yes') ? 1 : .5);
+        .attr('fill', d=> (parseUSGB(d.data.metadata) === 'Yes') ? 'white' : 'black')
+        .attr('opacity', d=> (parseUSGB(d.data.metadata) === 'Yes') ? 1 : .5);
     attachTooltipHandlers(usgb);
 
-    // ----- 7. Separator ring
+    // Separator
     g.append('circle').attr('r',sepR).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
 
-    // ----- 8. Westernized ring
+    // Westernized ring
     const west = g.append('g').selectAll('path.western')
-      .data(root.leaves())
+      .data(leaves)
       .join('path').attr('class','western')
+        .attr('data-leaf-id', d=>d.leafId)
         .attr('d', d=> d3.arc()({innerRadius:westInner, outerRadius:westOuter, startAngle:d.x-angleWidth, endAngle:d.x+angleWidth}))
-        .attr('fill', d=> {
-          const w = d?.data?.metadata?.Westernized_List; 
-          const no = Array.isArray(w) ? w.includes('No') : (w==='No');
-          return no ? 'white' : 'black';
-        })
-        .attr('opacity', d=> {
-          const w = d?.data?.metadata?.Westernized_List; 
-          const no = Array.isArray(w) ? w.includes('No') : (w==='No');
-          return no ? 1 : .5;
-        });
+        .attr('fill', d=> isWesternNo(d.data.metadata) ? 'white' : 'black')
+        .attr('opacity', d=> isWesternNo(d.data.metadata) ? 1 : .5);
     attachTooltipHandlers(west);
 
-    // ----- 8b. Second separator
+    // Second separator
     g.append('circle').attr('r',sep2R).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
 
-    // ----- 9. Static labels
+    // Static labels
     const gapCenter = Math.PI/2;
     const ux = Math.cos(gapCenter)*((usgbInner+usgbOuter)/2);
     const uy = Math.sin(gapCenter)*((usgbInner+usgbOuter)/2);
@@ -395,17 +554,40 @@ function render(size = 'full'){
     const wy = Math.sin(gapCenter)*((westInner+westOuter)/2);
     g.append('text').attr('x',wx).attr('y',wy).attr('text-anchor','middle').attr('dominant-baseline','middle').attr('fill','white').text('Westernized');
 
-    // ----- 10. Legend (size ~ genomes sum per phylum)
-    const phylumCounts = {}; root.leaves().forEach(d=>{ const ph = getPhylum(d); const c = +d.data.metadata?.["#_Reconstructed_genomes"]||0; phylumCounts[ph]=(phylumCounts[ph]||0)+c; });
-    const sizeScale = d3.scaleLinear().domain([0, d3.max(Object.values(phylumCounts))]).range([10, 100]);
+    // ===== Legend: two-column panel (bigger text) =====
+    const phylumCounts = {};
+    leaves.forEach(d=>{ const ph = getPhylum(d); const c = +d.data.metadata?.["#_Reconstructed_genomes"]||0; phylumCounts[ph]=(phylumCounts[ph]||0)+c; });
+    const entries = Object.entries(phylumCounts).sort((a,b)=>b[1]-a[1]);
+
+    const colCount = Math.ceil(entries.length/2);
+    const colW = 320, rowH = 28, pad = 16, sw = 18; // swatch size
+    const panelW = colW*2 + pad*2, panelH = rowH*colCount + pad*2;
+
+    const legendX = (dim/2) - panelW - 40;
+    const legendY = (-dim/2) + 40;
+
     const legendGroup = g.append('g').attr('id','legend-svg');
-    const legendX = dim/2 - 250; const legendY = -dim/2 + 250; const rowHeight = 34; let row = 0;
-    Object.entries(phylumCounts).forEach(([phylum,count])=>{
-      const yOffset = legendY + row*rowHeight; const group = legendGroup.append('g').attr('transform',`translate(${legendX},${yOffset})`);
-      group.append('circle').attr('r', sizeScale(count)).attr('cx',0).attr('cy',0).attr('fill', colorMapping[phylum]||colorMapping.Other);
-      group.append('text').attr('x', sizeScale(count)+8).attr('y',4).attr('class','legend-text').text(`${phylum.replace(/_/g,' ')} (${count})`);
+
+    // panel background
+    legendGroup.append('rect')
+      .attr('class','legend-panel')
+      .attr('x', legendX).attr('y', legendY)
+      .attr('rx', 14).attr('ry', 14)
+      .attr('width', panelW).attr('height', panelH);
+
+    // rows
+    entries.forEach(([phylum,count], i)=>{
+      const col = (i < colCount) ? 0 : 1;
+      const row = (i < colCount) ? i : i - colCount;
+      const baseX = legendX + pad + col*colW;
+      const baseY = legendY + pad + row*rowH;
+
+      const group = legendGroup.append('g').attr('transform',`translate(${baseX},${baseY})`);
+      group.append('rect').attr('width', sw).attr('height', sw).attr('rx',4).attr('ry',4)
+           .attr('fill', colorMapping[phylum]||colorMapping.Other).attr('y', -sw/2 + 10);
+      group.append('text').attr('x', sw + 10).attr('y', 22).attr('class','legend-text')
+           .text(`${phylum.replace(/_/g,' ')} (${count})`);
       attachTooltipHandlers(group, ()=> ({data:{name:phylum.replace(/_/g,' ')}, metadata:{}}));
-      row++;
     });
   });
 }
@@ -429,9 +611,11 @@ function exportSVG(){
 d3.select('#tensionSlider').on('input', function(){ currentTension = +this.value; d3.select('#tensionLabel').text(currentTension.toFixed(2)); render(currentSize); });
 d3.select('#viewMode').on('change', function(){ currentSize = this.value; render(currentSize); });
 d3.select('#export').on('click', exportSVG);
+document.getElementById('menuToggle').addEventListener('click', ()=>{ document.getElementById('controls').classList.toggle('hidden'); });
 
-// ================= Initial render =================
+// Initial render
 render('full');
 </script>
 </body>
 </html>
+

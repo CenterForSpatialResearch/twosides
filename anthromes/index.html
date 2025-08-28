@@ -5,223 +5,322 @@
   <title>Radial Anthromes Chart</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    @font-face {
-      font-family: "Pelikan";
-      src: url("ABCPelikan-Regular-Trial.woff") format("woff");
+    @font-face { font-family: "Pelikan"; src: url("ABCPelikan-Regular-Trial.woff") format("woff"); }
+    :root{
+      --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0; --panel:#141226; --accent:#7ad7ff;
+      --shadow:0 10px 30px rgba(0,0,0,.35);
     }
-    body {
-      margin: 0;
-      font-family: "Pelikan", sans-serif;
-      background: #ffff;
-      color: white;
+    html,body{height:100%;}
+    body{ margin:0; font-family:"Pelikan",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif; background:var(--bg); color:var(--fg); }
+
+    /* Left-side title — same id and styling pattern as the BIOMES/tree page */
+    #sideTitle{
+      position: fixed; right:14px; top:50%; transform:translateY(-50%);
+      writing-mode: vertical-rl; text-orientation: mixed;
+      letter-spacing:.08em; font-weight:600; font-size:14px; color:var(--muted);
+      opacity:.9; user-select:none; z-index:4;
     }
-    #controls {
-      display: flex;
-      justify-content: center;
-      margin: 10px;
-      gap: 20px;
+
+    /* Controls hidden behind gear */
+    #controls{ position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:center; padding:10px 12px; background:linear-gradient(180deg, rgba(14,11,22,.95), rgba(14,11,22,.75)); backdrop-filter: blur(6px); border-bottom:1px solid rgba(255,255,255,.08);}
+    #controls label{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted);}
+    #controls select, #controls button{ background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px 10px; }
+    #controls.hidden{ display:none; }
+
+    #menuToggle{
+      position: fixed; top: 10px; right: 10px; z-index: 6;
+      background: var(--panel); border:1px solid rgba(255,255,255,.14);
+      width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; box-shadow: var(--shadow); font-size:16px; color:var(--muted);
     }
-    svg {
-      display: block;
-      margin: auto;
-      background: #ffff;
+    #menuToggle:hover{ color:var(--fg); }
+
+    svg{ display:block; margin:auto; background:var(--bg); }
+
+    /* Segments: slim visuals, wide transparent hits */
+    .layer path.segment{ vector-effect: non-scaling-stroke; stroke-linecap:round; stroke:none; opacity:.92; }
+    .segment.is-hover{ opacity:1; filter:drop-shadow(0 0 6px rgba(0,0,0,.35)); }
+    .segment.is-selected{ opacity:1; filter:drop-shadow(0 0 10px rgba(0,0,0,.5)); }
+    .hit{ fill:rgba(0,0,0,0); pointer-events:all; }
+
+    /* Grid + labels */
+    .axis-circles circle{ stroke:#ffffff; stroke-opacity:.45; fill:none; stroke-dasharray:2,2; }
+    .year-axis line{ stroke:#ffffff; stroke-opacity:.6; }
+    .year-axis text{ fill:#ffffff; font-size:11px; opacity:.9; }
+    .value-label{ fill:#ffffff; opacity:.5; font-size:12px; }
+
+    /* Legend panel */
+    .legend-text{ fill:var(--fg); font-size:16px; }
+    .legend-panel{ fill:rgba(20,18,38,.9); stroke:rgba(255,255,255,.12); stroke-width:1; filter:drop-shadow(0 6px 16px rgba(0,0,0,.35)); }
+
+    /* Tooltip */
+    #tooltip{
+      position:fixed; left:0; top:0; pointer-events:none; z-index:10;
+      background:#111827; color:#f9fafb; border:1px solid rgba(255,255,255,.12);
+      border-radius:12px; box-shadow: var(--shadow); max-width:380px; min-width:240px; padding:12px 14px; line-height:1.45;
     }
-    .legend {
-      font-size: 12px;
-      font-family: "Pelikan", sans-serif;
-      fill: black;
-    }
+    #tooltip.hidden{ display:none; }
+    #tooltip .title{ font-size:16px; font-weight:700; margin-bottom:4px; }
+    #tooltip .subtitle{ font-size:12px; color:#cbd5e1; margin-bottom:8px; }
+    #tooltip .summary b{ font-weight:700; }
+    #tooltip .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 10px; margin-top:10px; font-size:12px; border-top:1px dashed rgba(255,255,255,.14); padding-top:8px; }
+    #tooltip .kv .k{ color:#94a3b8; }
+
+    .map-mask-stroke{ fill:none; stroke:#ffffff; stroke-opacity:.25; stroke-width:1.5; }
   </style>
 </head>
 <body>
-<div id="controls">
-  <label>View Size:
-    <select id="viewMode">
-      <option value="preview">Preview (1200x1200)</option>
-      <option value="full" selected>Full Export (6400x6400)</option>
-    </select>
-  </label>
-  <button id="export">Export SVG</button>
-</div>
-<svg id="chart"></svg>
+  <!-- Same side title id as the tree page -->
+  <div id="sideTitle">ANTHROMES // 12,017 YEARS OF LAND USE</div>
+
+  <button id="menuToggle" aria-label="Toggle settings" title="Toggle settings">⚙️</button>
+
+  <div id="controls" class="hidden">
+    <label>View Size:
+      <select id="viewMode">
+        <option value="preview">Preview (1200×1200)</option>
+        <option value="full" selected>Full Export (7000×7000)</option>
+      </select>
+    </label>
+    <button id="export">Export SVG</button>
+    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press “m” to toggle menu.</span>
+  </div>
+
+  <div id="tooltip" class="hidden" role="dialog" aria-live="polite"></div>
+  <svg id="chart"></svg>
+
 <script>
 const svg = d3.select("#chart");
 const g = svg.append("g");
-const fullSize = 6400, previewSize = 1200;
+const defs = svg.append("defs");
+
+/* Match tree canvas: same overall diameter */
+const fullSize = 7000, previewSize = 1200;
 let currentSize = "full";
 
+const tooltip = d3.select('#tooltip');
+let pinned = null;
+let selectedKey = null;
+
 const colorMapping = {
-  "Urban": "#fb5607",
-  "Mixed settlements": "#ff006e",
-  "Rice villages": "#b1f16e",
-  "Irrigated villages": "#6eeb13",
-  "Rainfed villages": "#13eb40",
-  "Pastoral villages": "#13eb85",
-  "Residential irrigated croplands": "#ebe013",
-  "Residential rainfed croplands": "#eb9c13",
-  "Populated croplands": "#eb1357",
-  "Remote croplands": "#eb13e0",
-  "Residential rangelands": "#13ebc9",
-  "Populated rangelands": "#1385eb",
-  "Remote rangelands": "#3a86ff",
-  "Residential woodlands": "#AA55DA",
-  "Populated woodlands": "#c77dff",
-  "Remote woodlands": "#8338ec",
-  "Inhabited drylands": "#5f0f40",
-  "Wild woodlands": "#4717f6",
-  "Wild drylands": "#eb139c",
-  "Ice (uninhabited)": "#6A5ACD",
+  "Urban": "#5f0f40",
+  "Mixed settlements": "#792775",
+  "Rice villages": "#933faa",
+  "Irrigated villages": "#ac55d5",
+  "Rainfed villages": "#bf55a4",
+  "Pastoral villages": "#d25572",
+  "Residential irrigated croplands": "#e55641",
+  "Residential rainfed croplands": "#f8560f",
+  "Populated croplands": "#de691f",
+  "Remote croplands": "#bb7f3c",
+  "Residential rangelands": "#999559",
+  "Populated rangelands": "#76ac76",
+  "Remote rangelands": "#53c293",
+  "Residential woodlands": "#30d8b1",
+  "Populated woodlands": "#1aebc3",
+  "Remote woodlands": "#44e9a0",
+  "Inhabited drylands": "#6de67d",
+  "Wild woodlands": "#97e45a",
+  "Wild drylands": "#c1e236",
+  "Ice (uninhabited)": "#ebe013",
   "No land": "#2E8B57"
 };
 
-function render(size = "full") {
-  const dim = size === "full" ? fullSize : previewSize;
-  svg.attr("viewBox", `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
-  g.selectAll("*").remove();
+/* Tooltip helpers */
+const fmt = d3.format(",");
+const pct = (v,t)=> t? d3.format(".1%")(v/t) : "—";
+const summaryHTML = (label,year,count,total)=>`<div class="summary">In <b>${year}</b>, <b>${label}</b> accounts for <b>${fmt(count)}</b> units (<b>${pct(count,total)}</b> of the year’s total).</div>`;
+const tipHTML = (label,year,count,total)=>`
+  <div class="title">${label}</div>
+  <div class="subtitle">Year ${year}</div>
+  ${summaryHTML(label,year,count,total)}
+  <div class="kv">
+    <div class="k">Year total</div><div>${fmt(total)}</div>
+    <div class="k">Segment value</div><div>${fmt(count)}</div>
+    <div class="k">Share</div><div>${pct(count,total)}</div>
+  </div>`;
 
-  const radius = dim / 2 - 100;
-  const innerRadius = 2400;
+function posTip(evt){
+  const pad=14, node=tooltip.node(), r=node.getBoundingClientRect(), tw=r.width, th=r.height;
+  let x=evt.clientX+pad, y=evt.clientY-pad-th; if(y<8)y=evt.clientY+pad;
+  x=Math.min(Math.max(8,x), window.innerWidth-tw-8); y=Math.min(Math.max(8,y), window.innerHeight-th-8);
+  tooltip.style("left",x+"px").style("top",y+"px");
+}
+function showTip(html,evt){ tooltip.html(html).classed("hidden",false); posTip(evt); }
+function hideTip(){ if(!pinned) tooltip.classed("hidden",true); }
 
-  d3.csv("anthromes_counts.csv", d3.autoType).then(data => {
-    const years = Array.from(new Set(data.map(d => d.year))).sort((a, b) => a - b);
+function attachHandlers(sel, keyAcc, htmlAcc){
+  sel.on("mousemove", function(evt,d){ if(pinned) return; if(tooltip.classed("hidden")) showTip(htmlAcc(d),evt); else posTip(evt); })
+     .on("mouseover", function(evt,d){ const key=keyAcc(d); d3.selectAll(`[data-key="${key}"]`).classed("is-hover",true); if(!pinned) showTip(htmlAcc(d),evt); })
+     .on("mouseout", function(){ const key=keyAcc(d3.select(this).datum()); d3.selectAll(`[data-key="${key}"]`).classed("is-hover",false); hideTip(); })
+     .on("click", function(evt,d){
+        const key=keyAcc(d);
+        if(pinned && key===selectedKey){ pinned=null; selectedKey=null; d3.selectAll(".segment").classed("is-selected",false); hideTip(); evt.stopPropagation(); return; }
+        pinned=d; selectedKey=key; d3.selectAll(".segment").classed("is-selected",false); d3.selectAll(`[data-key="${key}"]`).classed("is-selected",true); showTip(htmlAcc(d),evt); evt.stopPropagation();
+     });
+}
+window.addEventListener("click",(e)=>{ if(e.target.closest("#tooltip")) return; pinned=null; selectedKey=null; d3.selectAll(".segment").classed("is-selected",false); hideTip(); });
+
+/* Render */
+function render(size="full"){
+  const dim = size==="full" ? fullSize : previewSize;
+  svg.attr("viewBox", `${-dim/2} ${-dim/2} ${dim} ${dim}`);
+  g.selectAll("*").remove(); defs.selectAll("*").remove();
+
+  /* Make the radial chart a bit smaller within the same 7000 canvas */
+  const outerMargin = 260;                         // increase margin to shrink overall plot
+  const radius = dim/2 - outerMargin;              // smaller than before
+  const innerRadius = (size==="full") ? 2200 : Math.max(180, radius * 0.44); // also slightly smaller map
+
+  /* Center map overlay clipped to innerRadius */
+  const clipId = "map-clip";
+  defs.append("clipPath").attr("id",clipId).append("circle").attr("r",innerRadius).attr("cx",0).attr("cy",0);
+  g.append("image")
+    .attr("href","2017AD_twoPoint_sphere-plain.png")
+    .attr("x",-innerRadius).attr("y",-innerRadius)
+    .attr("width",(innerRadius)*2).attr("height",(innerRadius)*2)
+    .attr("preserveAspectRatio","xMidYMid slice")
+    .attr("clip-path",`url(#${clipId})`);
+  g.append("circle").attr("class","map-mask-stroke").attr("r",innerRadius).attr("cx",0).attr("cy",0);
+
+  d3.csv("anthromes_counts.csv", d3.autoType).then(data=>{
+    data.forEach(d=>{ d.year=+d.year; d.count=+d.count; });
+
+    const years = Array.from(new Set(data.map(d=>d.year))).sort((a,b)=>a-b);
     const labels = Object.keys(colorMapping);
 
-    const dataByYear = d3.rollups(data, v => {
-      const counts = {};
-      v.forEach(d => counts[d.label] = d.count);
-      return counts;
-    }, d => d.year);
+    const totalsByYear = d3.rollup(data, v=> d3.sum(v, d=>d.count), d=>d.year);
+
+    const dataByYear = d3.rollups(
+      data,
+      v => { const o={}; v.forEach(d=> o[d.label]=d.count); return o; },
+      d=> d.year
+    ).sort((a,b)=> a[0]-b[0]);
 
     const stacked = d3.stack()
       .keys(labels)
-      .value((d, key) => d[1][key] || 0)
+      .value((yearEntry, key) => yearEntry[1][key] || 0)
       (dataByYear);
 
-    const angle = d3.scaleBand()
-      .domain(years)
-      .range([0, 2 * Math.PI])
-      .align(0);
+    const angle = d3.scaleBand().domain(years).range([0, 2*Math.PI]).align(0);
 
-    const maxCount = d3.max(stacked[stacked.length - 1], d => d[1]);
-    const rScale = d3.scaleLinear()
-      .domain([0, maxCount])
-      .range([innerRadius, radius]);
+    const maxCount = d3.max(stacked[stacked.length-1], d=> d[1]);
+    const rScale = d3.scaleLinear().domain([0, maxCount]).range([innerRadius, radius]);
 
+    // Arcs computed from explicit year
     const arc = d3.arc()
-      .innerRadius(d => rScale(d[0]))
-      .outerRadius(d => rScale(d[1]))
-      .startAngle((d, i) => angle(years[i]))
-      .endAngle((d, i) => angle(years[i]) + angle.bandwidth())
+      .innerRadius(d=> rScale(d.seg[0]))
+      .outerRadius(d=> rScale(d.seg[1]))
+      .startAngle(d=> angle(d.year))
+      .endAngle(d=> angle(d.year) + angle.bandwidth())
+      .padAngle(0.003)
+      .padRadius(innerRadius);
+
+    const arcHit = d3.arc()
+      .innerRadius(d=> Math.max(0, rScale(d.seg[0]) - 8))
+      .outerRadius(d=> rScale(d.seg[1]) + 8)
+      .startAngle(d=> angle(d.year))
+      .endAngle(d=> angle(d.year) + angle.bandwidth())
+      .padAngle(0.006)
       .padRadius(innerRadius);
 
     const layers = g.selectAll("g.layer")
-      .data(stacked)
+      .data(stacked, d=>d.key)
       .join("g")
-      .attr("class", "layer")
-      .attr("fill", d => colorMapping[d.key] || "#ccc");
+      .attr("class","layer")
+      .attr("fill", d=> colorMapping[d.key] || "#ccc");
 
-    layers.selectAll("path")
-      .data(d => d)
+    const segData = series => series.map((seg,i)=> ({ seg, year: dataByYear[i][0], label: series.key }));
+
+    layers.selectAll("path.segment")
+      .data(d => segData(d), d=> `${d.year}__${d.label}`)
       .join("path")
-      .attr("d", arc);
+      .attr("class","segment")
+      .attr("data-key", d=> `${d.year}__${d.label}`)
+      .attr("d", d=> arc(d));
 
+    const hits = layers.selectAll("path.hit")
+      .data(d => segData(d), d=> `${d.year}__${d.label}`)
+      .join("path")
+      .attr("class","hit")
+      .attr("data-key", d=> `${d.year}__${d.label}`)
+      .attr("d", d=> arcHit(d));
+
+    const keyAcc = d=> `${d.year}__${d.label}`;
+    const htmlAcc = d=> {
+      const total = totalsByYear.get(d.year) || 0;
+      const val = Math.max(0, d.seg[1]-d.seg[0]);
+      return tipHTML(d.label, d.year, val, total);
+    };
+    attachHandlers(hits, keyAcc, htmlAcc);
+
+    // Radial grid
     const tickCount = 6;
     const ticks = rScale.ticks(tickCount);
+    const axisCircleGroup = g.append("g").attr("class","axis-circles");
+    axisCircleGroup.selectAll("circle").data(ticks).join("circle").attr("r", rScale);
 
-    const axisCircleGroup = g.append("g").attr("class", "axis-circles");
-    axisCircleGroup.selectAll("circle")
-      .data(ticks)
-      .join("circle")
-      .attr("r", rScale)
-      .attr("stroke", "#0e0b16")
-      .attr("fill", "none")
-      .attr("stroke-dasharray", "2,2");
-
-    const angleSteps = d3.range(0, 2 * Math.PI, (2 * Math.PI) / 8);
-    ticks.forEach(t => {
-      angleSteps.forEach(a => {
+    // Value labels (8 rays)
+    const rays = d3.range(0, 2*Math.PI, 2*Math.PI/8);
+    ticks.forEach(t=>{
+      const R = rScale(t);
+      rays.forEach(a=>{
         g.append("text")
-          .attr("x", Math.cos(a) * rScale(t))
-          .attr("y", Math.sin(a) * rScale(t))
-          .attr("text-anchor", "middle")
-          .attr("alignment-baseline", "middle")
-          .attr("font-size", 14)
-          .attr("fill", "#0e0b16")
+          .attr("class","value-label")
+          .attr("x", Math.cos(a)*R)
+          .attr("y", Math.sin(a)*R)
+          .attr("text-anchor","middle")
+          .attr("alignment-baseline","middle")
           .text(t);
       });
     });
 
-    const yearAxis = g.append("g").attr("class", "year-axis");
-    years.forEach(year => {
-      const a = angle(year) + angle.bandwidth() / 2 - Math.PI / 2;
-      const x1 = Math.cos(a) * (innerRadius - 6);
-      const y1 = Math.sin(a) * (innerRadius - 6);
-      const x2 = Math.cos(a) * (innerRadius);
-      const y2 = Math.sin(a) * (innerRadius);
-      yearAxis.append("line")
-        .attr("x1", x1).attr("y1", y1)
-        .attr("x2", x2).attr("y2", y2)
-        .attr("stroke", "#0e0b16")
-        .attr("stroke-width", 1);
-
-      const lx = Math.cos(a) * (innerRadius - 18);
-      const ly = Math.sin(a) * (innerRadius - 18);
-      yearAxis.append("text")
-        .attr("x", lx)
-        .attr("y", ly)
-        .attr("text-anchor", "middle")
-        .attr("alignment-baseline", "middle")
-        .attr("font-size", 10)
-        .attr("fill", "#0e0b16")
-        .text(year);
+    // Year ticks/labels
+    const yearAxis = g.append("g").attr("class","year-axis");
+    years.forEach(year=>{
+      const a = angle(year) + angle.bandwidth()/2 - Math.PI/2;
+      const x1 = Math.cos(a)*(innerRadius-6), y1 = Math.sin(a)*(innerRadius-6);
+      const x2 = Math.cos(a)*innerRadius,     y2 = Math.sin(a)*innerRadius;
+      yearAxis.append("line").attr("x1",x1).attr("y1",y1).attr("x2",x2).attr("y2",y2);
+      const lx = Math.cos(a)*(innerRadius-20), ly = Math.sin(a)*(innerRadius-20);
+      yearAxis.append("text").attr("x",lx).attr("y",ly).attr("text-anchor","middle").attr("alignment-baseline","middle").text(year);
     });
 
-    const legend = svg.append("g")
-      .attr("class", "legend")
-      .attr("transform", `translate(${-dim / 2 + 60}, ${-dim / 2 + 60})`);
-
+    // Legend: two columns
     const entries = Object.entries(colorMapping);
-    entries.forEach(([label, color], i) => {
-      const y = i * 20;
-      legend.append("rect")
-        .attr("x", 0)
-        .attr("y", y)
-        .attr("width", 16)
-        .attr("height", 16)
-        .attr("fill", color);
+    const colCount = Math.ceil(entries.length/2);
+    const colW = 420, rowH = 26, pad = 18, sw = 18;
+    const panelW = colW*2 + pad*2, panelH = rowH*colCount + pad*2;
+    const legendX = (-dim/2) + 40, legendY = (-dim/2) + 40;
 
-      legend.append("text")
-        .attr("x", 22)
-        .attr("y", y + 12)
-        .attr("fill", "black")
-        .text(label);
+    const legend = g.append("g").attr("transform",`translate(${legendX},${legendY})`);
+    legend.append("rect").attr("class","legend-panel").attr("x",0).attr("y",0).attr("rx",14).attr("ry",14).attr("width",panelW).attr("height",panelH);
+    entries.forEach(([label,color], i)=>{
+      const col = (i<colCount)?0:1, row=(i<colCount)?i:i-colCount;
+      const gx = pad + col*colW, gy = pad + row*rowH;
+      const item = legend.append("g").attr("transform",`translate(${gx},${gy})`);
+      item.append("rect").attr("x",0).attr("y",4).attr("width",sw).attr("height",sw).attr("rx",4).attr("ry",4).attr("fill",color);
+      item.append("text").attr("x",sw+10).attr("y",18).attr("class","legend-text").text(label);
     });
   });
 }
 
 render();
 
-d3.select("#viewMode").on("change", function() {
-  currentSize = this.value;
-  render(currentSize);
-});
+/* UI */
+document.getElementById('menuToggle').addEventListener('click', ()=> document.getElementById('controls').classList.toggle('hidden'));
+window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='m'){ document.getElementById('controls').classList.toggle('hidden'); } });
 
-d3.select("#export").on("click", function() {
+d3.select("#viewMode").on("change", function(){ currentSize = this.value; render(currentSize); });
+d3.select("#export").on("click", function(){
   const serializer = new XMLSerializer();
   const source = serializer.serializeToString(svg.node());
-  const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+  const blob = new Blob([source], {type:"image/svg+xml;charset=utf-8"});
   const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `radial_chart_${currentSize}.svg`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  const link = document.createElement("a"); link.href=url; link.download=`radial_chart_${currentSize}.svg`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 });
 </script>
 </body>
 </html>
-
-
-
 

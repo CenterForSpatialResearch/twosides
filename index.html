@@ -2,58 +2,50 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Radial Anthromes Chart</title>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <title>Anthromes & Biomes</title>
   <style>
-    svg {
-      display: block;
-      margin: auto;
-      background: #ffff;
-    }
     @font-face {
       font-family: "Pelikan";
       src: url("fonts/ABCPelikan-Regular-Trial.woff") format("woff");
     }
+    :root{
+      --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      font-family: "Pelikan", sans-serif;
+      color: var(--fg);
+    }
 
-    body {
-      font-family: "Pelikan", sans-serif;
+    /* Side titles as nav links */
+    .sideLink {
+      position: fixed;
+      top: 50%;
+      transform: translateY(-50%);
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      font-size: 48px;
+      font-weight: 700;
+      letter-spacing: .15em;
+      color: var(--muted);
+      opacity: 0.9;
+      user-select: none;
+      text-decoration: none;
+      transition: color 0.3s ease, opacity 0.3s ease;
     }
-    .legend {
-      font-size: 12px;
-      font-family: "Pelikan", sans-serif;
-      fill: black;
+    .sideLink:hover {
+      color: var(--fg);
+      opacity: 1;
     }
-    #navigation {
-      display: flex;
-      justify-content: center; /* Center the navigation links */
-      gap: 20px; /* Space between links */
-      background-color: #f4f4f4; /* Light background color */
-      padding: 10px; /* Padding around the navigation */
-      border-radius: 5px; /* Rounded corners */
-      margin-bottom: 20px; /* Add spacing below the navigation */
-    }
-    #navigation a {
-      text-decoration: none; /* Remove underline */
-      color: #333; /* Dark text color */
-      font-weight: bold; /* Bold text */
-      font-size: 16px; /* Font size */
-      font-family: "Pelikan", sans-serif; /* Match the font family */
-    }
-    #navigation a:hover {
-      color: #007BFF; /* Change color on hover */
-      text-decoration: underline; /* Add underline on hover */
-    }
+    #leftLink { left: 20px; }
+    #rightLink { right: 20px; }
   </style>
 </head>
 <body>
-    <div id="navigation">
-        <a href="index.html">Home</a>
-        <a href="anthromes/index.html">Anthromes</a>
-        <a href="biomes/index.html">Biomes</a>
-      </div>
+  <!-- Side Title Links -->
+  <a id="leftLink" class="sideLink" href="biomes/index.html">BIOMES</a>
+  <a id="rightLink" class="sideLink" href="anthromes/index.html">ANTHROMES</a>
 </body>
 </html>
-
-
-
-
