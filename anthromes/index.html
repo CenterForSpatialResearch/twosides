@@ -175,11 +175,19 @@ function render(size="full"){
   /* Center map overlay clipped to innerRadius */
   const clipId = "map-clip";
   defs.append("clipPath").attr("id",clipId).append("circle").attr("r",innerRadius).attr("cx",0).attr("cy",0);
+  // g.append("image")
+  //   .attr("href","2017AD_twoPoint_sphere-plain.png")
+  //   .attr("x",-innerRadius).attr("y",-innerRadius)
+  //   .attr("width",(innerRadius)*2).attr("height",(innerRadius)*2)
+  //   .attr("preserveAspectRatio","xMidYMid slice")
+  //   .attr("clip-path",`url(#${clipId})`);
+
+  // New map without preserving aspect ratio - stretched vertically
   g.append("image")
     .attr("href","2017AD_twoPoint_sphere-plain.png")
-    .attr("x",-innerRadius).attr("y",-innerRadius)
-    .attr("width",(innerRadius)*2).attr("height",(innerRadius)*2)
-    .attr("preserveAspectRatio","xMidYMid slice")
+    .attr("x",-innerRadius*1.75).attr("y",-innerRadius*1.1)
+    .attr("width",(innerRadius)*3.7).attr("height",(innerRadius)*2.2)
+    .attr("preserveAspectRatio","none")
     .attr("clip-path",`url(#${clipId})`);
   g.append("circle").attr("class","map-mask-stroke").attr("r",innerRadius).attr("cx",0).attr("cy",0);
 
