@@ -25,7 +25,16 @@
     #controls{ position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:center; padding:10px 12px; background:linear-gradient(180deg, rgba(14,11,22,.95), rgba(14,11,22,.75)); backdrop-filter: blur(6px); border-bottom:1px solid rgba(255,255,255,.08);}
     #controls label{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted);}
     #controls select, #controls button{ background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px 10px; }
+    #controls button{ cursor:pointer; box-shadow: var(--shadow); }
     #controls.hidden{ display:none; }
+
+    /* Small filter group layout */
+    .filter-group{ display:flex; align-items:center; gap:16px; padding:8px 12px; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:rgba(255,255,255,.03); }
+    .filter-sub{ display:flex; flex-direction:column; gap:6px; }
+    .filter-sub label{ font-size:12px; color:var(--muted); }
+    .slider-container{ display:flex; flex-direction:column; gap:4px; min-width:200px; }
+    .slider-values{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
+    input[type="range"]{ width:100%; }
 
     #menuToggle{
       position: fixed; top: 10px; right: 10px; z-index: 6;
@@ -82,8 +91,33 @@
         <option value="full" selected>Full Export (7000×7000)</option>
       </select>
     </label>
+
+    <!-- Filters -->
+    <div class="filter-group" id="filters">
+      <div class="filter-sub">
+        <label>Anthrome Type Range (Min - Max)</label>
+        <div class="slider-container">
+          <div class="slider-values"><span id="anthromeMinLabel">Loading...</span><span id="anthromeMaxLabel">Loading...</span></div>
+          <input type="range" id="anthromeMinSlider" />
+          <input type="range" id="anthromeMaxSlider" />
+        </div>
+      </div>
+      <div class="filter-sub">
+        <label>Year Range (Min - Max)</label>
+        <div class="slider-container">
+          <div class="slider-values"><span id="yearMinLabel">Loading...</span><span id="yearMaxLabel">Loading...</span></div>
+          <input type="range" id="yearMinSlider" />
+          <input type="range" id="yearMaxSlider" />
+        </div>
+      </div>
+      <div class="filter-sub">
+        <button id="applyFiltersBtn">Apply</button>
+        <button id="clearFiltersBtn">Clear</button>
+      </div>
+    </div>
+
     <button id="export">Export SVG</button>
-    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press “m” to toggle menu.</span>
+    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press "m" to toggle menu, "Esc" to clear filters.</span>
   </div>
 
   <div id="tooltip" class="hidden" role="dialog" aria-live="polite"></div>
@@ -101,6 +135,13 @@ let currentSize = "full";
 const tooltip = d3.select('#tooltip');
 let pinned = null;
 let selectedKey = null;
+
+// How far to fade non-matching elements when filters are active
+const DIM_OPACITY = 0.02;       // super faint
+const DIM_LABEL_OPACITY = 0.10; // labels slightly higher to stay barely legible
+
+// Keep handles for re-use during filtering
+let handles = { segments: null, hits: null, yearAxisElements: null, valueLabels: null };
 
 const colorMapping = {
   "Urban": "#5f0f40",
@@ -125,6 +166,12 @@ const colorMapping = {
   "Ice (uninhabited)": "#ebe013",
   "No land": "#2E8B57"
 };
+
+// Anthrome codes will be read from CSV - code to label mapping
+let anthromeCodeToLabel = {};
+let labelToAnthromeCode = {};
+let allYears = [];
+let allAnthromeCodes = [];
 
 /* Tooltip helpers */
 const fmt = d3.format(",");
@@ -161,6 +208,144 @@ function attachHandlers(sel, keyAcc, htmlAcc){
 }
 window.addEventListener("click",(e)=>{ if(e.target.closest("#tooltip")) return; pinned=null; selectedKey=null; d3.selectAll(".segment").classed("is-selected",false); hideTip(); });
 
+// ======== Filters state & logic ========
+const filterState = {
+  anthromeMin: 0,
+  anthromeMax: 999,
+  yearMin: -999999,
+  yearMax: 999999
+};
+
+function readFilterUI(){
+  let minVal = +document.getElementById('anthromeMinSlider').value;
+  let maxVal = +document.getElementById('anthromeMaxSlider').value;
+
+  // Ensure min <= max
+  if (minVal > maxVal) {
+    document.getElementById('anthromeMaxSlider').value = minVal;
+    maxVal = minVal;
+  }
+
+  filterState.anthromeMin = minVal;
+  filterState.anthromeMax = maxVal;
+
+  let yearMinVal = +document.getElementById('yearMinSlider').value;
+  let yearMaxVal = +document.getElementById('yearMaxSlider').value;
+
+  // Ensure min <= max
+  if (yearMinVal > yearMaxVal) {
+    document.getElementById('yearMaxSlider').value = yearMinVal;
+    yearMaxVal = yearMinVal;
+  }
+
+  filterState.yearMin = yearMinVal;
+  filterState.yearMax = yearMaxVal;
+
+  // Update labels
+  document.getElementById('anthromeMinLabel').textContent = `${filterState.anthromeMin} - ${anthromeCodeToLabel[filterState.anthromeMin] || 'Unknown'}`;
+  document.getElementById('anthromeMaxLabel').textContent = `${filterState.anthromeMax} - ${anthromeCodeToLabel[filterState.anthromeMax] || 'Unknown'}`;
+  document.getElementById('yearMinLabel').textContent = filterState.yearMin;
+  document.getElementById('yearMaxLabel').textContent = filterState.yearMax;
+}
+
+let filteredSampleCount = 0;
+function segmentMatchesFilters(d){
+  const anthromeCode = labelToAnthromeCode[d.label];
+  if (!anthromeCode) {
+    console.log('No anthrome code for label:', d.label);
+    return false;
+  }
+  const anthromeMatch = anthromeCode >= filterState.anthromeMin && anthromeCode <= filterState.anthromeMax;
+  const yearMatch = d.year >= filterState.yearMin && d.year <= filterState.yearMax;
+  const matches = anthromeMatch && yearMatch;
+
+  // Only log first 5 filtered items as sample
+  if (!matches && filteredSampleCount < 5) {
+    console.log('Sample filtered out:', { label: d.label, year: d.year, anthromeCode, filterState, anthromeMatch, yearMatch });
+    filteredSampleCount++;
+  }
+
+  return matches;
+}
+
+function applyFilters(){
+  readFilterUI();
+  filteredSampleCount = 0; // Reset sample counter
+
+  // Check if filters are at default (show all) - use actual data ranges
+  const isDefault = allAnthromeCodes.length > 0 && allYears.length > 0 &&
+                    filterState.anthromeMin === allAnthromeCodes[0] &&
+                    filterState.anthromeMax === allAnthromeCodes[allAnthromeCodes.length - 1] &&
+                    filterState.yearMin === allYears[0] &&
+                    filterState.yearMax === allYears[allYears.length - 1];
+
+  console.log('Apply Filters:', {
+    filterState,
+    isDefault,
+    allAnthromeCodes,
+    allYears
+  });
+
+  if (isDefault){
+    // Clear all filters - show everything
+    g.classed('isolated', false);
+    g.selectAll('.segment').style('opacity', null).style('pointer-events', null);
+    g.selectAll('.hit').style('opacity', null).style('pointer-events', null);
+    if (handles.yearAxisElements) {
+      handles.yearAxisElements.style('opacity', null).style('pointer-events', null);
+    }
+    return;
+  }
+
+  g.classed('isolated', true);
+
+  // Filter segments - use style instead of attr for opacity
+  const allSegments = g.selectAll('.segment');
+  console.log('Total segments found:', allSegments.size());
+
+  let matchCount = 0;
+  let noMatchCount = 0;
+
+  allSegments.each(function() {
+    const d = d3.select(this).datum();
+    if (!d) return;
+
+    const matches = segmentMatchesFilters(d);
+    if (matches) {
+      matchCount++;
+      d3.select(this).style('opacity', 1).style('pointer-events', 'all');
+    } else {
+      noMatchCount++;
+      d3.select(this).style('opacity', DIM_OPACITY).style('pointer-events', 'none');
+    }
+  });
+
+  console.log(`Segments: ${matchCount} visible, ${noMatchCount} dimmed`);
+
+  g.selectAll('.hit').each(function() {
+    const d = d3.select(this).datum();
+    if (!d) return;
+
+    const matches = segmentMatchesFilters(d);
+    d3.select(this)
+      .style('opacity', matches ? 1 : 0)
+      .style('pointer-events', matches ? 'all' : 'none');
+  });
+
+  // Dim year axis elements if year filter is active
+  const yearFilterActive = allYears.length > 0 &&
+                           (filterState.yearMin !== allYears[0] || filterState.yearMax !== allYears[allYears.length - 1]);
+  if (handles.yearAxisElements && yearFilterActive) {
+    handles.yearAxisElements.each(function() {
+      const year = +d3.select(this).attr('data-year');
+      const inRange = year >= filterState.yearMin && year <= filterState.yearMax;
+      d3.select(this).style('opacity', inRange ? 1 : DIM_LABEL_OPACITY);
+    });
+  } else if (handles.yearAxisElements) {
+    handles.yearAxisElements.style('opacity', null);
+  }
+}
+
 /* Render */
 function render(size="full"){
   const dim = size==="full" ? fullSize : previewSize;
@@ -192,9 +377,49 @@ function render(size="full"){
   g.append("circle").attr("class","map-mask-stroke").attr("r",innerRadius).attr("cx",0).attr("cy",0);
 
   d3.csv("anthromes_counts.csv", d3.autoType).then(data=>{
-    data.forEach(d=>{ d.year=+d.year; d.count=+d.count; });
+    data.forEach(d=>{ d.year=+d.year; d.count=+d.count; d.anthrome=+d.anthrome; });
 
-    const years = Array.from(new Set(data.map(d=>d.year))).sort((a,b)=>a-b);
+    // Extract unique years and anthrome codes from data
+    allYears = Array.from(new Set(data.map(d=>d.year))).sort((a,b)=>a-b);
+    allAnthromeCodes = Array.from(new Set(data.map(d=>d.anthrome))).sort((a,b)=>a-b);
+
+    // Build mappings from data
+    data.forEach(d => {
+      if (!anthromeCodeToLabel[d.anthrome]) {
+        anthromeCodeToLabel[d.anthrome] = d.label;
+        labelToAnthromeCode[d.label] = d.anthrome;
+      }
+    });
+
+    // Initialize sliders with actual data ranges
+    const yearMin = allYears[0];
+    const yearMax = allYears[allYears.length - 1];
+    const anthromeMin = allAnthromeCodes[0];
+    const anthromeMax = allAnthromeCodes[allAnthromeCodes.length - 1];
+
+    document.getElementById('yearMinSlider').min = yearMin;
+    document.getElementById('yearMinSlider').max = yearMax;
+    document.getElementById('yearMinSlider').value = yearMin;
+    document.getElementById('yearMaxSlider').min = yearMin;
+    document.getElementById('yearMaxSlider').max = yearMax;
+    document.getElementById('yearMaxSlider').value = yearMax;
+
+    document.getElementById('anthromeMinSlider').min = anthromeMin;
+    document.getElementById('anthromeMinSlider').max = anthromeMax;
+    document.getElementById('anthromeMinSlider').value = anthromeMin;
+    document.getElementById('anthromeMaxSlider').min = anthromeMin;
+    document.getElementById('anthromeMaxSlider').max = anthromeMax;
+    document.getElementById('anthromeMaxSlider').value = anthromeMax;
+
+    // Update filter state defaults
+    filterState.yearMin = yearMin;
+    filterState.yearMax = yearMax;
+    filterState.anthromeMin = anthromeMin;
+    filterState.anthromeMax = anthromeMax;
+
+    readFilterUI(); // Initialize labels
+
+    const years = allYears;
     const labels = Object.keys(colorMapping);
 
     const totalsByYear = d3.rollup(data, v=> d3.sum(v, d=>d.count), d=>d.year);
@@ -240,7 +465,7 @@ function render(size="full"){
 
     const segData = series => series.map((seg,i)=> ({ seg, year: dataByYear[i][0], label: series.key }));
 
-    layers.selectAll("path.segment")
+    const segments = layers.selectAll("path.segment")
       .data(d => segData(d), d=> `${d.year}__${d.label}`)
       .join("path")
       .attr("class","segment")
@@ -270,10 +495,11 @@ function render(size="full"){
 
     // Value labels (8 rays)
     const rays = d3.range(0, 2*Math.PI, 2*Math.PI/8);
+    const valueLabels = g.append("g").attr("class","value-labels");
     ticks.forEach(t=>{
       const R = rScale(t);
       rays.forEach(a=>{
-        g.append("text")
+        valueLabels.append("text")
           .attr("class","value-label")
           .attr("x", Math.cos(a)*R)
           .attr("y", Math.sin(a)*R)
@@ -289,9 +515,16 @@ function render(size="full"){
       const a = angle(year) + angle.bandwidth()/2 - Math.PI/2;
       const x1 = Math.cos(a)*(innerRadius-6), y1 = Math.sin(a)*(innerRadius-6);
       const x2 = Math.cos(a)*innerRadius,     y2 = Math.sin(a)*innerRadius;
-      yearAxis.append("line").attr("x1",x1).attr("y1",y1).attr("x2",x2).attr("y2",y2);
+      yearAxis.append("line")
+        .attr("x1",x1).attr("y1",y1).attr("x2",x2).attr("y2",y2)
+        .attr("data-year", year);
       const lx = Math.cos(a)*(innerRadius-20), ly = Math.sin(a)*(innerRadius-20);
-      yearAxis.append("text").attr("x",lx).attr("y",ly).attr("text-anchor","middle").attr("alignment-baseline","middle").text(year);
+      yearAxis.append("text")
+        .attr("x",lx).attr("y",ly)
+        .attr("text-anchor","middle")
+        .attr("alignment-baseline","middle")
+        .attr("data-year", year)
+        .text(year);
     });
 
     // Legend: two columns
@@ -310,6 +543,15 @@ function render(size="full"){
       item.append("rect").attr("x",0).attr("y",4).attr("width",sw).attr("height",sw).attr("rx",4).attr("ry",4).attr("fill",color);
       item.append("text").attr("x",sw+10).attr("y",18).attr("class","legend-text").text(label);
     });
+
+    // Store handles for filtering
+    handles.segments = segments;
+    handles.hits = hits;
+    handles.yearAxisElements = yearAxis.selectAll('[data-year]');
+    handles.valueLabels = valueLabels.selectAll('.value-label');
+
+    // Apply current filter state
+    applyFilters();
   });
 }
 
@@ -317,7 +559,68 @@ render();
 
 /* UI */
 document.getElementById('menuToggle').addEventListener('click', ()=> document.getElementById('controls').classList.toggle('hidden'));
-window.addEventListener('keydown', (e)=>{ if(e.key.toLowerCase()==='m'){ document.getElementById('controls').classList.toggle('hidden'); } });
+window.addEventListener('keydown', (e)=>{
+  if(e.key.toLowerCase()==='m'){
+    document.getElementById('controls').classList.toggle('hidden');
+  }
+  if(e.key === 'Escape'){
+    // Reset filters to data defaults
+    if (allAnthromeCodes.length > 0 && allYears.length > 0) {
+      document.getElementById('anthromeMinSlider').value = allAnthromeCodes[0];
+      document.getElementById('anthromeMaxSlider').value = allAnthromeCodes[allAnthromeCodes.length - 1];
+      document.getElementById('yearMinSlider').value = allYears[0];
+      document.getElementById('yearMaxSlider').value = allYears[allYears.length - 1];
+      applyFilters();
+    }
+  }
+});
+
+// Helper function to snap slider to nearest valid value
+function snapToNearestValue(value, validValues) {
+  let nearest = validValues[0];
+  let minDiff = Math.abs(value - nearest);
+  for (let v of validValues) {
+    const diff = Math.abs(value - v);
+    if (diff < minDiff) {
+      minDiff = diff;
+      nearest = v;
+    }
+  }
+  return nearest;
+}
+
+// Slider event listeners for real-time label updates and snapping
+document.getElementById('anthromeMinSlider').addEventListener('input', function(e) {
+  if (allAnthromeCodes.length > 0) {
+    const snapped = snapToNearestValue(+e.target.value, allAnthromeCodes);
+    e.target.value = snapped;
+  }
+  readFilterUI();
+});
+
+document.getElementById('anthromeMaxSlider').addEventListener('input', function(e) {
+  if (allAnthromeCodes.length > 0) {
+    const snapped = snapToNearestValue(+e.target.value, allAnthromeCodes);
+    e.target.value = snapped;
+  }
+  readFilterUI();
+});
+
+document.getElementById('yearMinSlider').addEventListener('input', function(e) {
+  if (allYears.length > 0) {
+    const snapped = snapToNearestValue(+e.target.value, allYears);
+    e.target.value = snapped;
+  }
+  readFilterUI();
+});
+
+document.getElementById('yearMaxSlider').addEventListener('input', function(e) {
+  if (allYears.length > 0) {
+    const snapped = snapToNearestValue(+e.target.value, allYears);
+    e.target.value = snapped;
+  }
+  readFilterUI();
+});
 
 d3.select("#viewMode").on("change", function(){ currentSize = this.value; render(currentSize); });
 d3.select("#export").on("click", function(){
@@ -327,6 +630,17 @@ d3.select("#export").on("click", function(){
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a"); link.href=url; link.download=`radial_chart_${currentSize}.svg`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
   URL.revokeObjectURL(url);
+});
+
+document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
+document.getElementById('clearFiltersBtn').addEventListener('click', ()=>{
+  if (allAnthromeCodes.length > 0 && allYears.length > 0) {
+    document.getElementById('anthromeMinSlider').value = allAnthromeCodes[0];
+    document.getElementById('anthromeMaxSlider').value = allAnthromeCodes[allAnthromeCodes.length - 1];
+    document.getElementById('yearMinSlider').value = allYears[0];
+    document.getElementById('yearMaxSlider').value = allYears[allYears.length - 1];
+    applyFilters();
+  }
 });
 </script>
 </body>
