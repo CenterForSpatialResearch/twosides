@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Radial Tree – Circle Filter (80px Collapsed, Reliable Stroke+Caption)</title>
+  <title>BIOMES</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
@@ -11,7 +11,7 @@
       --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0; --panel:#141226; --accent:#7ad7ff;
       --chipBorder:rgba(255,255,255,.25);
       --shadow:0 10px 30px rgba(0,0,0,.35);
-      --R: 80px;          /* collapsed radius (now 80px) */
+      --R: 80px;          /* collapsed radius */
       --circlePad: 22px;  /* inner padding */
     }
     html,body{height:100%;}
@@ -25,7 +25,7 @@
       opacity:.9; user-select:none; z-index: 4;
     }
 
-    /* Settings (unchanged) */
+    /* Settings */
     #menuToggle{
       position: fixed; top: 12px; right: 12px; z-index: 8;
       background: var(--panel); border:1px solid rgba(255,255,255,.14);
@@ -68,16 +68,51 @@
     .bar.is-hover, .usgb.is-hover, .western.is-hover{ filter:drop-shadow(0 0 6px rgba(255,255,255,.7)); }
     .bar.is-selected, .usgb.is-selected, .western.is-selected{ filter:drop-shadow(0 0 10px rgba(255,255,255,.9)); }
 
-    /* Tooltip */
+    /* Tooltip — refined */
     #tooltip{
       position:fixed; left:0; top:0; pointer-events:none; z-index:10;
       background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.14);
-      border-radius:12px; box-shadow: var(--shadow); max-width:380px; min-width:240px;
-      padding:12px 14px; line-height:1.45;
+      border-radius:12px; box-shadow: var(--shadow); max-width:380px; min-width:260px;
+      padding:12px 14px; line-height:1.45; font-family:"Pelikan",system-ui,sans-serif;
     }
     #tooltip.hidden{ display:none; }
+    #tooltip .tip-header{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; }
+    #tooltip .h-left{ display:flex; gap:10px; align-items:flex-start; }
+    #tooltip .swatch{ width:12px; height:12px; border-radius:50%; border:1px solid rgba(255,255,255,.45); margin-top:4px; }
+    #tooltip .title{ font-size:16px; font-weight:700; letter-spacing:.02em; }
+    #tooltip .subtitle{ font-size:12px; color:var(--muted); margin-top:2px; }
 
-    /* ===================== Circular Filter ===================== */
+    /* Mini glyph (lineage facsimile) */
+    #tooltip .mini-glyph{ width:110px; height:110px; flex:0 0 auto; }
+    #tooltip .mini-glyph path{ vector-effect: non-scaling-stroke; fill:none; stroke-width:1.2; }
+
+    #tooltip .summary{ font-size:13px; margin:8px 0 6px; }
+    #tooltip .summary b{ font-weight:700; }
+
+    /* Key/values (simplified) */
+    #tooltip .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 12px; margin-top:6px; font-size:12px; border-top:1px dashed rgba(255,255,255,.12); padding-top:8px; }
+    #tooltip .kv .k{ color:var(--muted); }
+
+    /* Actions */
+    #tooltip .actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+    #tooltip button{ pointer-events:auto; background:#1d1a33; border:1px solid rgba(255,255,255,.12); color:var(--fg); border-radius:8px; padding:6px 8px; font-size:12px; cursor:pointer; }
+
+    /* Tooltip tick meter (one line; simple fill) */
+    #tooltip .genome-meter{ display:flex; align-items:center; gap:8px; margin-top:6px; }
+    #tooltip .genome-meter .ticks{ display:flex; gap:2px; align-items:flex-end; flex-wrap:nowrap; }
+    #tooltip .genome-meter .tick{
+      width:6px; height:12px;
+      background: transparent;
+      border:1px solid rgba(255,255,255,.25);
+      border-radius:2px;
+    }
+    #tooltip .genome-meter .tick.filled{
+      background: var(--tickColor,#fff);
+      border-color: transparent;
+    }
+    #tooltip .genome-meter .num{ font-size:12px; color:var(--muted); white-space:nowrap; }
+
+    /* =============== Circular Filter =============== */
     #filterCircle{
       position: fixed;
       right: 24px; bottom: 24px;
@@ -87,7 +122,7 @@
       transform-origin: bottom right;
       pointer-events: auto;
     }
-    /* Layering so stroke/caption are ALWAYS visible */
+    /* Stroke/caption always on top */
     #ringSvg{ position:absolute; inset:0; overflow:visible; pointer-events:none; z-index: 2; }
     .filter-ring{ fill:none; stroke:#fff; stroke-width:3px; }
     .filter-caption{ fill:#cfd3e0; font-size:12px; letter-spacing:.08em; text-transform:uppercase; dominant-baseline: middle; }
@@ -96,14 +131,14 @@
       position:absolute; inset:0;
       display:flex; align-items:center; justify-content:center;
       border-radius:50%;
-      background: transparent; /* collapsed: no translucent bg */
+      background: transparent; /* collapsed transparent */
       box-shadow: var(--shadow);
       padding: var(--circlePad);
-      z-index: 1; /* content below ringSvg so rim shows */
+      z-index: 1; /* under ringSvg */
     }
-    #filterCircle.expanded .content{ background: var(--panel); } /* solid bg for legibility */
+    #filterCircle.expanded .content{ background: var(--panel); } /* expanded = solid background */
 
-    /* Collapsed: FILTER label + chevron only */
+    /* Collapsed: FILTER + chevron only */
     .fc-collapsed{ display:flex; align-items:center; gap:8px; }
     .fc-collapsed .label{ font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
     .fc-collapsed .chev{ border:1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color:var(--fg);
@@ -114,15 +149,13 @@
     #filterCircle.expanded .fc-expanded{ display:flex; }
     #filterCircle.expanded .fc-collapsed{ display:none; }
 
-    /* Sections measured container (header included) */
     .sections{
       margin:auto;
       width: 86%; height: 86%;
       display:flex; flex-direction:column; gap:12px;
       align-items:center; justify-content:center; text-align:center;
     }
-
-    .fc-head{ width:75%; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .fc-head{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .fc-title{ font-size:11px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
     .actions{ display:flex; gap:8px; }
     .btn{
@@ -133,7 +166,6 @@
       border:1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color:var(--fg);
       width:34px; height:28px; border-radius:10px; cursor:pointer;
     }
-
     .section{ width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; }
     .section h3{ margin:0; font-size:11px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
 
@@ -184,12 +216,12 @@
 
   <!-- CIRCULAR FILTER -->
   <div id="filterCircle" aria-live="polite">
-    <!-- Stroke/caption above content (z-index:2) -->
-    <svg id="ringSvg" viewBox="-400 -400 800 800" aria-hidden="true">
+    <svg id="ringSvg" viewBox="-160 -160 320 320" aria-hidden="true">
       <defs>
-        <path id="fc-arc-right" d="M 0 -360 A 360 360 0 0 1 0 360" />
+        <!-- Inset caption path (updated dynamically) -->
+        <path id="fc-arc-right" d="M 0 -60 A 60 60 0 0 1 0 60" />
       </defs>
-      <circle id="fc-ring" class="filter-ring" cx="0" cy="0" r="380" />
+      <circle id="fc-ring" class="filter-ring" cx="0" cy="0" r="60" />
       <text id="fc-caption" class="filter-caption" style="opacity:0;">
         <textPath href="#fc-arc-right" xlink:href="#fc-arc-right" startOffset="50%" text-anchor="middle">
           AN EXTENSIVE HUMAN MICROBIOME
@@ -197,15 +229,14 @@
       </text>
     </svg>
 
-    <!-- Content below (z-index:1) -->
     <div class="content">
-      <!-- Collapsed: FILTER + chevron -->
+      <!-- Collapsed -->
       <div class="fc-collapsed" aria-hidden="false">
         <span class="label">FILTER</span>
         <button id="expandCircle" class="chev" title="Expand">▾</button>
       </div>
 
-      <!-- Expanded UI -->
+      <!-- Expanded -->
       <div class="fc-expanded" aria-hidden="true">
         <div class="sections">
           <div class="fc-head">
@@ -224,7 +255,7 @@
 
           <section class="section" aria-labelledby="sec-geo">
             <h3 id="sec-geo">Geography</h3>
-            <div role="radiogroup" aria-label="Westernized">
+            <div role="radiogroup" aria-label="Geography">
               <label class="pill"><input type="radio" name="western" value="any" checked/> Any</label>
               <label class="pill"><input type="radio" name="western" value="western"/> Western</label>
               <label class="pill"><input type="radio" name="western" value="nonwestern"/> Non-Western</label>
@@ -265,11 +296,14 @@ const tree = d3.cluster();
 const tooltip = d3.select('#tooltip');
 let pinnedDatum = null;
 let selectedLeafId = null;
+let highlightedLeaf = null; // NEW: for highlight state
+let MAX_GENOME_COUNT = 1; // global max across leaves (set during render)
+let TICK_DENOM = 1;
 
 const DIM_OPACITY = 0.02, DIM_LABEL_OPACITY = 0.10;
 let handles = { root: null, selections: {} };
 
-/* ===== Color mapping ===== */
+/* ===== Colors ===== */
 const colorMapping = {
   "Actinobacteria": "#1385eb","Bacteroidetes": "#b1f16e","Candidatus_Gracilibacteria": "#eb9c13",
   "Candidatus_Melainabacteria": "#ebe013","Candidatus_Saccharibacteria": "#6eeb13","Chlamydiae": "#eb139c",
@@ -340,6 +374,7 @@ function westernLabel(meta){
 function isWesternNo(meta){ return parseWestern(meta) === 'nonwestern'; }
 function isWesternYes(meta){ return parseWestern(meta) === 'western'; }
 
+/* Taxonomy helpers */
 function getPhylum(d){
   if (d?.data?.phylum) return d.data.phylum;
   const ancestor = d.ancestors().find(n => n.depth === 2);
@@ -351,47 +386,125 @@ function getPhylum(d){
 }
 function prettyName(d){ const raw = (d?.data?.name||'').split("__").pop(); return raw ? raw.replace(/_/g,' ') : '(unnamed)'; }
 function lineage(d){
-  return d.ancestors().slice(0,-1).map(a=> (a.data.name||'').split("__").pop()?.replace(/_/g,' ') || '').filter(Boolean).reverse().join(' › ');
+  return d.ancestors().slice(0,-1).map(a=> (a.data.name||'').split('__').pop()?.replace(/_/g,' ') || '').filter(Boolean).reverse().join(' › ');
 }
 function safe(val, fb='—'){ return (val!==undefined && val!==null && val!=='' ? val : fb); }
 function sgbLabel(d){ const nm = (d?.data?.name||'').split('__').pop() || ''; const m = nm.match(/SGB[_\s-]?(\d+)/i); return m ? `SGB ${m[1]}` : prettyName(d); }
+
+/* ===== Mini-glyph & genomes ticks ===== */
+function glyphPathFor(d){
+  const chain = d.ancestors().reverse(); // root..leaf
+  const yVals = chain.map(n => n.y);
+  const yMin = Math.min(...yVals), yMax = Math.max(...yVals);
+  const rMin = 12, rMax = 50;
+  const line = d3.lineRadial()
+    .curve(d3.curveBundle.beta(0.85))
+    .angle(n => n.x)
+    .radius(n => (yMax===yMin ? (rMin+rMax)/2 : rMin + (n.y - yMin)/(yMax - yMin) * (rMax - rMin)));
+  return line(chain);
+}
+// Builds a fixed row of ticks; we fill a subset after insertion
+function genomesTicksHTML(count, color){
+  const maxTicks = 20; // one clean row
+  let bars = '';
+  for (let i = 0; i < maxTicks; i++) bars += '<span class="tick"></span>';
+  return `
+    <div class="genome-meter" data-count="${Math.max(0, count || 0)}" data-color="${color}" data-maxticks="${maxTicks}">
+      <div class="ticks">${bars}</div>
+      <div class="num"><span class="val">0</span> genomes identified</div>
+    </div>
+  `;
+}
+
+// After the tooltip’s HTML is injected, call this to fill ticks linearly and count up
+function initGenomeMeter(){
+  const meter = document.querySelector('#tooltip .genome-meter');
+  if (!meter) return;
+
+  const count = +meter.getAttribute('data-count') || 0;
+  const color = meter.getAttribute('data-color') || '#fff';
+  const maxTicks = +(meter.getAttribute('data-maxticks') || 20);
+  const tickEls = Array.from(meter.querySelectorAll('.tick'));
+  const valEl = meter.querySelector('.num .val');
+
+  // Linear to P95 so low/medium values still fill visibly
+  const denom = Math.max(1, TICK_DENOM);
+  const fraction = Math.min(1, count / denom);
+  const targetTicks = Math.max( (count > 0 ? 1 : 0), fraction * maxTicks );
+  const ticksInt = Math.min(maxTicks, Math.round(targetTicks));
+
+  // phylum color for filled ticks
+  tickEls.forEach(t => t.style.setProperty('--tickColor', color));
+
+  // ease-out animation for both ticks + number
+  const dur = 500, t0 = performance.now();
+  function step(now){
+    const p = Math.min(1, (now - t0) / dur);
+    const k = p * (2 - p); // easeOutQuad
+    const n = Math.round(k * ticksInt);
+    tickEls.forEach((t, i) => t.classList.toggle('filled', i < n));
+    valEl.textContent = Math.round(k * count).toLocaleString();
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/* ===== Tooltip builders (simplified content) ===== */
 function buildSummaryHTML(d){
   const phylum = getPhylum(d).replace(/_/g,' ');
   const meta = d?.data?.metadata || {};
   const rec = +meta["#_Reconstructed_genomes"] || 0;
   const loc = locationsFromMeta(meta);
-  const u = parseUSGB(meta);
-  const novelty = (u === 'Yes') ? 'was <b>previously unknown</b>' : 'was <b>previously known</b>';
   const sgb = sgbLabel(d);
-  return `<div class="summary"><b>${sgb}</b> is composed of <b>${rec.toLocaleString()}</b> unique genomes, all within the <b>${phylum}</b> phylum. It was identified in samples from <b>${loc}</b> and, prior to this study, ${novelty}.</div>`;
+  return `<div class="summary"><b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> genomes within the <b>${phylum}</b> phylum, identified from <b>${loc}</b>.</div>`;
 }
 function buildTooltipHTML(d){
   const phylum = getPhylum(d);
   const meta = d?.data?.metadata || {};
   const rec = +meta["#_Reconstructed_genomes"] || 0;
-  const uSGB = parseUSGB(meta) ?? '—';
-  const west = westernLabel(meta);
+  const status = (parseUSGB(meta) === 'Yes') ? 'Unknown' : '—';
+  const geo = (parseWestern(meta) === 'western') ? 'Western' : (parseWestern(meta) === 'nonwestern' ? 'Non-Western' : '—');
   const leaf = !d.children;
+  const color = colorMapping[phylum] || colorMapping.Other;
+  const glyphStroke = color;
+
+  /* Mini-glyph SVG */
+  const glyphSVG = `
+    <svg class="mini-glyph" viewBox="-60 -60 120 120" aria-hidden="true">
+      <path d="${glyphPathFor(d)}" stroke="${glyphStroke}" />
+    </svg>
+  `;
+
+  /* Genomes tick meter */
+  const ticks = genomesTicksHTML(rec, color);
+
   return `
     <div class="tip-header">
-      <span class="swatch" style="background:${colorMapping[phylum]||colorMapping.Other}"></span>
-      <div>
-        <div class="title">${sgbLabel(d)}</div>
-        <div class="subtitle">${phylum.replace(/_/g,' ')}${lineage(d) ? ' • ' + lineage(d) : ''}</div>
+      <div class="h-left">
+        <span class="swatch" style="background:${color}"></span>
+        <div>
+          <div class="title">${sgbLabel(d)}</div>
+          <div class="subtitle">${phylum.replace(/_/g,' ')}${lineage(d) ? ' • ' + lineage(d) : ''}</div>
+        </div>
       </div>
+      ${glyphSVG}
     </div>
+
     ${buildSummaryHTML(d)}
+    ${ticks}
+
     <div class="kv">
-      <div class="k">Node type</div><div>${leaf? 'Leaf' : 'Internal'}</div>
-      <div class="k">Reconstructed genomes</div><div>${rec.toLocaleString()}</div>
-      <div class="k">Unknown</div><div>${safe(uSGB)}</div>
-      <div class="k">Westernized</div><div>${safe(west)}</div>
+      <div class="k">Status</div><div>${safe(status)}</div>
+      <div class="k">Geography</div><div>${safe(geo)}</div>
     </div>
-    ${leaf ? `<div class="actions"><button data-act="isolate">Isolate leaf</button><button data-act="copy-name">Copy name</button></div>`:''}
+
+    ${leaf ? `<div class="actions">
+      <button data-act="highlight">Highlight this species</button>
+    </div>`:''}
   `;
 }
 
-/* Tooltip behavior */
+/* ===== Tooltip behavior ===== */
 const tip = document.getElementById('tooltip');
 function positionTooltip(evt){
   const pad = 14, rect = tip.getBoundingClientRect();
@@ -402,12 +515,39 @@ function positionTooltip(evt){
   y = Math.min(Math.max(8, y), window.innerHeight - th - 8);
   tip.style.left = x+'px'; tip.style.top = y+'px';
 }
-function showTooltip(d,evt){ tip.innerHTML = buildTooltipHTML(d); tip.classList.remove('hidden'); positionTooltip(evt); }
+function showTooltip(d,evt){ tip.innerHTML = buildTooltipHTML(d); tip.classList.remove('hidden'); positionTooltip(evt); initGenomeMeter(); }
 function hideTooltip(){ if (!pinnedDatum){ tip.classList.add('hidden'); tip.classList.remove('pinned'); } }
 function pinTooltip(d){ pinnedDatum = d; tip.classList.add('pinned'); }
 function unpinTooltip(){ pinnedDatum = null; hideTooltip(); }
 function clearSelected(){ selectedLeafId = null; g.selectAll('.is-selected').classed('is-selected', false); }
 function toggleClassForLeaf(id, cls, on=true){ if (id==null) return; g.selectAll(`[data-leaf-id="${id}"]`).classed(cls, on); }
+
+
+/* Highlight logic (replaces "isolate") */
+function clearHighlight(){
+  highlightedLeaf = null;
+  g.classed('isolated', false);
+  g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+    .attr('opacity', null).style('pointer-events', null);
+}
+function highlightLeaf(d){
+  highlightedLeaf = d;
+  const keep = new Set(d.ancestors());
+  keep.add(d);
+  g.classed('isolated', true);
+  g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+    .attr('opacity', datum => {
+      // datum may be a link {source,target} or a node/leaf
+      const nd = datum?.target ? datum.target : datum;
+      return keep.has(nd) ? 1 : DIM_OPACITY;
+    })
+    .style('pointer-events', datum => {
+      const nd = datum?.target ? datum.target : datum;
+      return keep.has(nd) ? null : 'none';
+    });
+}
+
+/* Attach handlers */
 function attachTooltipHandlers(selection, accessor=(d)=>d){
   selection.classed('hover-target', true)
     .on('mousemove', function(evt,d){ if (!pinnedDatum){ const datum = accessor(d); if (tip.classList.contains('hidden')) showTooltip(datum, evt); else positionTooltip(evt);} })
@@ -422,117 +562,38 @@ function attachTooltipHandlers(selection, accessor=(d)=>d){
     });
 }
 
-/* ===== Circular Filter sizing & behavior ===== */
-const filterCircle = document.getElementById('filterCircle');
-const ringSvg = document.getElementById('ringSvg');
-const ring = document.getElementById('fc-ring');
-const caption = document.getElementById('fc-caption');
-const arcRight = document.getElementById('fc-arc-right');
-
-const COLLAPSED_R = 80;          // smaller collapsed radius
-const IDEAL_EXPANDED_R = 420;    // keep expanded size
-const VIEW_MARGIN = 28;
-
-function maxRadiusForViewport(){
-  const vw = Math.max(document.documentElement.clientWidth,  window.innerWidth  || 0);
-  const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
-  return Math.floor(Math.min(vw, vh)/2) - VIEW_MARGIN;
-}
-function setCircleRadius(r){
-  // 0) Update element size explicitly (in addition to the CSS var)
-  filterCircle.style.setProperty('--R', r + 'px');
-  filterCircle.style.width  = (r * 2) + 'px';
-  filterCircle.style.height = (r * 2) + 'px';
-
-  // 1) Ring hugs the edge (no outer space)
-  const STROKE = 3;           // keep in sync with .filter-ring { stroke-width:3px; }
-  const CAPTION_PAD = 22;     // distance from rim to caption baseline
-  const rim = Math.max(12, r - STROKE/2);
-  ring.setAttribute('r', rim);
-
-  // 2) Coordinate system = exact circle (no extra padding)
-  ringSvg.setAttribute('viewBox', `${-r} ${-r} ${2*r} ${2*r}`);
-
-  // 3) Right-side caption path, comfortably inside the rim
-  const inset = Math.max(10, r - STROKE - CAPTION_PAD);
-  arcRight.setAttribute('d', `M 0 -${inset} A ${inset} ${inset} 0 0 1 0 ${inset}`);
-}
-function ensureCircleFits(){
-  if (!filterCircle.classList.contains('expanded')) return;
-  const sections = document.querySelector('#filterCircle .sections');
-  if (!sections) return;
-
-  const rPx = parseInt(getComputedStyle(filterCircle).getPropertyValue('--R')) || IDEAL_EXPANDED_R;
-  const innerDiameter = (rPx * 2) * 0.86;
-  const sRect = sections.getBoundingClientRect();
-  const tooWide = sRect.width > innerDiameter;
-  const tooHigh = sRect.height > innerDiameter;
-
-  if (tooWide || tooHigh){
-    const cap = maxRadiusForViewport();
-    if (rPx + 30 <= cap){
-      setCircleRadius(rPx + 30);
-      requestAnimationFrame(ensureCircleFits);
-      return;
-    }
-    // Tighten UI at cap
-    filterCircle.classList.add('compact');
-    requestAnimationFrame(()=>{
-      const r2 = parseInt(getComputedStyle(filterCircle).getPropertyValue('--R')) || rPx;
-      const inner2 = (r2 * 2) * 0.84;
-      const rect2 = sections.getBoundingClientRect();
-      if (rect2.width > inner2 || rect2.height > inner2){
-        const currentPad = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--circlePad')) || 22;
-        if (currentPad > 16){
-          document.documentElement.style.setProperty('--circlePad', (currentPad - 4) + 'px');
-          requestAnimationFrame(ensureCircleFits);
-        }
-      }
-    });
-  } else {
-    filterCircle.classList.remove('compact');
+/* Tooltip action buttons (delegate) */
+tooltip.on('click', (e)=>{
+  const btn = e.target.closest('button');
+  if (!btn || !pinnedDatum) return;
+  const act = btn.getAttribute('data-act');
+  if (act==='highlight'){
+    highlightLeaf(pinnedDatum);
+    btn.textContent = 'Highlighted';
+    setTimeout(()=>{ btn.textContent = 'Highlight this species'; }, 1200);
   }
-}
-function expandCircle(){
-  filterCircle.classList.add('expanded');
-  const startR = Math.min(IDEAL_EXPANDED_R, maxRadiusForViewport());
-  setCircleRadius(startR);
-  caption.style.opacity = 1;                 // show caption
-  document.querySelector('.fc-expanded').setAttribute('aria-hidden','false');
-  document.querySelector('.fc-collapsed').setAttribute('aria-hidden','true');
-  requestAnimationFrame(ensureCircleFits);
-}
-function collapseCircle(){
-  filterCircle.classList.remove('expanded', 'compact');
-  setCircleRadius(COLLAPSED_R);
-  caption.style.opacity = 0;                 // hide caption
-  document.querySelector('.fc-expanded').setAttribute('aria-hidden','true');
-  document.querySelector('.fc-collapsed').setAttribute('aria-hidden','false');
-}
+});
 
-/* Click-away collapses the circle */
+/* Global reset (click away / Esc) */
 window.addEventListener('click', (e)=>{
   const t = e.target;
   if (t.closest('#filterCircle') || t.closest('#settings') || t.closest('#tooltip') || t.closest('#menuToggle')) return;
-  if (filterCircle.classList.contains('expanded')) collapseCircle();
-  unpinTooltip(); clearSelected();
+  unpinTooltip();
+  clearSelected();
+  clearHighlight();
 });
 window.addEventListener('keydown', (e)=>{
-  if (e.key==='Escape'){ if (filterCircle.classList.contains('expanded')) collapseCircle(); g.classed('isolated', false); g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null).style('pointer-events', null); unpinTooltip(); clearSelected(); }
-});
-window.addEventListener('resize', ()=>{
-  if (!filterCircle.classList.contains('expanded')) return;
-  const rPx = parseInt(getComputedStyle(filterCircle).getPropertyValue('--R')) || IDEAL_EXPANDED_R;
-  const cap = maxRadiusForViewport();
-  if (rPx > cap) setCircleRadius(cap);
-  requestAnimationFrame(ensureCircleFits);
+  if (e.key==='Escape'){
+    g.classed('isolated', false);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null).style('pointer-events', null);
+    unpinTooltip(); clearSelected(); clearHighlight();
+  }
+  if (e.key.toLowerCase()==='m'){
+    document.getElementById('settings').classList.toggle('open');
+  }
 });
 
-/* Buttons */
-document.getElementById('expandCircle').addEventListener('click', (e)=>{ e.stopPropagation(); expandCircle(); });
-document.getElementById('collapseCircle').addEventListener('click', (e)=>{ e.stopPropagation(); collapseCircle(); });
-
-/* ===== Filters state/logic ===== */
+/* ===== Filters ===== */
 const filterState = { phyla: new Set(), unknown: false, western: 'any' };
 
 function leafMatchesFilters(leaf){
@@ -589,18 +650,111 @@ function applyFilters(){
   styleDim(selections.labels,     d => keep.has(d), true);
 }
 
-/* Helpers for taxonomy */
-function getPhylum(d){
-  if (d?.data?.phylum) return d.data.phylum;
-  const ancestor = d.ancestors().find(n => n.depth === 2);
-  if (ancestor){
-    const parts = (ancestor.data.name||'').split("__");
-    return parts.length>1 ? parts[1] : (ancestor.data.name||'Other');
+/* ===== Circular Filter sizing & behavior ===== */
+const filterCircle = document.getElementById('filterCircle');
+const ringSvg = document.getElementById('ringSvg');
+const ring = document.getElementById('fc-ring');
+const caption = document.getElementById('fc-caption');
+const arcRight = document.getElementById('fc-arc-right');
+
+const COLLAPSED_R = 80;
+const IDEAL_EXPANDED_R = 420;
+const VIEW_MARGIN = 28;
+
+function maxRadiusForViewport(){
+  const vw = Math.max(document.documentElement.clientWidth,  window.innerWidth  || 0);
+  const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
+  return Math.floor(Math.min(vw, vh)/2) - VIEW_MARGIN;
+}
+function setCircleRadius(r){
+  /* ensure element actually resizes */
+  filterCircle.style.setProperty('--R', r + 'px');
+  filterCircle.style.width  = (r * 2) + 'px';
+  filterCircle.style.height = (r * 2) + 'px';
+
+  /* ring hugs edge */
+  const STROKE = 3, CAPTION_PAD = 22;
+  const rim = Math.max(12, r - STROKE/2);
+  ring.setAttribute('r', rim);
+
+  /* exact viewBox (no outer space) */
+  ringSvg.setAttribute('viewBox', `${-r} ${-r} ${2*r} ${2*r}`);
+
+  /* caption path inset */
+  const inset = Math.max(10, r - STROKE - CAPTION_PAD);
+  arcRight.setAttribute('d', `M 0 -${inset} A ${inset} ${inset} 0 0 1 0 ${inset}`);
+}
+function ensureCircleFits(){
+  if (!filterCircle.classList.contains('expanded')) return;
+  const sections = document.querySelector('#filterCircle .sections');
+  if (!sections) return;
+
+  const styles = getComputedStyle(filterCircle);
+  const rPx = parseInt(styles.getPropertyValue('--R')) || IDEAL_EXPANDED_R;
+  const innerDiameter = (rPx * 2) * 0.86;
+  const sRect = sections.getBoundingClientRect();
+  const tooWide = sRect.width > innerDiameter;
+  const tooHigh = sRect.height > innerDiameter;
+
+  if (tooWide || tooHigh){
+    const cap = maxRadiusForViewport();
+    if (rPx + 30 <= cap){
+      setCircleRadius(rPx + 30);
+      requestAnimationFrame(ensureCircleFits);
+      return;
+    }
+    filterCircle.classList.add('compact');
+    requestAnimationFrame(()=>{
+      const currentPad = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--circlePad')) || 22;
+      if (currentPad > 16){
+        document.documentElement.style.setProperty('--circlePad', (currentPad - 4) + 'px');
+        requestAnimationFrame(ensureCircleFits);
+      }
+    });
+  } else {
+    filterCircle.classList.remove('compact');
   }
-  return 'Other';
+}
+function expandCircle(){
+  filterCircle.classList.add('expanded');
+  const startR = Math.min(IDEAL_EXPANDED_R, maxRadiusForViewport());
+  setCircleRadius(startR);
+  caption.style.opacity = 1;
+  document.querySelector('.fc-expanded').setAttribute('aria-hidden','false');
+  document.querySelector('.fc-collapsed').setAttribute('aria-hidden','true');
+  requestAnimationFrame(ensureCircleFits);
+}
+function collapseCircle(){
+  filterCircle.classList.remove('expanded', 'compact');
+  setCircleRadius(COLLAPSED_R);
+  caption.style.opacity = 0;
+  document.querySelector('.fc-expanded').setAttribute('aria-hidden','true');
+  document.querySelector('.fc-collapsed').setAttribute('aria-hidden','false');
 }
 
-/* ===== Render & build chips ===== */
+/* Click-away collapses the circle */
+window.addEventListener('click', (e)=>{
+  const t = e.target;
+  if (t.closest('#filterCircle') || t.closest('#settings') || t.closest('#tooltip') || t.closest('#menuToggle')) return;
+  if (filterCircle.classList.contains('expanded')) collapseCircle();
+  unpinTooltip(); clearSelected(); clearHighlight();
+});
+window.addEventListener('keydown', (e)=>{
+  if (e.key==='Escape'){ if (filterCircle.classList.contains('expanded')) collapseCircle(); g.classed('isolated', false); g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null).style('pointer-events', null); unpinTooltip(); clearSelected(); clearHighlight(); }
+});
+window.addEventListener('resize', ()=>{
+  if (!filterCircle.classList.contains('expanded')) return;
+  const rPx = parseInt(getComputedStyle(filterCircle).getPropertyValue('--R')) || IDEAL_EXPANDED_R;
+  const cap = maxRadiusForViewport();
+  if (rPx > cap) setCircleRadius(cap);
+  requestAnimationFrame(ensureCircleFits);
+});
+
+/* Buttons */
+document.getElementById('expandCircle').addEventListener('click', (e)=>{ e.stopPropagation(); expandCircle(); });
+document.getElementById('collapseCircle').addEventListener('click', (e)=>{ e.stopPropagation(); collapseCircle(); });
+
+/* ===== Render & chips ===== */
 function render(size = 'full'){
   const dim = size==='full' ? fullSize : previewSize;
   const radius = size==='full' ? fullRadius : previewRadius;
@@ -616,7 +770,7 @@ function render(size = 'full'){
 
     const leaves = root.leaves(); leaves.forEach((d,i)=> d.leafId = i);
 
-    // Build phylum chips
+    // Phylum chips
     const allPhy = Array.from(new Set(leaves.map(getPhylum))).sort((a,b)=>a.localeCompare(b));
     const chipsWrap = document.getElementById('phylumChips');
     chipsWrap.innerHTML = '';
@@ -637,13 +791,13 @@ function render(size = 'full'){
       chipsWrap.appendChild(btn);
     });
 
-    // Status / Geography
+    // Status / Geography bindings
     document.getElementById('unknownFilter').onchange = (e)=>{ filterState.unknown = e.target.checked; applyFilters(); };
     document.querySelectorAll('input[name="western"]').forEach(r=>{
       r.onchange = (e)=>{ if (e.target.checked){ filterState.western = e.target.value; applyFilters(); } };
     });
 
-    // Expanded actions
+    // Select/Clear
     function selectAll(){
       filterState.phyla = new Set(allPhy);
       document.querySelectorAll('#phylumChips .chip').forEach(c=> c.classList.add('active'));
@@ -659,21 +813,29 @@ function render(size = 'full'){
     document.getElementById('selectAllChips').onclick = selectAll;
     document.getElementById('clearChips').onclick     = clearAll;
 
-    /* ----- Viz drawing (as before) ----- */
+    /* ----- Viz drawing ----- */
     const angleWidth = 0.0005;
     const usgbInner = radius + 20;
     const usgbOuter = usgbInner + 24;
     const westInner = usgbOuter + 12;
     const westOuter = westInner + 24;
 
+    // bar metrics (once)
     const reconstructedCounts = leaves.map(d => d.data.metadata?.["#_Reconstructed_genomes"] || 0);
-    const maxRec = d3.max(reconstructedCounts);
+    const maxRec = d3.max(reconstructedCounts) || 0;
+    MAX_GENOME_COUNT = Math.max(1, maxRec);
+    // NEW: use 95th percentile as denominator so ticks fill meaningfully
+    const sortedCounts = reconstructedCounts.slice().sort((a,b)=>a-b);
+    const p95 = d3.quantileSorted(sortedCounts, 0.95) || maxRec;
+    TICK_DENOM = Math.max(1, Math.round(p95));
+
     const barMaxLength = radius * 0.05;
-    const barScale = d3.scaleSymlog().domain([0, maxRec]).range([0, barMaxLength]).constant(1);
+    const barScale = d3.scaleSymlog().domain([0, Math.max(1, maxRec)]).range([0, barMaxLength]).constant(1);
     const barInner = westOuter + 30;
 
     const line = d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(d=>d.x).radius(d=>d.y);
 
+    // SGB lines + hits
     const sgbGroup = g.append('g');
     const sgbLines = sgbGroup.selectAll('path.sgb-line').data(leaves).join('path')
       .attr('class','sgb-line').attr('data-leaf-id', d=>d.leafId)
@@ -695,6 +857,7 @@ function render(size = 'full'){
       });
     attachTooltipHandlers(sgbHits, d=>d);
 
+    // Regions + labels
     const regionsLayer = g.append('g');
     const labelsLayer  = g.append('g');
     let id = 0; const maxDepth = d3.max(root.descendants(), d=>d.depth);
@@ -726,27 +889,31 @@ function render(size = 'full'){
       });
     }
 
+    // Links + hits
     const linkData = root.links().filter(d=>!d.target.children);
     const links = g.append('g').selectAll('path.link').data(linkData).join('path')
       .attr('class','link').attr('data-leaf-id', d=>d.target.leafId)
-      .attr('d', d=> d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(p=>p.x).radius(p=>p.y)(d.target.ancestors().reverse()));
+      .attr('d', d=> line(d.target.ancestors().reverse()));
     const linkHits = g.append('g').selectAll('path.hit-link').data(linkData).join('path')
       .attr('class','hit').attr('data-leaf-id', d=>d.target.leafId)
-      .attr('d', d=> d3.lineRadial().curve(d3.curveBundle.beta(currentTension)).angle(p=>p.x).radius(p=>p.y)(d.target.ancestors().reverse()));
+      .attr('d', d=> line(d.target.ancestors().reverse()));
     attachTooltipHandlers(linkHits, d=>d.target);
 
+    // Nodes
     const nodes = g.append('g').selectAll('g.node').data(root.descendants()).join('g')
       .attr('class','node').attr('data-leaf-id', d=> d.children ? null : d.leafId)
       .attr('transform', d=>`rotate(${d.x*180/Math.PI-90}) translate(${d.y},0)`);
     nodes.append('circle').attr('r', d=> d.children? 0 : 2.5).attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
     attachTooltipHandlers(nodes, d=>d);
 
+    // Internal labels
     const internals = g.append('g').selectAll('text.internal-label').data(root.descendants().filter(d=>d.children)).join('text')
       .attr('class','internal-label')
       .attr('transform', d => `rotate(${d.x*180/Math.PI-90}) translate(${d.y},0)` + (d.x>=Math.PI? ' rotate(180)':''))
       .attr('dy','0.31em').attr('x', d=> d.x < Math.PI ? 6 : -6).attr('text-anchor', d=> d.x < Math.PI ? 'start' : 'end')
       .text(d=> (d.data.name||'').split('__').pop().replace(/_/g,' '));
 
+    // Bars
     const bars = g.append('g').selectAll('path.bar').data(leaves).join('path')
       .attr('class','bar').attr('data-leaf-id', d=>d.leafId)
       .attr('d', d => {
@@ -757,6 +924,7 @@ function render(size = 'full'){
       .attr('fill', d=> colorMapping[getPhylum(d)]||colorMapping.Other);
     attachTooltipHandlers(bars);
 
+    // Bar axis
     const axisGroup = g.append('g').attr('class','bar-axis');
     axisGroup.append('line').attr('x1',0).attr('y1',barInner).attr('x2',0).attr('y2',barInner+barMaxLength).attr('stroke','white');
     [1,10,100,500].filter(v=>v<=maxRec).forEach(t=>{
@@ -765,22 +933,24 @@ function render(size = 'full'){
       axisGroup.append('text').attr('x',10).attr('y',y).attr('dy','.32em').text(t);
     });
 
+    // Unknown & Western rings
     const usgb = g.append('g').selectAll('path.usgb').data(leaves).join('path')
       .attr('class','usgb').attr('data-leaf-id', d=>d.leafId)
-      .attr('d', d=> d3.arc()({innerRadius:radius + 20, outerRadius:radius + 44, startAngle:d.x-0.0005, endAngle:d.x+0.0005}))
+      .attr('d', d=> d3.arc()({innerRadius:usgbInner, outerRadius:usgbOuter, startAngle:d.x-0.0005, endAngle:d.x+0.0005}))
       .attr('fill', d=> (parseUSGB(d.data.metadata) === 'Yes') ? 'white' : 'black')
       .attr('opacity', d=> (parseUSGB(d.data.metadata) === 'Yes') ? 1 : .5);
     attachTooltipHandlers(usgb);
-    g.append('circle').attr('r', radius + 32).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
+    g.append('circle').attr('r', (usgbInner+usgbOuter)/2).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
 
     const west = g.append('g').selectAll('path.western').data(leaves).join('path')
       .attr('class','western').attr('data-leaf-id', d=>d.leafId)
-      .attr('d', d=> d3.arc()({innerRadius:radius + 56, outerRadius:radius + 80, startAngle:d.x-0.0005, endAngle:d.x+0.0005}))
+      .attr('d', d=> d3.arc()({innerRadius:westInner, outerRadius:westOuter, startAngle:d.x-0.0005, endAngle:d.x+0.0005}))
       .attr('fill', d => isWesternNo(d.data.metadata) ? 'white' : 'black')
       .attr('opacity', d => isWesternNo(d.data.metadata) ? 1 : 0.5);
     attachTooltipHandlers(west);
-    g.append('circle').attr('r', radius + 68).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
+    g.append('circle').attr('r', (westInner+westOuter)/2).attr('fill','none').attr('stroke','white').attr('stroke-width',2);
 
+    // Store selections for filtering/highlight
     handles.selections = {
       nodes, internals, links, linkHits, bars, sgbLines, usgb, west,
       regions: d3.selectAll(regionsLayer.selectAll('path').nodes()),
@@ -813,8 +983,8 @@ function exportSVG(){
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `radial_tree_export_${currentSize}.svg`; a.click(); URL.revokeObjectURL(url);
 }
 
-/* Start collapsed + render */
-collapseCircle();           // sets R=80 + hides caption
+/* Init */
+collapseCircle();  // start collapsed
 render('full');
 </script>
 </body>
