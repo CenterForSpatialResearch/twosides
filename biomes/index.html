@@ -617,12 +617,14 @@ window.addEventListener('click', (e)=>{
   unpinTooltip();
   clearSelected();
   clearHighlight();
+  applyFilters(); // Re-apply filters after clearing highlight
 });
 window.addEventListener('keydown', (e)=>{
   if (e.key==='Escape'){
     g.classed('isolated', false);
     g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null).style('pointer-events', null);
     unpinTooltip(); clearSelected(); clearHighlight();
+    applyFilters(); // Re-apply filters after clearing
   }
   if (e.key.toLowerCase()==='m'){
     document.getElementById('settings').classList.toggle('open');
@@ -774,9 +776,16 @@ window.addEventListener('click', (e)=>{
   if (t.closest('#filterCircle') || t.closest('#settings') || t.closest('#tooltip') || t.closest('#menuToggle')) return;
   if (filterCircle.classList.contains('expanded')) collapseCircle();
   unpinTooltip(); clearSelected(); clearHighlight();
+  applyFilters(); // Re-apply filters after clearing highlight
 });
 window.addEventListener('keydown', (e)=>{
-  if (e.key==='Escape'){ if (filterCircle.classList.contains('expanded')) collapseCircle(); g.classed('isolated', false); g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null).style('pointer-events', null); unpinTooltip(); clearSelected(); clearHighlight(); }
+  if (e.key==='Escape'){
+    if (filterCircle.classList.contains('expanded')) collapseCircle();
+    g.classed('isolated', false);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line').attr('opacity', null).style('pointer-events', null);
+    unpinTooltip(); clearSelected(); clearHighlight();
+    applyFilters(); // Re-apply filters after clearing
+  }
 });
 window.addEventListener('resize', ()=>{
   if (!filterCircle.classList.contains('expanded')) return;
