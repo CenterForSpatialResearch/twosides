@@ -9,60 +9,53 @@
     :root{
       --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0; --panel:#141226; --accent:#7ad7ff;
       --shadow:0 10px 30px rgba(0,0,0,.35);
+      --R: 80px;          /* collapsed radius */
+      --circlePad: 18px;  /* inner padding for expanded (tighter) */
     }
     html,body{height:100%;}
     body{ margin:0; font-family:"Pelikan",system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif; background:var(--bg); color:var(--fg); }
 
-    /* Left-side title — same id and styling pattern as the BIOMES/tree page */
+    /* Side title — keep on one line vertically */
     #sideTitle{
       position: fixed; right:14px; top:50%; transform:translateY(-50%);
       writing-mode: vertical-rl; text-orientation: mixed;
-      letter-spacing:.08em; font-weight:600; font-size:14px; color:var(--muted);
+      white-space: nowrap; word-break: keep-all; overflow: visible;
+      letter-spacing:.08em; font-weight:600; font-size:20px; color:var(--muted);
       opacity:.9; user-select:none; z-index:4;
     }
 
-    /* Controls hidden behind gear */
-    #controls{ position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:center; padding:10px 12px; background:linear-gradient(180deg, rgba(14,11,22,.95), rgba(14,11,22,.75)); backdrop-filter: blur(6px); border-bottom:1px solid rgba(255,255,255,.08);}
-    #controls label{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted);}
-    #controls select, #controls button{ background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px 10px; }
-    #controls button{ cursor:pointer; box-shadow: var(--shadow); }
-    #controls.hidden{ display:none; }
-
-    /* Small filter group layout */
-    .filter-group{ display:flex; align-items:center; gap:16px; padding:8px 12px; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:rgba(255,255,255,.03); }
-    .filter-sub{ display:flex; flex-direction:column; gap:6px; }
-    .filter-sub label{ font-size:12px; color:var(--muted); }
-    .slider-container{ display:flex; flex-direction:column; gap:4px; min-width:200px; }
-    .slider-values{ display:flex; justify-content:space-between; font-size:11px; color:var(--muted); }
-    input[type="range"]{ width:100%; }
-
+    /* Settings gear */
     #menuToggle{
-      position: fixed; top: 10px; right: 10px; z-index: 6;
+      position: fixed; top: 12px; right: 12px; z-index: 8;
       background: var(--panel); border:1px solid rgba(255,255,255,.14);
-      width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center;
-      cursor:pointer; box-shadow: var(--shadow); font-size:16px; color:var(--muted);
+      width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; box-shadow: var(--shadow); font-size:18px; color:var(--muted);
     }
     #menuToggle:hover{ color:var(--fg); }
+    #settings{
+      position: fixed; top: 64px; right: 12px; z-index: 7;
+      background: linear-gradient(180deg, rgba(20,18,38,.97), rgba(20,18,38,.9));
+      border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:10px 12px; width: 300px;
+      box-shadow: var(--shadow); backdrop-filter: blur(6px); display:none;
+    }
+    #settings.open{ display:block; }
+    #settings label{ display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; margin:6px 0; }
+    #settings select, #settings button{ background:var(--panel); color:var(--fg); border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:6px 10px; }
+    #settings .tip{ font-size:11px; color:var(--muted); margin-top:6px; line-height:1.35; }
 
-    svg{ display:block; margin:auto; background:var(--bg); }
-
-    /* Segments: slim visuals, wide transparent hits */
+    /* Viz */
+    svg#chart{ display:block; margin:auto; background:var(--bg); }
     .layer path.segment{ vector-effect: non-scaling-stroke; stroke-linecap:round; stroke:none; opacity:.92; }
     .segment.is-hover{ opacity:1; filter:drop-shadow(0 0 6px rgba(0,0,0,.35)); }
     .segment.is-selected{ opacity:1; filter:drop-shadow(0 0 10px rgba(0,0,0,.5)); }
     .hit{ fill:rgba(0,0,0,0); pointer-events:all; }
 
-    /* Grid + labels */
     .axis-circles circle{ stroke:#ffffff; stroke-opacity:.45; fill:none; stroke-dasharray:2,2; }
     .year-axis line{ stroke:#ffffff; stroke-opacity:.6; }
     .year-axis text{ fill:#ffffff; font-size:11px; opacity:.9; }
     .value-label{ fill:#ffffff; opacity:.5; font-size:12px; }
 
-    /* Legend panel */
-    .legend-text{ fill:var(--fg); font-size:16px; }
-    .legend-panel{ fill:rgba(20,18,38,.9); stroke:rgba(255,255,255,.12); stroke-width:1; filter:drop-shadow(0 6px 16px rgba(0,0,0,.35)); }
-
-    /* Tooltip */
+    /* Tooltip + embellishments */
     #tooltip{
       position:fixed; left:0; top:0; pointer-events:none; z-index:10;
       background:#111827; color:#f9fafb; border:1px solid rgba(255,255,255,.12);
@@ -74,127 +67,235 @@
     #tooltip .summary b{ font-weight:700; }
     #tooltip .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 10px; margin-top:10px; font-size:12px; border-top:1px dashed rgba(255,255,255,.14); padding-top:8px; }
     #tooltip .kv .k{ color:#94a3b8; }
+    #tooltip .tip-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    #tooltip .chip { width:14px; height:14px; border-radius:4px; border:1px solid rgba(255,255,255,.35); flex:0 0 auto; }
+    #tooltip .glyph { margin-top:10px; padding:8px; border-radius:10px; background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); }
+    #tooltip .glyph .cap { display:flex; align-items:center; justify-content:space-between; font-size:11px; color:#cbd5e1; margin-bottom:6px; }
 
     .map-mask-stroke{ fill:none; stroke:#ffffff; stroke-opacity:.25; stroke-width:1.5; }
+
+    /* =============== Circular Filter (bottom-left) =============== */
+    #filterCircle{
+      position: fixed;
+      left: 24px; bottom: 24px;
+      width: calc(var(--R)*2); height: calc(var(--R)*2);
+      z-index: 999;
+      transition: width .28s ease, height .28s ease, transform .28s ease, box-shadow .2s ease;
+      transform-origin: bottom left;
+      pointer-events: auto;
+    }
+    #ringSvg{ position:absolute; inset:0; overflow:visible; pointer-events:none; z-index: 2; }
+    .filter-ring{ fill:none; stroke:#fff; stroke-width:3px; }
+    .filter-caption{ fill:#cfd3e0; font-size:11px; letter-spacing:.08em; text-transform:uppercase; dominant-baseline: middle; }
+
+    #filterCircle .content{
+      position:absolute; inset:0;
+      display:flex; align-items:center; justify-content:center;
+      border-radius:50%;
+      background: transparent; /* collapsed */
+      box-shadow: var(--shadow);
+      padding: var(--circlePad);
+      z-index: 1;
+    }
+    #filterCircle.expanded .content{ background: var(--panel); }
+
+    /* Collapsed */
+    .fc-collapsed{ display:flex; align-items:center; gap:8px; }
+    .fc-collapsed .label{ font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+    .fc-collapsed .chev{ border:1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color:var(--fg);
+                          width:34px; height:28px; border-radius:10px; cursor:pointer; }
+
+    /* Expanded */
+    .fc-expanded{ display:none; width:100%; height:100%; }
+    #filterCircle.expanded .fc-expanded{ display:flex; }
+    #filterCircle.expanded .fc-collapsed{ display:none; }
+
+    .sections{
+      margin:auto;
+      width: 86%; height: 86%;
+      display:flex; flex-direction:column; gap:10px;
+      align-items:center; justify-content:center; text-align:center;
+    }
+    .fc-head{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .fc-title{ font-size:10px; color:var(--muted); letter-spacing:.14em; text-transform:uppercase; }
+    .actions{ display:flex; gap:8px; }
+    .btn{
+      font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; cursor:pointer;
+      padding:6px 9px; border-radius:10px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:var(--fg);
+    }
+    .chevron{
+      border:1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.06); color:var(--fg);
+      width:34px; height:28px; border-radius:10px; cursor:pointer;
+    }
+
+    .section{ width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+    .section h3{ margin:0; font-size:10px; color:var(--muted); letter-spacing:.14em; text-transform:uppercase; }
+
+    /* Legend/Picker grid (tighter) */
+    .legend-grid{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:6px 10px;
+      width:100%;
+      user-select: none;
+    }
+    .legend-item{
+      display:flex; align-items:center; gap:6px; justify-content:flex-start;
+      padding:5px 7px; border-radius:10px; background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.12);
+      cursor: pointer;
+      transition: transform .08s ease, background .15s ease, border-color .15s ease, opacity .15s ease;
+      opacity: .55;
+    }
+    .legend-item:hover{ transform: translateY(-1px); opacity: .95; }
+    .legend-item.selected{
+      opacity: 1;
+      background: rgba(255,255,255,.09);
+      border-color: rgba(255,255,255,.35);
+      box-shadow: 0 0 0 2px rgba(255,255,255,.08) inset;
+    }
+    .legend-item .sw{ width:12px; height:12px; border-radius:4px; border:1px solid rgba(255,255,255,.25); flex:0 0 auto; }
+    .legend-item .lbl{ font-size:11px; line-height:1.2; text-align:left; }
+
+    /* ===== Dual-thumb Year range as ONE slider ===== */
+    .year-range{ width:100%; position:relative; padding-top:10px; }
+    .yr-track{
+      position:relative; height:8px; border-radius:6px;
+      background: linear-gradient(90deg, rgba(255,255,255,.15), rgba(255,255,255,.15));
+      overflow:hidden; margin:4px 0 10px;
+    }
+    .yr-fill{
+      position:absolute; top:0; height:100%; border-radius:6px;
+      background: linear-gradient(90deg, rgba(255,255,255,.6), rgba(255,255,255,.9));
+    }
+    .yr-input{
+      position:absolute; left:0; right:0; top:-6px; height:20px; pointer-events:none;
+      -webkit-appearance:none; background:none; margin:0;
+    }
+    .yr-input::-webkit-slider-thumb{
+      -webkit-appearance:none; appearance:none; pointer-events:auto;
+      width:16px; height:16px; border-radius:50%; background:#fff; border:2px solid #0e0b16; box-shadow:0 2px 8px rgba(0,0,0,.35);
+      cursor:pointer;
+    }
+    .yr-input::-moz-range-thumb{
+      pointer-events:auto; width:16px; height:16px; border-radius:50%; background:#fff; border:2px solid #0e0b16; box-shadow:0 2px 8px rgba(0,0,0,.35); cursor:pointer;
+    }
+    .yr-input::-webkit-slider-runnable-track{ height:8px; background:transparent; }
+    .yr-input::-moz-range-track{ height:8px; background:transparent; }
+    .yr-pills{ display:flex; justify-content:space-between; font-size:10px; color:var(--muted); margin-top:2px; }
+    .pill{ padding:3px 6px; border-radius:8px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.06); color:var(--fg); }
+
+    /* Compact mode */
+    #filterCircle.compact .sections{ width: 84%; height: 84%; gap:8px; }
+    #filterCircle.compact .section h3{ font-size:9px; letter-spacing:.16em; }
+    #filterCircle.compact .btn{ font-size:9px; padding:5px 8px; }
+    #filterCircle.compact .legend-item .lbl{ font-size:10px; }
   </style>
 </head>
 <body>
-  <!-- Same side title id as the tree page -->
   <div id="sideTitle">ANTHROMES // 12,017 YEARS OF LAND USE</div>
 
-  <button id="menuToggle" aria-label="Toggle settings" title="Toggle settings">⚙️</button>
-
-  <div id="controls" class="hidden">
-    <label>View Size:
+  <!-- Settings -->
+  <button id="menuToggle" aria-label="Open settings" title="Settings">⚙️</button>
+  <div id="settings" role="dialog" aria-label="Settings">
+    <label>View Size
       <select id="viewMode">
         <option value="preview">Preview (1200×1200)</option>
         <option value="full" selected>Full Export (7000×7000)</option>
       </select>
     </label>
-
-    <!-- Filters -->
-    <div class="filter-group" id="filters">
-      <div class="filter-sub">
-        <label>Anthrome Type Range (Min - Max)</label>
-        <div class="slider-container">
-          <div class="slider-values"><span id="anthromeMinLabel">Loading...</span><span id="anthromeMaxLabel">Loading...</span></div>
-          <input type="range" id="anthromeMinSlider" />
-          <input type="range" id="anthromeMaxSlider" />
-        </div>
-      </div>
-      <div class="filter-sub">
-        <label>Year Range (Min - Max)</label>
-        <div class="slider-container">
-          <div class="slider-values"><span id="yearMinLabel">Loading...</span><span id="yearMaxLabel">Loading...</span></div>
-          <input type="range" id="yearMinSlider" />
-          <input type="range" id="yearMaxSlider" />
-        </div>
-      </div>
-      <div class="filter-sub">
-        <button id="applyFiltersBtn">Apply</button>
-        <button id="clearFiltersBtn">Clear</button>
-      </div>
-    </div>
-
     <button id="export">Export SVG</button>
-    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press "m" to toggle menu, "Esc" to clear filters. Scroll to zoom, drag to pan.</span>
+    <div class="tip">Tip: hover for details, click to pin; click empty space to unpin. Press “m” to toggle this panel. Scroll to zoom, drag to pan. Press Esc to reset filters.</div>
   </div>
 
+  <!-- CIRCULAR FILTER / LEGEND (bottom-left) -->
+  <div id="filterCircle" aria-live="polite">
+    <svg id="ringSvg" viewBox="-160 -160 320 320" aria-hidden="true">
+      <defs><path id="fc-arc-right" d="M 0 -60 A 60 60 0 0 1 0 60" /></defs>
+      <circle id="fc-ring" class="filter-ring" cx="0" cy="0" r="60" />
+      <text id="fc-caption" class="filter-caption" style="opacity:0;">
+        <textPath href="#fc-arc-right" xlink:href="#fc-arc-right" startOffset="50%" text-anchor="middle">
+          MODELING 12017 YEARS OF LAND USE
+        </textPath>
+      </text>
+    </svg>
+
+    <div class="content">
+      <!-- Collapsed -->
+      <div class="fc-collapsed" aria-hidden="false">
+        <span class="label">FILTER</span>
+        <button id="expandCircle" class="chev" title="Expand">▾</button>
+      </div>
+
+      <!-- Expanded -->
+      <div class="fc-expanded" aria-hidden="true">
+        <div class="sections">
+          <div class="fc-head">
+            <div class="fc-title">Filters & Legend</div>
+            <div class="actions">
+              <button id="selectAllChips" class="btn" title="Reset ranges">Select All</button>
+              <button id="clearChips" class="btn" title="Clear filters">Clear</button>
+              <button id="collapseCircle" class="chevron" title="Collapse">▴</button>
+            </div>
+          </div>
+
+          <section class="section" aria-labelledby="sec-legend">
+            <h3 id="sec-legend">Anthrome Range</h3>
+            <div id="legendGrid" class="legend-grid"></div>
+            <div style="font-size:10px; color:var(--muted); margin-top:2px;">Click & drag to select a contiguous range • Shift-click to extend</div>
+          </section>
+
+          <section class="section" aria-labelledby="sec-filters">
+            <h3 id="sec-filters">Year Range</h3>
+            <div class="year-range">
+              <div class="yr-track"><div id="yrFill" class="yr-fill" style="left:0%; width:100%;"></div></div>
+              <!-- two inputs overlayed -> one slider w/ two thumbs -->
+              <input id="yearMinSlider" class="yr-input" type="range" step="1">
+              <input id="yearMaxSlider" class="yr-input" type="range" step="1">
+              <div class="yr-pills"><span id="yearMinLabel" class="pill">—</span><span id="yearMaxLabel" class="pill">—</span></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Viz -->
   <div id="tooltip" class="hidden" role="dialog" aria-live="polite"></div>
   <svg id="chart"></svg>
 
 <script>
+/* ===== Base setup ===== */
 const svg = d3.select("#chart");
 const g = svg.append("g");
 const defs = svg.append("defs");
-
-// Setup zoom behavior
-const zoom = d3.zoom()
-  .scaleExtent([1, 10])  // Allow zoom from 1x to 10x
-  .on("zoom", (event) => {
-    g.attr("transform", event.transform);
-  });
-
+const zoom = d3.zoom().scaleExtent([1, 10]).on("zoom", (event) => { g.attr("transform", event.transform); });
 svg.call(zoom);
 
-/* Match tree canvas: same overall diameter */
 const fullSize = 7000, previewSize = 1200;
 let currentSize = "full";
 
 const tooltip = d3.select('#tooltip');
-let pinned = null;
-let selectedKey = null;
+let pinned = null, selectedKey = null;
 
-// How far to fade non-matching elements when filters are active
-const DIM_OPACITY = 0.02;       // super faint
-const DIM_LABEL_OPACITY = 0.10; // labels slightly higher to stay barely legible
-
-// Keep handles for re-use during filtering
+const DIM_OPACITY = 0.02, DIM_LABEL_OPACITY = 0.10;
 let handles = { segments: null, hits: null, yearAxisElements: null, valueLabels: null };
 
 const colorMapping = {
-  "Urban": "#5f0f40",
-  "Mixed settlements": "#792775",
-  "Rice villages": "#933faa",
-  "Irrigated villages": "#ac55d5",
-  "Rainfed villages": "#bf55a4",
-  "Pastoral villages": "#d25572",
-  "Residential irrigated croplands": "#e55641",
-  "Residential rainfed croplands": "#f8560f",
-  "Populated croplands": "#de691f",
-  "Remote croplands": "#bb7f3c",
-  "Residential rangelands": "#999559",
-  "Populated rangelands": "#76ac76",
-  "Remote rangelands": "#53c293",
-  "Residential woodlands": "#30d8b1",
-  "Populated woodlands": "#1aebc3",
-  "Remote woodlands": "#44e9a0",
-  "Inhabited drylands": "#6de67d",
-  "Wild woodlands": "#97e45a",
-  "Wild drylands": "#c1e236",
-  "Ice (uninhabited)": "#ebe013",
-  "No land": "#2E8B57"
+  "Urban": "#5f0f40","Mixed settlements": "#792775","Rice villages": "#933faa","Irrigated villages": "#ac55d5","Rainfed villages": "#bf55a4","Pastoral villages": "#d25572",
+  "Residential irrigated croplands": "#e55641","Residential rainfed croplands": "#f8560f","Populated croplands": "#de691f","Remote croplands": "#bb7f3c",
+  "Residential rangelands": "#999559","Populated rangelands": "#76ac76","Remote rangelands": "#53c293",
+  "Residential woodlands": "#30d8b1","Populated woodlands": "#1aebc3","Remote woodlands": "#44e9a0",
+  "Inhabited drylands": "#6de67d","Wild woodlands": "#97e45a","Wild drylands": "#c1e236","Ice (uninhabited)": "#ebe013","No land": "#2E8B57"
 };
 
-// Anthrome codes will be read from CSV - code to label mapping
-let anthromeCodeToLabel = {};
-let labelToAnthromeCode = {};
+let anthromeCodeToLabel = {}, labelToAnthromeCode = {};
+let orderedCodes = [], orderedLabels = [];
 let allYears = [];
-let allAnthromeCodes = [];
 
 /* Tooltip helpers */
 const fmt = d3.format(",");
 const pct = (v,t)=> t? d3.format(".1%")(v/t) : "—";
-const summaryHTML = (label,year,count,total)=>`<div class="summary">In <b>${year}</b>, <b>${label}</b> accounts for <b>${fmt(count)}</b> units (<b>${pct(count,total)}</b> of the year’s total).</div>`;
-const tipHTML = (label,year,count,total)=>`
-  <div class="title">${label}</div>
-  <div class="subtitle">Year ${year}</div>
-  ${summaryHTML(label,year,count,total)}
-  <div class="kv">
-    <div class="k">Year total</div><div>${fmt(total)}</div>
-    <div class="k">Segment value</div><div>${fmt(count)}</div>
-    <div class="k">Share</div><div>${pct(count,total)}</div>
-  </div>`;
 
 function posTip(evt){
   const pad=14, node=tooltip.node(), r=node.getBoundingClientRect(), tw=r.width, th=r.height;
@@ -204,7 +305,6 @@ function posTip(evt){
 }
 function showTip(html,evt){ tooltip.html(html).classed("hidden",false); posTip(evt); }
 function hideTip(){ if(!pinned) tooltip.classed("hidden",true); }
-
 function attachHandlers(sel, keyAcc, htmlAcc){
   sel.on("mousemove", function(evt,d){ if(pinned) return; if(tooltip.classed("hidden")) showTip(htmlAcc(d),evt); else posTip(evt); })
      .on("mouseover", function(evt,d){ const key=keyAcc(d); d3.selectAll(`[data-key="${key}"]`).classed("is-hover",true); if(!pinned) showTip(htmlAcc(d),evt); })
@@ -215,135 +315,86 @@ function attachHandlers(sel, keyAcc, htmlAcc){
         pinned=d; selectedKey=key; d3.selectAll(".segment").classed("is-selected",false); d3.selectAll(`[data-key="${key}"]`).classed("is-selected",true); showTip(htmlAcc(d),evt); evt.stopPropagation();
      });
 }
-window.addEventListener("click",(e)=>{ if(e.target.closest("#tooltip")) return; pinned=null; selectedKey=null; d3.selectAll(".segment").classed("is-selected",false); hideTip(); });
+window.addEventListener("click",(e)=>{
+  if(e.target.closest("#tooltip") || e.target.closest("#filterCircle") || e.target.closest("#settings") || e.target.closest("#menuToggle")) return;
+  pinned=null; selectedKey=null; d3.selectAll(".segment").classed("is-selected",false); hideTip();
+});
 
-// ======== Filters state & logic ========
-const filterState = {
-  anthromeMin: 0,
-  anthromeMax: 999,
-  yearMin: -999999,
-  yearMax: 999999
-};
+/* ===== Filters state & logic ===== */
+const filterState = { aStartIdx: 0, aEndIdx: 0, yearMin: -999999, yearMax: 999999 };
 
-function readFilterUI(){
-  let minVal = +document.getElementById('anthromeMinSlider').value;
-  let maxVal = +document.getElementById('anthromeMaxSlider').value;
-
-  // Ensure min <= max
-  if (minVal > maxVal) {
-    document.getElementById('anthromeMaxSlider').value = minVal;
-    maxVal = minVal;
-  }
-
-  filterState.anthromeMin = minVal;
-  filterState.anthromeMax = maxVal;
-
-  let yearMinVal = +document.getElementById('yearMinSlider').value;
-  let yearMaxVal = +document.getElementById('yearMaxSlider').value;
-
-  // Ensure min <= max
-  if (yearMinVal > yearMaxVal) {
-    document.getElementById('yearMaxSlider').value = yearMinVal;
-    yearMaxVal = yearMinVal;
-  }
-
-  filterState.yearMin = yearMinVal;
-  filterState.yearMax = yearMaxVal;
-
-  // Update labels
-  document.getElementById('anthromeMinLabel').textContent = `${filterState.anthromeMin} - ${anthromeCodeToLabel[filterState.anthromeMin] || 'Unknown'}`;
-  document.getElementById('anthromeMaxLabel').textContent = `${filterState.anthromeMax} - ${anthromeCodeToLabel[filterState.anthromeMax] || 'Unknown'}`;
-  document.getElementById('yearMinLabel').textContent = filterState.yearMin;
-  document.getElementById('yearMaxLabel').textContent = filterState.yearMax;
+function currentAnthromeCodesInRange(){
+  const start = Math.min(filterState.aStartIdx, filterState.aEndIdx);
+  const end   = Math.max(filterState.aStartIdx, filterState.aEndIdx);
+  return orderedCodes.slice(start, end+1);
 }
 
-let filteredSampleCount = 0;
+function updateYearFill(){
+  const yMinEl = document.getElementById('yearMinSlider');
+  const yMaxEl = document.getElementById('yearMaxSlider');
+  const yrFill = document.getElementById('yrFill');
+  const min = +yMinEl.min, max = +yMinEl.max;
+  const lo = +yMinEl.value, hi = +yMaxEl.value;
+  const leftPct = ((lo - min) / (max - min)) * 100;
+  const rightPct = ((hi - min) / (max - min)) * 100;
+  yrFill.style.left = leftPct + '%';
+  yrFill.style.width = (rightPct - leftPct) + '%';
+}
+
+function readYearUI(){
+  const yMinEl = document.getElementById('yearMinSlider');
+  const yMaxEl = document.getElementById('yearMaxSlider');
+  let yearMinVal = +yMinEl.value;
+  let yearMaxVal = +yMaxEl.value;
+  if (yearMinVal > yearMaxVal) { yearMaxVal = yearMinVal; yMaxEl.value = yearMaxVal; }
+  filterState.yearMin = yearMinVal; filterState.yearMax = yearMaxVal;
+  document.getElementById('yearMinLabel').textContent = filterState.yearMin;
+  document.getElementById('yearMaxLabel').textContent = filterState.yearMax;
+  updateYearFill();
+}
+
+let _codesCache = new Set(); // refreshed each apply
 function segmentMatchesFilters(d){
-  const anthromeCode = labelToAnthromeCode[d.label];
-  if (!anthromeCode) {
-    console.log('No anthrome code for label:', d.label);
-    return false;
-  }
-  const anthromeMatch = anthromeCode >= filterState.anthromeMin && anthromeCode <= filterState.anthromeMax;
-  const yearMatch = d.year >= filterState.yearMin && d.year <= filterState.yearMax;
-  const matches = anthromeMatch && yearMatch;
-
-  // Only log first 5 filtered items as sample
-  if (!matches && filteredSampleCount < 5) {
-    console.log('Sample filtered out:', { label: d.label, year: d.year, anthromeCode, filterState, anthromeMatch, yearMatch });
-    filteredSampleCount++;
-  }
-
-  return matches;
+  const code = labelToAnthromeCode[d.label];
+  if (code == null) return false;
+  const inAnthrome = _codesCache.has(code);
+  const inYear = (d.year >= filterState.yearMin && d.year <= filterState.yearMax);
+  return inAnthrome && inYear;
 }
 
 function applyFilters(){
-  readFilterUI();
-  filteredSampleCount = 0; // Reset sample counter
+  readYearUI();
+  const selectedCodes = currentAnthromeCodesInRange();
+  _codesCache = new Set(selectedCodes);
 
-  // Check if filters are at default (show all) - use actual data ranges
-  const isDefault = allAnthromeCodes.length > 0 && allYears.length > 0 &&
-                    filterState.anthromeMin === allAnthromeCodes[0] &&
-                    filterState.anthromeMax === allAnthromeCodes[allAnthromeCodes.length - 1] &&
-                    filterState.yearMin === allYears[0] &&
-                    filterState.yearMax === allYears[allYears.length - 1];
+  const allDefault = selectedCodes.length === orderedCodes.length &&
+                     filterState.yearMin === allYears[0] &&
+                     filterState.yearMax === allYears[allYears.length - 1];
 
-  console.log('Apply Filters:', {
-    filterState,
-    isDefault,
-    allAnthromeCodes,
-    allYears
-  });
-
-  if (isDefault){
-    // Clear all filters - show everything
+  if (allDefault){
     g.classed('isolated', false);
     g.selectAll('.segment').style('opacity', null).style('pointer-events', null);
     g.selectAll('.hit').style('opacity', null).style('pointer-events', null);
-    if (handles.yearAxisElements) {
-      handles.yearAxisElements.style('opacity', null).style('pointer-events', null);
-    }
+    if (handles.yearAxisElements) handles.yearAxisElements.style('opacity', null).style('pointer-events', null);
     return;
   }
 
   g.classed('isolated', true);
 
-  // Filter segments - use style instead of attr for opacity
-  const allSegments = g.selectAll('.segment');
-  console.log('Total segments found:', allSegments.size());
-
-  let matchCount = 0;
-  let noMatchCount = 0;
-
-  allSegments.each(function() {
+  g.selectAll('.segment').each(function(){
     const d = d3.select(this).datum();
-    if (!d) return;
-
-    const matches = segmentMatchesFilters(d);
-    if (matches) {
-      matchCount++;
-      d3.select(this).style('opacity', 1).style('pointer-events', 'all');
-    } else {
-      noMatchCount++;
-      d3.select(this).style('opacity', DIM_OPACITY).style('pointer-events', 'none');
-    }
+    const show = segmentMatchesFilters(d);
+    d3.select(this).style('opacity', show ? 1 : DIM_OPACITY)
+                   .style('pointer-events', show ? 'all' : 'none');
+  });
+  g.selectAll('.hit').each(function(){
+    const d = d3.select(this).datum();
+    const show = segmentMatchesFilters(d);
+    d3.select(this).style('opacity', show ? 1 : 0)
+                   .style('pointer-events', show ? 'all' : 'none');
   });
 
-  console.log(`Segments: ${matchCount} visible, ${noMatchCount} dimmed`);
-
-  g.selectAll('.hit').each(function() {
-    const d = d3.select(this).datum();
-    if (!d) return;
-
-    const matches = segmentMatchesFilters(d);
-    d3.select(this)
-      .style('opacity', matches ? 1 : 0)
-      .style('pointer-events', matches ? 'all' : 'none');
-  });
-
-  // Dim year axis elements if year filter is active
-  const yearFilterActive = allYears.length > 0 &&
-                           (filterState.yearMin !== allYears[0] || filterState.yearMax !== allYears[allYears.length - 1]);
+  const yearFilterActive = (filterState.yearMin !== allYears[0] || filterState.yearMax !== allYears[allYears.length - 1]);
   if (handles.yearAxisElements && yearFilterActive) {
     handles.yearAxisElements.each(function() {
       const year = +d3.select(this).attr('data-year');
@@ -355,28 +406,112 @@ function applyFilters(){
   }
 }
 
-/* Render */
+/* ========== Circular Filter sizing / behavior ========== */
+const filterCircle = document.getElementById('filterCircle');
+const ringSvg = document.getElementById('ringSvg');
+const ring = document.getElementById('fc-ring');
+const caption = document.getElementById('fc-caption');
+const arcRight = document.getElementById('fc-arc-right');
+
+const COLLAPSED_R = 80;
+const IDEAL_EXPANDED_R = 440; /* tighter layout */
+const VIEW_MARGIN = 28;
+
+function maxRadiusForViewport(){
+  const vw = Math.max(document.documentElement.clientWidth,  window.innerWidth  || 0);
+  const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
+  return Math.floor(Math.min(vw, vh)/2) - VIEW_MARGIN;
+}
+function setCircleRadius(r){
+  filterCircle.style.setProperty('--R', r + 'px');
+  filterCircle.style.width  = (r * 2) + 'px';
+  filterCircle.style.height = (r * 2) + 'px';
+  const STROKE = 3, CAPTION_PAD = 22;
+  const rim = Math.max(12, r - STROKE/2);
+  ring.setAttribute('r', rim);
+  ringSvg.setAttribute('viewBox', `${-r} ${-r} ${2*r} ${2*r}`);
+  const inset = Math.max(10, r - STROKE - CAPTION_PAD);
+  arcRight.setAttribute('d', `M 0 -${inset} A ${inset} ${inset} 0 0 1 0 ${inset}`);
+}
+function ensureCircleFits(){
+  if (!filterCircle.classList.contains('expanded')) return;
+  const sections = document.querySelector('#filterCircle .sections');
+  if (!sections) return;
+
+  const styles = getComputedStyle(filterCircle);
+  const rPx = parseInt(styles.getPropertyValue('--R')) || IDEAL_EXPANDED_R;
+  const innerDiameter = (rPx * 2) * 0.86;
+  const sRect = sections.getBoundingClientRect();
+  const tooWide = sRect.width > innerDiameter;
+  const tooHigh = sRect.height > innerDiameter;
+
+  if (tooWide || tooHigh){
+    const cap = maxRadiusForViewport();
+    if (rPx + 24 <= cap){
+      setCircleRadius(rPx + 24);
+      requestAnimationFrame(ensureCircleFits);
+      return;
+    }
+    filterCircle.classList.add('compact');
+    requestAnimationFrame(()=>{
+      const currentPad = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--circlePad')) || 18;
+      if (currentPad > 14){
+        document.documentElement.style.setProperty('--circlePad', (currentPad - 4) + 'px');
+        requestAnimationFrame(ensureCircleFits);
+      }
+    });
+  } else {
+    filterCircle.classList.remove('compact');
+  }
+}
+function expandCircle(){
+  filterCircle.classList.add('expanded');
+  const startR = Math.min(IDEAL_EXPANDED_R, maxRadiusForViewport());
+  setCircleRadius(startR);
+  caption.style.opacity = 1;
+  document.querySelector('#filterCircle .fc-expanded').setAttribute('aria-hidden','false');
+  document.querySelector('#filterCircle .fc-collapsed').setAttribute('aria-hidden','true');
+  requestAnimationFrame(ensureCircleFits);
+}
+function collapseCircle(){
+  filterCircle.classList.remove('expanded', 'compact');
+  setCircleRadius(COLLAPSED_R);
+  caption.style.opacity = 0;
+  document.querySelector('#filterCircle .fc-expanded').setAttribute('aria-hidden','true');
+  document.querySelector('#filterCircle .fc-collapsed').setAttribute('aria-hidden','false');
+}
+
+/* Buttons & click-away */
+document.getElementById('expandCircle').addEventListener('click', (e)=>{ e.stopPropagation(); expandCircle(); });
+document.getElementById('collapseCircle').addEventListener('click', (e)=>{ e.stopPropagation(); collapseCircle(); });
+window.addEventListener('click', (e)=>{
+  const t = e.target;
+  if (t.closest('#filterCircle') || t.closest('#settings') || t.closest('#menuToggle') || t.closest('#tooltip')) return;
+  if (filterCircle.classList.contains('expanded')) collapseCircle();
+});
+window.addEventListener('keydown', (e)=>{
+  if (e.key==='Escape'){ if (filterCircle.classList.contains('expanded')) collapseCircle(); }
+});
+window.addEventListener('resize', ()=>{
+  if (!filterCircle.classList.contains('expanded')) return;
+  const rPx = parseInt(getComputedStyle(filterCircle).getPropertyValue('--R')) || IDEAL_EXPANDED_R;
+  const cap = maxRadiusForViewport();
+  if (rPx > cap) setCircleRadius(cap);
+  requestAnimationFrame(ensureCircleFits);
+});
+
+/* ===== Render ===== */
 function render(size="full"){
   const dim = size==="full" ? fullSize : previewSize;
   svg.attr("viewBox", `${-dim/2} ${-dim/2} ${dim} ${dim}`);
   g.selectAll("*").remove(); defs.selectAll("*").remove();
 
-  /* Make the radial chart a bit smaller within the same 7000 canvas */
-  const outerMargin = 260;                         // increase margin to shrink overall plot
-  const radius = dim/2 - outerMargin;              // smaller than before
-  const innerRadius = (size==="full") ? 2200 : Math.max(180, radius * 0.44); // also slightly smaller map
+  const outerMargin = 260;
+  const radius = dim/2 - outerMargin;
+  const innerRadius = (size==="full") ? 2200 : Math.max(180, radius * 0.44);
 
-  /* Center map overlay clipped to innerRadius */
   const clipId = "map-clip";
   defs.append("clipPath").attr("id",clipId).append("circle").attr("r",innerRadius).attr("cx",0).attr("cy",0);
-  // g.append("image")
-  //   .attr("href","2017AD_twoPoint_sphere-plain.png")
-  //   .attr("x",-innerRadius).attr("y",-innerRadius)
-  //   .attr("width",(innerRadius)*2).attr("height",(innerRadius)*2)
-  //   .attr("preserveAspectRatio","xMidYMid slice")
-  //   .attr("clip-path",`url(#${clipId})`);
-
-  // New map without preserving aspect ratio - stretched vertically
   g.append("image")
     .attr("href","2017AD_twoPoint_sphere-plain.png")
     .attr("x",-innerRadius*1.75).attr("y",-innerRadius*1.1)
@@ -388,68 +523,116 @@ function render(size="full"){
   d3.csv("anthromes_counts.csv", d3.autoType).then(data=>{
     data.forEach(d=>{ d.year=+d.year; d.count=+d.count; d.anthrome=+d.anthrome; });
 
-    // Extract unique years and anthrome codes from data
     allYears = Array.from(new Set(data.map(d=>d.year))).sort((a,b)=>a-b);
-    allAnthromeCodes = Array.from(new Set(data.map(d=>d.anthrome))).sort((a,b)=>a-b);
+    const allCodes = Array.from(new Set(data.map(d=>d.anthrome))).sort((a,b)=>a-b);
 
-    // Build mappings from data
+    anthromeCodeToLabel = {}; labelToAnthromeCode = {};
     data.forEach(d => {
-      if (!anthromeCodeToLabel[d.anthrome]) {
-        anthromeCodeToLabel[d.anthrome] = d.label;
-        labelToAnthromeCode[d.label] = d.anthrome;
-      }
+      if (!anthromeCodeToLabel[d.anthrome]) anthromeCodeToLabel[d.anthrome] = d.label;
+      if (!labelToAnthromeCode[d.label])     labelToAnthromeCode[d.label]   = d.anthrome;
     });
 
-    // Initialize sliders with actual data ranges
-    const yearMin = allYears[0];
-    const yearMax = allYears[allYears.length - 1];
-    const anthromeMin = allAnthromeCodes[0];
-    const anthromeMax = allAnthromeCodes[allAnthromeCodes.length - 1];
+    orderedCodes = allCodes.slice();
+    orderedLabels = orderedCodes.map(c => anthromeCodeToLabel[c]);
 
-    document.getElementById('yearMinSlider').min = yearMin;
-    document.getElementById('yearMinSlider').max = yearMax;
-    document.getElementById('yearMinSlider').value = yearMin;
-    document.getElementById('yearMaxSlider').min = yearMin;
-    document.getElementById('yearMaxSlider').max = yearMax;
-    document.getElementById('yearMaxSlider').value = yearMax;
+    /* Default full-span selection */
+    filterState.aStartIdx = 0;
+    filterState.aEndIdx   = orderedCodes.length - 1;
 
-    document.getElementById('anthromeMinSlider').min = anthromeMin;
-    document.getElementById('anthromeMinSlider').max = anthromeMax;
-    document.getElementById('anthromeMinSlider').value = anthromeMin;
-    document.getElementById('anthromeMaxSlider').min = anthromeMin;
-    document.getElementById('anthromeMaxSlider').max = anthromeMax;
-    document.getElementById('anthromeMaxSlider').value = anthromeMax;
+    /* Build interactive legend/picker */
+    const legendGrid = document.getElementById('legendGrid');
+    legendGrid.innerHTML = '';
+    orderedLabels.forEach((label, idx)=>{
+      const color = colorMapping[label] || '#666';
+      const item = document.createElement('div');
+      item.className = 'legend-item selected';
+      item.dataset.index = idx;
+      item.innerHTML = `<span class="sw" style="background:${color}"></span><span class="lbl">${label}</span>`;
+      legendGrid.appendChild(item);
+    });
 
-    // Update filter state defaults
-    filterState.yearMin = yearMin;
-    filterState.yearMax = yearMax;
-    filterState.anthromeMin = anthromeMin;
-    filterState.anthromeMax = anthromeMax;
+    let dragging = false, anchorIdx = null;
+    const items = Array.from(legendGrid.querySelectorAll('.legend-item'));
 
-    readFilterUI(); // Initialize labels
+    function updatePickerUI(){
+      const s = Math.min(filterState.aStartIdx, filterState.aEndIdx);
+      const e = Math.max(filterState.aStartIdx, filterState.aEndIdx);
+      items.forEach((el,i)=> el.classList.toggle('selected', i>=s && i<=e));
+    }
+    function commitRange(newStart, newEnd){
+      filterState.aStartIdx = Math.max(0, Math.min(newStart, orderedCodes.length-1));
+      filterState.aEndIdx   = Math.max(0, Math.min(newEnd,   orderedCodes.length-1));
+      updatePickerUI();
+      applyFilters();
+    }
 
+    items.forEach(el=>{
+      el.addEventListener('mousedown', (e)=>{
+        e.preventDefault();
+        const idx = +el.dataset.index;
+        dragging = true; anchorIdx = idx;
+        commitRange(idx, idx);
+      });
+      el.addEventListener('mouseenter', (e)=>{
+        if (!dragging) return;
+        const idx = +el.dataset.index;
+        commitRange(anchorIdx, idx);
+      });
+      el.addEventListener('mouseup', ()=>{ dragging = false; });
+      el.addEventListener('click', (e)=>{
+        const idx = +el.dataset.index;
+        if (e.shiftKey && anchorIdx != null){
+          commitRange(anchorIdx, idx);
+        } else {
+          anchorIdx = idx;
+          commitRange(idx, idx);
+        }
+      });
+    });
+    document.addEventListener('mouseup', ()=> dragging=false);
+
+    /* Year range dual-thumb (one slider) */
+    const yearMin = allYears[0], yearMax = allYears[allYears.length - 1];
+    const yMinEl = document.getElementById('yearMinSlider');
+    const yMaxEl = document.getElementById('yearMaxSlider');
+
+    yMinEl.min = yearMin; yMinEl.max = yearMax; yMinEl.step = 1; yMinEl.value = yearMin;
+    yMaxEl.min = yearMin; yMaxEl.max = yearMax; yMaxEl.step = 1; yMaxEl.value = yearMax;
+
+    filterState.yearMin = yearMin; filterState.yearMax = yearMax;
+    readYearUI();
+
+    function snapToNearest(value, arr){
+      let nearest = arr[0], md = Math.abs(value - nearest);
+      for (let v of arr){ const d = Math.abs(value - v); if (d < md){ md = d; nearest = v; } }
+      return nearest;
+    }
+    yMinEl.addEventListener('input', (e)=>{
+      e.target.value = snapToNearest(+e.target.value, allYears);
+      if (+yMinEl.value > +yMaxEl.value){ yMaxEl.value = yMinEl.value; }
+      applyFilters();
+    });
+    yMaxEl.addEventListener('input', (e)=>{
+      e.target.value = snapToNearest(+e.target.value, allYears);
+      if (+yMaxEl.value < +yMinEl.value){ yMinEl.value = yMaxEl.value; }
+      applyFilters();
+    });
+
+    /* Stack & scales */
     const years = allYears;
-    const labels = Object.keys(colorMapping);
-
+    const labels = orderedLabels;
     const totalsByYear = d3.rollup(data, v=> d3.sum(v, d=>d.count), d=>d.year);
-
     const dataByYear = d3.rollups(
       data,
       v => { const o={}; v.forEach(d=> o[d.label]=d.count); return o; },
       d=> d.year
     ).sort((a,b)=> a[0]-b[0]);
 
-    const stacked = d3.stack()
-      .keys(labels)
-      .value((yearEntry, key) => yearEntry[1][key] || 0)
-      (dataByYear);
-
+    const stacked = d3.stack().keys(labels).value((yearEntry, key) => yearEntry[1][key] || 0)(dataByYear);
     const angle = d3.scaleBand().domain(years).range([0, 2*Math.PI]).align(0);
-
     const maxCount = d3.max(stacked[stacked.length-1], d=> d[1]);
     const rScale = d3.scaleLinear().domain([0, maxCount]).range([innerRadius, radius]);
 
-    // Arcs computed from explicit year
     const arc = d3.arc()
       .innerRadius(d=> rScale(d.seg[0]))
       .outerRadius(d=> rScale(d.seg[1]))
@@ -466,11 +649,8 @@ function render(size="full"){
       .padAngle(0.006)
       .padRadius(innerRadius);
 
-    const layers = g.selectAll("g.layer")
-      .data(stacked, d=>d.key)
-      .join("g")
-      .attr("class","layer")
-      .attr("fill", d=> colorMapping[d.key] || "#ccc");
+    const layers = g.selectAll("g.layer").data(stacked, d=>d.key).join("g")
+      .attr("class","layer").attr("fill", d=> colorMapping[d.key] || "#ccc");
 
     const segData = series => series.map((seg,i)=> ({ seg, year: dataByYear[i][0], label: series.key }));
 
@@ -488,6 +668,112 @@ function render(size="full"){
       .attr("data-key", d=> `${d.year}__${d.label}`)
       .attr("d", d=> arcHit(d));
 
+    /* ===== Build series for glyphs (counts & shares per label across years) ===== */
+    const seriesByLabel = new Map();     // label -> counts[]
+    const sharesByLabel = new Map();     // label -> shares 0..1 per year
+    const totalsArray   = years.map(y => totalsByYear.get(y) || 0);
+
+    // init zeros
+    labels.forEach(lbl => seriesByLabel.set(lbl, new Array(years.length).fill(0)));
+
+    data.forEach(d => {
+      const idx = years.indexOf(d.year);
+      if (idx >= 0) {
+        const arr = seriesByLabel.get(d.label);
+        if (arr) arr[idx] = d.count || 0;
+      }
+    });
+
+    labels.forEach(lbl => {
+      const counts = seriesByLabel.get(lbl);
+      const shares = counts.map((c,i) => {
+        const t = totalsArray[i] || 0;
+        return t ? (c / t) : 0;
+      });
+      sharesByLabel.set(lbl, shares);
+    });
+
+    /* ===== Mini-timeline glyph generator (inline SVG string) ===== */
+    function miniTimelineSVG(label, currentYear){
+  const shares = sharesByLabel.get(label) || [];
+  const color  = colorMapping[label] || "#ccc";
+
+  // Bigger canvas for more presence
+  const W = 220, H = 48;           // was 36
+  const padX = 6, padY = 6;
+  const innerW = W - padX*2, innerH = H - padY*2;
+
+  // Exaggeration controls
+  const EXAG = 0.2;                // <1 boosts small values (v^0.6)
+  const MIN_PX = 5;                // minimum visible bar height in px
+  const CURR_GAIN = 1.25;          // extra height for the current year's bar
+  const gap = 1.0;                 // slightly tighter spacing
+  const n = Math.max(1, shares.length);
+  const tickW = Math.max(1, (innerW - (n-1)*gap) / n);
+  const maxH = innerH;
+
+  const yrIndex = years.indexOf(currentYear);
+  let x = padX;
+  let rects = '';
+
+  for (let i=0; i<n; i++){
+    const v  = Math.max(0, Math.min(1, shares[i] || 0));
+    const vB = Math.pow(v, EXAG);                               // boosted
+    let h    = Math.max(MIN_PX, vB * maxH);                     // floor to be visible
+    if (i === yrIndex) h = Math.min(maxH, h * CURR_GAIN);       // emphasize current
+
+    const y  = H - padY - h;
+    const isCurrent = (i === yrIndex);
+    const fill   = isCurrent ? color : `${color}cc`;
+    const stroke = isCurrent ? "#ffffff" : "rgba(255,255,255,.25)";
+    const sw     = isCurrent ? 1.8 : 1.0;                       // thicker stroke on current
+    const rx     = 2;
+
+    rects += `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}"
+                     width="${tickW.toFixed(2)}" height="${h.toFixed(2)}"
+                     fill="${fill}" stroke="${stroke}" stroke-width="${sw}"
+                     rx="${rx}" ry="${rx}" />`;
+    x += tickW + gap;
+  }
+
+  const leftLab  = years[0];
+  const rightLab = years[years.length-1];
+
+  return `
+    <div class="glyph">
+      <div class="cap"><span></span><span>${label}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}"
+           role="img" aria-label="Timeline share for ${label}">
+        <rect x="0" y="0" width="${W}" height="${H}" fill="none"/>
+        ${rects}
+        <text x="${padX}" y="${H-2}" font-size="9" fill="#94a3b8">${leftLab}</text>
+        <text x="${W-padX}" y="${H-2}" font-size="9" fill="#94a3b8" text-anchor="end">${rightLab}</text>
+      </svg>
+    </div>`;
+}
+
+
+    /* ===== Tooltip HTML (with chip + glyph) ===== */
+    function tipHTML(label, year, count, total){
+      const color = colorMapping[label] || "#ccc";
+      return `
+        <div class="tip-head">
+          <span class="chip" style="background:${color}"></span>
+          <div>
+            <div class="title">${label}</div>
+            <div class="subtitle">Year ${year}</div>
+          </div>
+        </div>
+        <div class="summary">In <b>${year}</b>, <b>${label}</b> accounts for <b>${fmt(count)}</b> units (<b>${pct(count,total)}</b> of the year’s total).</div>
+        <div class="kv">
+          <div class="k">Year total</div><div>${fmt(total)}</div>
+          <div class="k">Segment value</div><div>${fmt(count)}</div>
+          <div class="k">Share</div><div>${pct(count,total)}</div>
+        </div>
+        ${miniTimelineSVG(label, year)}
+      `;
+    }
+
     const keyAcc = d=> `${d.year}__${d.label}`;
     const htmlAcc = d=> {
       const total = totalsByYear.get(d.year) || 0;
@@ -496,141 +782,45 @@ function render(size="full"){
     };
     attachHandlers(hits, keyAcc, htmlAcc);
 
-    // Radial grid
+    /* Radial grid + labels */
     const tickCount = 6;
     const ticks = rScale.ticks(tickCount);
-    const axisCircleGroup = g.append("g").attr("class","axis-circles");
-    axisCircleGroup.selectAll("circle").data(ticks).join("circle").attr("r", rScale);
+    g.append("g").attr("class","axis-circles").selectAll("circle").data(ticks).join("circle").attr("r", rScale);
 
-    // Value labels (8 rays)
     const rays = d3.range(0, 2*Math.PI, 2*Math.PI/8);
     const valueLabels = g.append("g").attr("class","value-labels");
     ticks.forEach(t=>{
       const R = rScale(t);
       rays.forEach(a=>{
-        valueLabels.append("text")
-          .attr("class","value-label")
-          .attr("x", Math.cos(a)*R)
-          .attr("y", Math.sin(a)*R)
-          .attr("text-anchor","middle")
-          .attr("alignment-baseline","middle")
-          .text(t);
+        valueLabels.append("text").attr("class","value-label")
+          .attr("x", Math.cos(a)*R).attr("y", Math.sin(a)*R)
+          .attr("text-anchor","middle").attr("alignment-baseline","middle").text(t);
       });
     });
 
-    // Year ticks/labels
     const yearAxis = g.append("g").attr("class","year-axis");
     years.forEach(year=>{
       const a = angle(year) + angle.bandwidth()/2 - Math.PI/2;
       const x1 = Math.cos(a)*(innerRadius-6), y1 = Math.sin(a)*(innerRadius-6);
       const x2 = Math.cos(a)*innerRadius,     y2 = Math.sin(a)*innerRadius;
-      yearAxis.append("line")
-        .attr("x1",x1).attr("y1",y1).attr("x2",x2).attr("y2",y2)
-        .attr("data-year", year);
+      yearAxis.append("line").attr("x1",x1).attr("y1",y1).attr("x2",x2).attr("y2",y2).attr("data-year", year);
       const lx = Math.cos(a)*(innerRadius-20), ly = Math.sin(a)*(innerRadius-20);
-      yearAxis.append("text")
-        .attr("x",lx).attr("y",ly)
-        .attr("text-anchor","middle")
-        .attr("alignment-baseline","middle")
-        .attr("data-year", year)
-        .text(year);
+      yearAxis.append("text").attr("x",lx).attr("y",ly).attr("text-anchor","middle").attr("alignment-baseline","middle").attr("data-year", year).text(year);
     });
 
-    // Legend: two columns
-    const entries = Object.entries(colorMapping);
-    const colCount = Math.ceil(entries.length/2);
-    const colW = 420, rowH = 26, pad = 18, sw = 18;
-    const panelW = colW*2 + pad*2, panelH = rowH*colCount + pad*2;
-    const legendX = (-dim/2) + 40, legendY = (-dim/2) + 40;
-
-    const legend = g.append("g").attr("transform",`translate(${legendX},${legendY})`);
-    legend.append("rect").attr("class","legend-panel").attr("x",0).attr("y",0).attr("rx",14).attr("ry",14).attr("width",panelW).attr("height",panelH);
-    entries.forEach(([label,color], i)=>{
-      const col = (i<colCount)?0:1, row=(i<colCount)?i:i-colCount;
-      const gx = pad + col*colW, gy = pad + row*rowH;
-      const item = legend.append("g").attr("transform",`translate(${gx},${gy})`);
-      item.append("rect").attr("x",0).attr("y",4).attr("width",sw).attr("height",sw).attr("rx",4).attr("ry",4).attr("fill",color);
-      item.append("text").attr("x",sw+10).attr("y",18).attr("class","legend-text").text(label);
-    });
-
-    // Store handles for filtering
-    handles.segments = segments;
-    handles.hits = hits;
+    handles.segments = segments; handles.hits = hits;
     handles.yearAxisElements = yearAxis.selectAll('[data-year]');
     handles.valueLabels = valueLabels.selectAll('.value-label');
 
-    // Apply current filter state
     applyFilters();
+    requestAnimationFrame(ensureCircleFits);
   });
 }
 
 render();
 
-/* UI */
-document.getElementById('menuToggle').addEventListener('click', ()=> document.getElementById('controls').classList.toggle('hidden'));
-window.addEventListener('keydown', (e)=>{
-  if(e.key.toLowerCase()==='m'){
-    document.getElementById('controls').classList.toggle('hidden');
-  }
-  if(e.key === 'Escape'){
-    // Reset filters to data defaults
-    if (allAnthromeCodes.length > 0 && allYears.length > 0) {
-      document.getElementById('anthromeMinSlider').value = allAnthromeCodes[0];
-      document.getElementById('anthromeMaxSlider').value = allAnthromeCodes[allAnthromeCodes.length - 1];
-      document.getElementById('yearMinSlider').value = allYears[0];
-      document.getElementById('yearMaxSlider').value = allYears[allYears.length - 1];
-      applyFilters();
-    }
-  }
-});
-
-// Helper function to snap slider to nearest valid value
-function snapToNearestValue(value, validValues) {
-  let nearest = validValues[0];
-  let minDiff = Math.abs(value - nearest);
-  for (let v of validValues) {
-    const diff = Math.abs(value - v);
-    if (diff < minDiff) {
-      minDiff = diff;
-      nearest = v;
-    }
-  }
-  return nearest;
-}
-
-// Slider event listeners for real-time label updates and snapping
-document.getElementById('anthromeMinSlider').addEventListener('input', function(e) {
-  if (allAnthromeCodes.length > 0) {
-    const snapped = snapToNearestValue(+e.target.value, allAnthromeCodes);
-    e.target.value = snapped;
-  }
-  readFilterUI();
-});
-
-document.getElementById('anthromeMaxSlider').addEventListener('input', function(e) {
-  if (allAnthromeCodes.length > 0) {
-    const snapped = snapToNearestValue(+e.target.value, allAnthromeCodes);
-    e.target.value = snapped;
-  }
-  readFilterUI();
-});
-
-document.getElementById('yearMinSlider').addEventListener('input', function(e) {
-  if (allYears.length > 0) {
-    const snapped = snapToNearestValue(+e.target.value, allYears);
-    e.target.value = snapped;
-  }
-  readFilterUI();
-});
-
-document.getElementById('yearMaxSlider').addEventListener('input', function(e) {
-  if (allYears.length > 0) {
-    const snapped = snapToNearestValue(+e.target.value, allYears);
-    e.target.value = snapped;
-  }
-  readFilterUI();
-});
-
+/* ===== Settings & Export ===== */
+document.getElementById('menuToggle').addEventListener('click', ()=>{ document.getElementById('settings').classList.toggle('open'); });
 d3.select("#viewMode").on("change", function(){ currentSize = this.value; render(currentSize); });
 d3.select("#export").on("click", function(){
   const serializer = new XMLSerializer();
@@ -641,17 +831,49 @@ d3.select("#export").on("click", function(){
   URL.revokeObjectURL(url);
 });
 
-document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
-document.getElementById('clearFiltersBtn').addEventListener('click', ()=>{
-  if (allAnthromeCodes.length > 0 && allYears.length > 0) {
-    document.getElementById('anthromeMinSlider').value = allAnthromeCodes[0];
-    document.getElementById('anthromeMaxSlider').value = allAnthromeCodes[allAnthromeCodes.length - 1];
-    document.getElementById('yearMinSlider').value = allYears[0];
-    document.getElementById('yearMaxSlider').value = allYears[allYears.length - 1];
-    applyFilters();
+/* Select All / Clear */
+document.getElementById('selectAllChips').addEventListener('click', ()=>{
+  if (!orderedCodes.length || !allYears.length) return;
+  filterState.aStartIdx = 0;
+  filterState.aEndIdx   = orderedCodes.length - 1;
+  document.querySelectorAll('#legendGrid .legend-item').forEach((el)=> el.classList.add('selected'));
+  const yMinEl = document.getElementById('yearMinSlider');
+  const yMaxEl = document.getElementById('yearMaxSlider');
+  yMinEl.value = allYears[0]; yMaxEl.value = allYears[allYears.length - 1];
+  applyFilters();
+});
+document.getElementById('clearChips').addEventListener('click', ()=>{
+  if (!orderedCodes.length || !allYears.length) return;
+  // Keeping Clear == show all for continuity with prior UX
+  filterState.aStartIdx = 0;
+  filterState.aEndIdx   = orderedCodes.length - 1;
+  document.querySelectorAll('#legendGrid .legend-item').forEach((el)=> el.classList.add('selected'));
+  const yMinEl = document.getElementById('yearMinSlider');
+  const yMaxEl = document.getElementById('yearMaxSlider');
+  yMinEl.value = allYears[0]; yMaxEl.value = allYears[allYears.length - 1];
+  applyFilters();
+});
+
+/* Keyboard shortcuts */
+window.addEventListener('keydown', (e)=>{
+  if(e.key.toLowerCase()==='m'){ document.getElementById('settings').classList.toggle('open'); }
+  if(e.key === 'Escape'){
+    if (orderedCodes.length && allYears.length) {
+      filterState.aStartIdx = 0; filterState.aEndIdx = orderedCodes.length - 1;
+      document.querySelectorAll('#legendGrid .legend-item').forEach(el=> el.classList.add('selected'));
+      const yMinEl = document.getElementById('yearMinSlider');
+      const yMaxEl = document.getElementById('yearMaxSlider');
+      yMinEl.value = allYears[0]; yMaxEl.value = allYears[allYears.length - 1];
+      applyFilters();
+    }
   }
 });
+
+/* Start collapsed */
+(function initCircle(){
+  setCircleRadius(80);
+  document.getElementById('fc-caption').style.opacity = 0;
+})();
 </script>
 </body>
 </html>
-

@@ -155,7 +155,7 @@
       display:flex; flex-direction:column; gap:12px;
       align-items:center; justify-content:center; text-align:center;
     }
-    .fc-head{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .fc-head{ width:60%; display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .fc-title{ font-size:11px; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; }
     .actions{ display:flex; gap:8px; }
     .btn{
@@ -350,10 +350,46 @@ function parseWestern(meta){
   return null;
 }
 function locationsFromMeta(meta){
-  const v = getMeta(meta, KEYMAP.locations);
-  if (Array.isArray(v)) return v.slice(0,6).join(', ');
-  if (typeof v === 'string' && v.trim()) return v;
-  return 'various global sites';
+  if (!meta) return '—';
+
+  // Primary known key in your dataset
+  let v = meta["Country_List"];
+
+  // Fallbacks if other variants exist
+  if (!v) {
+    const possibleKeys = ['Locations','Sample_Locations','Countries','SampleCountries','Sample Sites','sites','locations'];
+    for (const k of possibleKeys){
+      if (meta[k] != null) { v = meta[k]; break; }
+    }
+  }
+  if (!v) return 'various global sites';
+
+  // Try to parse the Country_List format: "[\"SWE\", \"USA\"]"
+  let arr = [];
+  if (Array.isArray(v)) arr = v;
+  else if (typeof v === 'string'){
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) arr = parsed;
+      else arr = v.split(',').map(s => s.trim());
+    } catch {
+      arr = v.split(',').map(s => s.trim());
+    }
+  }
+
+  arr = arr.filter(Boolean);
+  if (!arr.length) return 'various global sites';
+
+  // Unique and trimmed
+  const uniq = Array.from(new Set(arr.map(s => s.trim())));
+
+  // Compose readable text
+  const shown = uniq.slice(0,5).join(', ');
+  if (uniq.length > 5) {
+    const remaining = uniq.length - 5;
+    return `${shown}, and ${remaining} other global site${remaining>1?'s':''}`;
+  }
+  return shown;
 }
 function parseUSGB(meta){
   const v = getMeta(meta, KEYMAP.uSGB);
