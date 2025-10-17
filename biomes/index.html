@@ -136,7 +136,7 @@
     </div>
 
     <button id="export">Export SVG</button>
-    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press “m” to toggle menu, “Esc” to reset isolate.</span>
+    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press "m" to toggle menu, "Esc" to reset isolate. Scroll to zoom, drag to pan.</span>
   </div>
 
   <svg id="chart" aria-label="Radial phylogenetic tree visualization" role="img"></svg>
@@ -148,6 +148,16 @@
 const svg = d3.select("#chart");
 const g = svg.append("g");
 const defs = svg.append("defs");
+
+// Setup zoom behavior
+const zoom = d3.zoom()
+  .scaleExtent([1, 10])  // Allow zoom from 1x to 10x
+  .on("zoom", (event) => {
+    g.attr("transform", event.transform);
+  });
+
+svg.call(zoom);
+
 const fullSize = 7000, previewSize = 1200;
 const fullRadius = 3000, previewRadius = 550;
 let currentSize = "full";

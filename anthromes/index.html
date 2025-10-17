@@ -117,7 +117,7 @@
     </div>
 
     <button id="export">Export SVG</button>
-    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press "m" to toggle menu, "Esc" to clear filters.</span>
+    <span style="font-size:12px;color:var(--muted);">Tip: hover for details, click to pin; click empty space to unpin. Press "m" to toggle menu, "Esc" to clear filters. Scroll to zoom, drag to pan.</span>
   </div>
 
   <div id="tooltip" class="hidden" role="dialog" aria-live="polite"></div>
@@ -127,6 +127,15 @@
 const svg = d3.select("#chart");
 const g = svg.append("g");
 const defs = svg.append("defs");
+
+// Setup zoom behavior
+const zoom = d3.zoom()
+  .scaleExtent([1, 10])  // Allow zoom from 1x to 10x
+  .on("zoom", (event) => {
+    g.attr("transform", event.transform);
+  });
+
+svg.call(zoom);
 
 /* Match tree canvas: same overall diameter */
 const fullSize = 7000, previewSize = 1200;
