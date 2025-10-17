@@ -3,23 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <title>Anthromes & Biomes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     @font-face {
       font-family: "Pelikan";
       src: url("fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      font-display: swap;
     }
+
     :root{
-      --bg:#0e0b16; --fg:#ffffff; --muted:#cfd3e0;
+      --bg:#0e0b16;
+      --fg:#ffffff;
+      --muted:#cfd3e0;
+      --ring:#ffffff;
+      --ringOpacity: 0.9;
+      --ringWidth: 2.5px;
+      --edgeScaleX: 0.03;
+      --tiltScaleX: 1;
+      --tiltDeg: 10deg;
+      --animMs: 800ms;
+      --ease: cubic-bezier(.19,.76,.19,1);
+      --captionSize: 18px;
+      --captionInset: 36; /* inward offset for text from ring */
     }
+
     html, body {
       height: 100%;
       margin: 0;
       background: var(--bg);
-      font-family: "Pelikan", sans-serif;
       color: var(--fg);
+      font-family: "Pelikan", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      overflow: hidden;
     }
 
-    /* Side titles as nav links */
     .sideLink {
       position: fixed;
       top: 50%;
@@ -33,19 +49,131 @@
       opacity: 0.9;
       user-select: none;
       text-decoration: none;
-      transition: color 0.3s ease, opacity 0.3s ease;
+      transition: color .3s ease, opacity .3s ease, transform .3s ease;
+      will-change: color, opacity, transform;
+      z-index: 3;
     }
     .sideLink:hover {
       color: var(--fg);
       opacity: 1;
+      transform: translateY(-50%) scale(1.03);
     }
     #leftLink { left: 20px; }
     #rightLink { right: 20px; }
+
+    .stage {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    svg {
+      width: min(85vmin, 1100px);
+      height: auto;
+      overflow: visible;
+    }
+
+    #disk {
+      transform-origin: 50% 50%;
+      transform-box: fill-box;
+      transition: transform var(--animMs) var(--ease);
+      transform: scaleX(var(--edgeScaleX)) rotateZ(0deg);
+    }
+
+    body.tilt-left  #disk { transform: scaleX(var(--tiltScaleX)) rotateZ(calc(var(--tiltDeg) * -1)); }
+    body.tilt-right #disk { transform: scaleX(var(--tiltScaleX)) rotateZ(var(--tiltDeg)); }
+
+    .ring {
+      fill: none;
+      stroke: var(--ring);
+      stroke-opacity: var(--ringOpacity);
+      stroke-width: var(--ringWidth);
+      vector-effect: non-scaling-stroke;
+    }
+
+    text {
+      fill: var(--muted);
+      font-size: var(--captionSize);
+      font-weight: 500;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      dominant-baseline: middle;
+      transition: fill .3s ease, opacity .3s ease;
+      opacity: .9;
+    }
+    body.tilt-left  #caption-left  { fill: var(--fg); opacity: 1; }
+    body.tilt-right #caption-right { fill: var(--fg); opacity: 1; }
   </style>
 </head>
 <body>
-  <!-- Side Title Links -->
   <a id="leftLink" class="sideLink" href="biomes/index.html">BIOMES</a>
   <a id="rightLink" class="sideLink" href="anthromes/index.html">ANTHROMES</a>
+
+  <div class="stage">
+    <svg viewBox="-550 -550 1100 1100">
+      <defs>
+        <!-- Main ring radius -->
+        <circle id="mainRing" cx="0" cy="0" r="600" />
+
+        <!-- Inset arcs for inner text -->
+        <path id="arc-left"  d="M 0 -364 A 364 364 0 0 0 0 364" />
+        <path id="arc-right" d="M 0 364 A 364 364 0 0 0 0 -364" />
+      </defs>
+
+      <g id="disk">
+        <circle class="ring" cx="0" cy="0" r="400" />
+
+        <text id="caption-left">
+          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">
+            AN EXTENSIVE HUMAN MICROBIOME
+          </textPath>
+        </text>
+        <text id="caption-right">
+          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">
+            MODELING 12017 YEARS OF LAND USE
+          </textPath>
+        </text>
+      </g>
+    </svg>
+  </div>
+
+  <script>
+    const body = document.body;
+    const left = document.getElementById('leftLink');
+    const right = document.getElementById('rightLink');
+    const stage = document.querySelector('.stage');
+
+    function clearTilts() {
+      body.classList.remove('tilt-left', 'tilt-right');
+    }
+
+    left.addEventListener('mouseenter', () => {
+      body.classList.add('tilt-left');
+      body.classList.remove('tilt-right');
+    });
+    left.addEventListener('mouseleave', clearTilts);
+
+    right.addEventListener('mouseenter', () => {
+      body.classList.add('tilt-right');
+      body.classList.remove('tilt-left');
+    });
+    right.addEventListener('mouseleave', clearTilts);
+
+    stage.addEventListener('mousemove', (e) => {
+      const rect = stage.getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      if (e.clientX < midX - 60) {
+        body.classList.add('tilt-left');
+        body.classList.remove('tilt-right');
+      } else if (e.clientX > midX + 60) {
+        body.classList.add('tilt-right');
+        body.classList.remove('tilt-left');
+      } else {
+        clearTilts();
+      }
+    });
+    stage.addEventListener('mouseleave', clearTilts);
+  </script>
 </body>
 </html>
