@@ -1,11 +1,11 @@
 /* Shared CSS variables and styles */
 :root {
-  --bg: #1a1a1a;
-  --fg: #e5e5e5;
-  --muted: #888888;
-  --panel: #2a2a2a;
-  --accent: #00d9ff;
-  --shadow: rgba(0, 0, 0, 0.5);
+  --bg: #0e0b16;
+  --fg: #ffffff;
+  --muted: #cfd3e0;
+  --panel: #141226;
+  --accent: #7ad7ff;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 /* ABCPelikan font declarations */
@@ -30,9 +30,104 @@
   box-sizing: border-box;
 }
 
+html, body {
+  height: 100%;
+}
+
 body {
-  font-family: 'ABCPelikan', sans-serif;
+  margin: 0;
+  font-family: 'ABCPelikan', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
   background-color: var(--bg);
   color: var(--fg);
   overflow: hidden;
+}
+
+/* Common UI elements */
+.side-title {
+  position: fixed;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow: visible;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  font-size: 20px;
+  color: var(--muted);
+  opacity: 0.9;
+  user-select: none;
+  z-index: 4;
+}
+
+.settings-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 8;
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  font-size: 18px;
+  color: var(--muted);
+  transition: color 0.2s ease;
+}
+
+.settings-toggle:hover {
+  color: var(--fg);
+}
+
+.settings-panel {
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  z-index: 7;
+  background: linear-gradient(180deg, rgba(20, 18, 38, 0.97), rgba(20, 18, 38, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 10px 12px;
+  width: 300px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+  display: none;
+}
+
+.settings-panel.open {
+  display: block;
+}
+
+.settings-panel label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 6px 0;
+}
+
+.settings-panel select,
+.settings-panel button {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.settings-panel .tip {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.35;
 }
