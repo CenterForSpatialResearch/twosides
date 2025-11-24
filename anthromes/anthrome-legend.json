@@ -1,0 +1,128 @@
+{
+  "11": {
+    "code": 11,
+    "label": "Urban",
+    "description": "Dense urban settlements",
+    "color": "#5f0f40"
+  },
+  "12": {
+    "code": 12,
+    "label": "Dense settlements",
+    "description": "Dense settlements",
+    "color": "#884255"
+  },
+  "21": {
+    "code": 21,
+    "label": "Village, Rice",
+    "description": "Rice villages",
+    "color": "#df6473"
+  },
+  "22": {
+    "code": 22,
+    "label": "Village, Irrigated",
+    "description": "Irrigated villages",
+    "color": "#f99270"
+  },
+  "23": {
+    "code": 23,
+    "label": "Village, Rainfed",
+    "description": "Rainfed crop villages",
+    "color": "#ffb46b"
+  },
+  "24": {
+    "code": 24,
+    "label": "Village, Pastoral",
+    "description": "Pastoral villages",
+    "color": "#ffd46a"
+  },
+  "31": {
+    "code": 31,
+    "label": "Croplands, residential irrigated",
+    "description": "Residential irrigated croplands",
+    "color": "#75c07a"
+  },
+  "32": {
+    "code": 32,
+    "label": "Croplands, residential rainfed",
+    "description": "Residential rainfed croplands",
+    "color": "#93d697"
+  },
+  "33": {
+    "code": 33,
+    "label": "Croplands, populated",
+    "description": "Populated croplands",
+    "color": "#aee9b1"
+  },
+  "34": {
+    "code": 34,
+    "label": "Croplands, pastoral",
+    "description": "Pastoral croplands",
+    "color": "#c9fac9"
+  },
+  "41": {
+    "code": 41,
+    "label": "Rangeland, residential",
+    "description": "Residential rangeland",
+    "color": "#e9f9cd"
+  },
+  "42": {
+    "code": 42,
+    "label": "Rangeland, populated",
+    "description": "Populated rangeland",
+    "color": "#ffffcc"
+  },
+  "43": {
+    "code": 43,
+    "label": "Rangeland, remote",
+    "description": "Remote rangeland",
+    "color": "#ffffe5"
+  },
+  "51": {
+    "code": 51,
+    "label": "Semi-natural woodlands, residential",
+    "description": "Residential semi-natural woodlands",
+    "color": "#daf3fc"
+  },
+  "52": {
+    "code": 52,
+    "label": "Semi-natural woodlands, populated",
+    "description": "Populated semi-natural woodlands",
+    "color": "#bdeafa"
+  },
+  "53": {
+    "code": 53,
+    "label": "Semi-natural woodlands, remote",
+    "description": "Remote semi-natural woodlands",
+    "color": "#a0e1f7"
+  },
+  "54": {
+    "code": 54,
+    "label": "Semi-natural treeless and barren lands",
+    "description": "Treeless and barren lands",
+    "color": "#83d8f5"
+  },
+  "61": {
+    "code": 61,
+    "label": "Wild, remote - woodlands",
+    "description": "Wild remote woodlands",
+    "color": "#66cff2"
+  },
+  "62": {
+    "code": 62,
+    "label": "Wild, remote - treeless & barren",
+    "description": "Wild remote treeless",
+    "color": "#49c6f0"
+  },
+  "63": {
+    "code": 63,
+    "label": "Wild, remote - ice",
+    "description": "Wild remote ice",
+    "color": "#2cbded"
+  },
+  "70": {
+    "code": 70,
+    "label": "No land",
+    "description": "Water bodies and no data",
+    "color": "#2e8b57"
+  }
+}

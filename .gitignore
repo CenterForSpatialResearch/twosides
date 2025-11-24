@@ -1,0 +1,12 @@
+# Source data files
+data/
+
+# Build output
+dist/
+node_modules/
+
+# OS files
+.DS_Store
+
+# Processing intermediates
+processing/geojson/
