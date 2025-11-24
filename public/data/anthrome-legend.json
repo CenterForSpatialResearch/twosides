@@ -1,0 +1,128 @@
+{
+  "11": {
+    "code": 11,
+    "label": "Urban",
+    "description": "Dense urban settlements",
+    "color": "#5f0f40"
+  },
+  "12": {
+    "code": 12,
+    "label": "Mixed settlements",
+    "description": "Mixed settlements",
+    "color": "#792775"
+  },
+  "21": {
+    "code": 21,
+    "label": "Rice villages",
+    "description": "Rice villages",
+    "color": "#933faa"
+  },
+  "22": {
+    "code": 22,
+    "label": "Irrigated villages",
+    "description": "Irrigated villages",
+    "color": "#ac55d5"
+  },
+  "23": {
+    "code": 23,
+    "label": "Rainfed villages",
+    "description": "Rainfed crop villages",
+    "color": "#bf55a4"
+  },
+  "24": {
+    "code": 24,
+    "label": "Pastoral villages",
+    "description": "Pastoral villages",
+    "color": "#d25572"
+  },
+  "31": {
+    "code": 31,
+    "label": "Residential irrigated croplands",
+    "description": "Residential irrigated croplands",
+    "color": "#e55641"
+  },
+  "32": {
+    "code": 32,
+    "label": "Residential rainfed croplands",
+    "description": "Residential rainfed croplands",
+    "color": "#f8560f"
+  },
+  "33": {
+    "code": 33,
+    "label": "Populated croplands",
+    "description": "Populated croplands",
+    "color": "#de691f"
+  },
+  "34": {
+    "code": 34,
+    "label": "Remote croplands",
+    "description": "Remote croplands",
+    "color": "#bb7f3c"
+  },
+  "41": {
+    "code": 41,
+    "label": "Residential rangelands",
+    "description": "Residential rangelands",
+    "color": "#999559"
+  },
+  "42": {
+    "code": 42,
+    "label": "Populated rangelands",
+    "description": "Populated rangelands",
+    "color": "#76ac76"
+  },
+  "43": {
+    "code": 43,
+    "label": "Remote rangelands",
+    "description": "Remote rangelands",
+    "color": "#53c293"
+  },
+  "51": {
+    "code": 51,
+    "label": "Residential woodlands",
+    "description": "Residential semi-natural woodlands",
+    "color": "#30d8b1"
+  },
+  "52": {
+    "code": 52,
+    "label": "Populated woodlands",
+    "description": "Populated semi-natural woodlands",
+    "color": "#1aebc3"
+  },
+  "53": {
+    "code": 53,
+    "label": "Remote woodlands",
+    "description": "Remote semi-natural woodlands",
+    "color": "#44e9a0"
+  },
+  "54": {
+    "code": 54,
+    "label": "Inhabited drylands",
+    "description": "Treeless and barren lands",
+    "color": "#6de67d"
+  },
+  "61": {
+    "code": 61,
+    "label": "Wild woodlands",
+    "description": "Wild remote woodlands",
+    "color": "#97e45a"
+  },
+  "62": {
+    "code": 62,
+    "label": "Wild drylands",
+    "description": "Wild remote treeless",
+    "color": "#c1e236"
+  },
+  "63": {
+    "code": 63,
+    "label": "Ice (uninhabited)",
+    "description": "Wild remote ice",
+    "color": "#ebe013"
+  },
+  "70": {
+    "code": 70,
+    "label": "No land",
+    "description": "Water bodies and no data",
+    "color": "#2e8b57"
+  }
+}
