@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Anthromes Map (D3 Two-Point Equidistant)</title>
+  <style>
+    :root {
+      --bg: #0b0c10;
+      --panel: #11141d;
+      --text: #e5e7eb;
+      --muted: #8b93a1;
+      --accent: #7dd3fc;
+      --border: #1f2937;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      min-height: 100vh;
+    }
+    .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.5px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+      letter-spacing: 0.5px;
+    }
+    select, input[type="number"], input[type="range"], button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: var(--text);
+    }
+    input[type="range"] {
+      padding: 0;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .stats {
+      font-size: 12px;
+      color: var(--muted);
+      display: grid;
+      gap: 4px;
+    }
+    .canvas-wrap {
+      position: relative;
+      background: #06070d;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100vh;
+      background: radial-gradient(circle at 30% 30%, rgba(125,211,252,0.08), transparent 40%),
+                  radial-gradient(circle at 70% 70%, rgba(236,72,153,0.06), transparent 45%),
+                  #06070d;
+    }
+    .handles {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .handle {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #f97316;
+      border: 2px solid #0b0c10;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+      transform: translate(-50%, -50%);
+      cursor: grab;
+      pointer-events: auto;
+    }
+    .handle:active {
+      cursor: grabbing;
+    }
+    .loading {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(0,0,0,0.65);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(0,0,0,0.85);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      max-width: 240px;
+      z-index: 2;
+    }
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 6px;
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      padding: 8px;
+      border-radius: 8px;
+      background: #0f172a;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      border: 1px solid #fff2;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div>
+      <h1>Anthromes Map</h1>
+      <div style="color:var(--muted); font-size:12px;">Two-point equidistant • D3/Canvas</div>
+    </div>
+
+    <div>
+      <label for="profile">Profile</label>
+      <select id="profile"></select>
+    </div>
+
+    <div>
+      <label for="source">Data Source</label>
+      <select id="source">
+        <option value="topo">TopoJSON</option>
+        <option value="geo">GeoJSON</option>
+      </select>
+    </div>
+
+    <div>
+      <label for="year">Year: <span id="year-label"></span></label>
+      <input id="year" type="range" min="0" max="0" value="0" />
+    </div>
+
+    <div>
+      <label>Projection points (lon, lat)</label>
+      <div class="row">
+        <input id="p1lon" type="number" step="0.1" min="-180" max="180" value="-40">
+        <input id="p1lat" type="number" step="0.1" min="-90" max="90" value="20">
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <input id="p2lon" type="number" step="0.1" min="-180" max="180" value="100">
+        <input id="p2lat" type="number" step="0.1" min="-90" max="90" value="20">
+      </div>
+    </div>
+
+    <div>
+      <label>Rendering</label>
+      <div class="row">
+        <button id="reset-view" type="button">Reset View</button>
+        <button id="reload" type="button">Reload Data</button>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <button id="reset-pan" type="button">Reset Pan/Zoom</button>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <div>
+      <label>Legend</label>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div class="loading" id="loading" style="display:none;">Loading…</div>
+    <div class="handles">
+      <div class="handle" id="handle-0" data-idx="0" title="Projection point A"></div>
+      <div class="handle" id="handle-1" data-idx="1" title="Projection point B"></div>
+    </div>
+    <div class="tooltip" id="tooltip" style="display:none;"></div>
+  </div>
+
+  <script type="module">
+    import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+    import {geoTwoPointEquidistant} from "https://cdn.jsdelivr.net/npm/d3-geo-projection@4/+esm";
+    import * as topojson from "https://cdn.jsdelivr.net/npm/topojson-client@3/+esm";
+
+    const EARTH_RADIUS_KM = 6371.0088;
+
+    const profiles = [
+      { id: "10km", label: "10km" },
+      { id: "22km", label: "22km" },
+      { id: "28km", label: "28km" },
+      { id: "33km", label: "33km" },
+      { id: "33km-dissolve-smp1", label: "33km-dissolve-smp1" },
+      { id: "33km-dissolve-smp2", label: "33km-dissolve-smp2" },
+      { id: "39km", label: "39km" },
+      { id: "44km", label: "44km" },
+      { id: "50km", label: "50km" },
+      { id: "55km", label: "55km" },
+
+    ];
+
+    const state = {
+      profile: "28km",
+      source: "topo",
+      years: [],
+      yearIndex: 0,
+      legend: {},
+      cache: new Map(),
+      points: [
+        [-40, 20],
+        [100, 20],
+      ],
+      view: { k: 1, tx: 0, ty: 0 },
+      renderMs: 0,
+      projection: null,
+      currentGeo: null,
+    };
+
+    const els = {
+      profile: document.getElementById("profile"),
+      year: document.getElementById("year"),
+      yearLabel: document.getElementById("year-label"),
+      stats: document.getElementById("stats"),
+      legend: document.getElementById("legend"),
+      loading: document.getElementById("loading"),
+      p1lon: document.getElementById("p1lon"),
+      p1lat: document.getElementById("p1lat"),
+      p2lon: document.getElementById("p2lon"),
+      p2lat: document.getElementById("p2lat"),
+      canvas: document.getElementById("canvas"),
+      resetView: document.getElementById("reset-view"),
+      reload: document.getElementById("reload"),
+      resetPan: document.getElementById("reset-pan"),
+      handle0: document.getElementById("handle-0"),
+      handle1: document.getElementById("handle-1"),
+      source: document.getElementById("source"),
+      tooltip: document.getElementById("tooltip"),
+    };
+
+    // Utilities
+    function parseYearString(yearStr) {
+      const isBC = yearStr.endsWith("BC");
+      const year = parseInt(yearStr.replace(/[^\d]/g, ""), 10);
+      return { year, isBC, original: yearStr };
+    }
+    function sortYears(years) {
+      return [...years].sort((a, b) => {
+        const { year: aYear, isBC: aBC } = parseYearString(a);
+        const { year: bYear, isBC: bBC } = parseYearString(b);
+        if (aBC && bBC) return bYear - aYear; // BC: larger number is older
+        if (!aBC && !bBC) return aYear - bYear; // AD ascending
+        return aBC ? -1 : 1; // BC before AD
+      });
+    }
+
+    // UI setup
+    function initProfileSelect() {
+      els.profile.innerHTML = profiles.map(p => `<option value="${p.id}">${p.label}</option>`).join("");
+      els.profile.value = state.profile;
+      els.profile.addEventListener("change", () => {
+        state.profile = els.profile.value;
+        loadAndRender(true);
+      });
+
+      els.source.value = state.source;
+      els.source.addEventListener("change", () => {
+        state.source = els.source.value;
+        loadAndRender(true);
+      });
+    }
+
+    function initYearSlider(years) {
+      state.years = years;
+      els.year.max = years.length - 1;
+      els.year.value = years.length - 1;
+      state.yearIndex = years.length - 1;
+      els.yearLabel.textContent = years[state.yearIndex];
+      els.year.addEventListener("input", () => {
+        state.yearIndex = +els.year.value;
+        els.yearLabel.textContent = state.years[state.yearIndex];
+        loadAndRender();
+      });
+    }
+
+    function initProjectionInputs() {
+      // Sync inputs to current state
+      els.p1lon.value = state.points[0][0];
+      els.p1lat.value = state.points[0][1];
+      els.p2lon.value = state.points[1][0];
+      els.p2lat.value = state.points[1][1];
+
+      const updatePoints = () => {
+        state.points = [
+          [parseFloat(els.p1lon.value), parseFloat(els.p1lat.value)],
+          [parseFloat(els.p2lon.value), parseFloat(els.p2lat.value)],
+        ];
+        // keep current zoom/pan but re-render with new projection points
+        render();
+      };
+      [els.p1lon, els.p1lat, els.p2lon, els.p2lat].forEach(input => {
+        input.addEventListener("change", updatePoints);
+      });
+      els.resetView.addEventListener("click", () => {
+        els.p1lon.value = -40; els.p1lat.value = 20;
+        els.p2lon.value = 100; els.p2lat.value = 20;
+        updatePoints();
+      });
+      els.resetPan.addEventListener("click", () => {
+        state.view = { k: 1, tx: 0, ty: 0 };
+        render();
+      });
+      els.reload.addEventListener("click", () => loadAndRender(true));
+    }
+
+    // Data loading
+    async function loadLegend() {
+      const res = await fetch("/data/anthrome-legend.json");
+      const legend = await res.json();
+      state.legend = legend;
+      renderLegend(legend);
+    }
+
+    async function loadYears() {
+      const res = await fetch("/data/summary.json");
+      const summary = await res.json();
+      const years = sortYears(Object.keys(summary.years));
+      return years;
+    }
+
+    function renderLegend(legend) {
+      els.legend.innerHTML = Object.values(legend)
+        .sort((a, b) => a.code - b.code)
+        .map(item => `<div class="legend-item"><span class="swatch" style="background:${item.color}"></span><span>${item.code} ${item.label}</span></div>`)
+        .join("");
+    }
+
+    async function loadTopo(profile, year) {
+      const key = `topo:${profile}-${year}`;
+      if (state.cache.has(key)) return state.cache.get(key);
+
+      const url = `/topojson/${profile}/${year}.topojson`;
+      const t0 = performance.now();
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
+      const text = await res.text();
+      let topo;
+      try {
+        topo = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Invalid TopoJSON at ${url} (got text/html?)`);
+      }
+      const loadMs = performance.now() - t0;
+      const geo = topojson.feature(topo, topo.objects[Object.keys(topo.objects)[0]]);
+      state.cache.set(key, { geo, loadMs });
+      return { geo, loadMs };
+    }
+
+    async function loadGeo(profile, year) {
+      const key = `geo:${profile}-${year}`;
+      if (state.cache.has(key)) return state.cache.get(key);
+
+      // GeoJSON lives under processing/geojson/<profile>/<year>.geojson when served at repo root
+      const url = `/processing/geojson/${profile}/${year}.geojson`;
+      const t0 = performance.now();
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
+      const text = await res.text();
+      let geo;
+      try {
+        geo = JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Invalid GeoJSON at ${url} (got text/html?)`);
+      }
+      const loadMs = performance.now() - t0;
+      if (!geo || !geo.features) throw new Error(`GeoJSON missing features at ${url}`);
+      state.cache.set(key, { geo, loadMs });
+      return { geo, loadMs };
+    }
+
+    // Rendering
+    function resizeCanvas() {
+      const rect = els.canvas.getBoundingClientRect();
+      els.canvas.width = rect.width * devicePixelRatio;
+      els.canvas.height = rect.height * devicePixelRatio;
+    }
+
+    function getProjectionPoints() {
+      const [p0, p1] = state.points || [];
+      const safeP0 = (p0 && Array.isArray(p0) && p0.length === 2 && Number.isFinite(p0[0]) && Number.isFinite(p0[1])) ? p0 : [-40, 20];
+      const safeP1 = (p1 && Array.isArray(p1) && p1.length === 2 && Number.isFinite(p1[0]) && Number.isFinite(p1[1])) ? p1 : [100, 20];
+      return [safeP0, safeP1];
+    }
+
+    function getCircleExtent() {
+      const width = els.canvas.width;
+      const height = els.canvas.height;
+      const radius = Math.min(width, height) / 2 - 12 * devicePixelRatio;
+      const side = Math.max(1, radius * 2);
+      const cx = width / 2;
+      const cy = height / 2;
+      return {
+        radius,
+        side,
+        cx,
+        cy,
+        extent: [
+          [cx - side / 2, cy - side / 2],
+          [cx + side / 2, cy + side / 2],
+        ],
+      };
+    }
+
+    function renderEllipse(ctx, circle) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(circle.cx, circle.cy, circle.radius, 0, Math.PI * 2);
+      ctx.clip();
+    }
+
+
+    function makeProjection(features, circle) {
+      const pts = getProjectionPoints();
+      if (!pts[0] || !pts[1]) {
+        throw new Error("Projection points undefined");
+      }
+
+      const projection = geoTwoPointEquidistant(pts[0], pts[1])
+        // clipAngle uses a great-circle cutoff; very wide views can show banding
+        // where the circle slices long polygons. clipAngle(100) is a middle ground that keeps
+        // most seams hidden without extreme slicing. Removing clipAngle falls back
+        // to the default antimeridian preclip (no banding), but brings back a hard
+        // meridian cutoff, leaving less of the globe visible.
+        .clipAngle(100);
+
+      projection.fitExtent(circle.extent, features);
+      projection.scale(projection.scale() * 0.98); // leave a bit of margin inside the circle
+      // Apply user zoom/pan offsets (state.view in screen px)
+      projection.scale(projection.scale() * state.view.k);
+      const [tx, ty] = projection.translate();
+      projection.translate([tx + state.view.tx, ty + state.view.ty]);
+      projection.clipExtent([[0, 0], [els.canvas.width, els.canvas.height]]);
+
+      return projection;
+    }
+
+    function render() {
+      const width = els.canvas.width;
+      const height = els.canvas.height;
+      const ctx = els.canvas.getContext("2d");
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const current = state.cache.get(`${state.source}:${state.profile}-${state.years[state.yearIndex]}`);
+      if (!current) return;
+
+      const { geo } = current;
+      if (!geo || !geo.features || geo.features.length === 0) return;
+      const circle = getCircleExtent();
+      const t1 = performance.now();
+      let projection;
+      try {
+        projection = makeProjection(geo, circle);
+      } catch (e) {
+        console.error("Projection error:", e);
+        els.stats.innerHTML = `<span style="color:#f87171;">Projection error: ${e.message}</span>`;
+        return;
+      }
+      const path = d3.geoPath(projection, ctx);
+      state.projection = projection;
+      state.currentGeo = geo;
+
+      ctx.fillStyle = "#0a0c14";
+      ctx.fillRect(0, 0, width, height);
+
+      // Apply circular clip
+      renderEllipse(ctx, circle);
+
+      // Fill polygons
+      for (let i = 0; i < geo.features.length; i++) {
+        const feature = geo.features[i];
+        const code = feature.properties?.anthrome;
+        const color = state.legend[code]?.color || "#ffffff";
+
+        ctx.beginPath();
+        path(feature);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      ctx.restore();
+      state.renderMs = performance.now() - t1;
+      updateHandles(projection);
+      updateStats();
+    }
+
+    function showLoading(on) {
+      els.loading.style.display = on ? "block" : "none";
+    }
+
+    function updateStats() {
+      const current = state.cache.get(`${state.source}:${state.profile}-${state.years[state.yearIndex]}`);
+      const loadMs = current?.loadMs ?? 0;
+      const originalFeatures = current?.geo?.features?.length ?? 0;
+      const renderedFeatures = state.currentGeo?.features?.length ?? originalFeatures;
+      els.stats.innerHTML = [
+        `Profile: ${state.profile}`,
+        `Source: ${state.source}`,
+        `Year: ${state.years[state.yearIndex]}`,
+        `Features: ${renderedFeatures.toLocaleString()}${renderedFeatures !== originalFeatures ? ` (of ${originalFeatures.toLocaleString()})` : ""}`,
+        `Load: ${loadMs.toFixed(1)} ms`,
+        `Render: ${state.renderMs.toFixed(1)} ms`,
+      ].join("<br>");
+    }
+
+    function setInputsFromState() {
+      els.p1lon.value = state.points[0][0].toFixed(2);
+      els.p1lat.value = state.points[0][1].toFixed(2);
+      els.p2lon.value = state.points[1][0].toFixed(2);
+      els.p2lat.value = state.points[1][1].toFixed(2);
+    }
+
+    function updateHandles(projection) {
+      const handles = [els.handle0, els.handle1];
+      const pts = state.points;
+      if (!projection || !handles[0] || !handles[1]) return;
+      const dpr = window.devicePixelRatio || 1;
+      handles.forEach((h, idx) => {
+        const pt = pts[idx];
+        const proj = projection(pt);
+        if (!proj) {
+          h.style.display = "none";
+          return;
+        }
+        h.style.display = "block";
+        h.style.left = `${proj[0] / dpr}px`;
+        h.style.top = `${proj[1] / dpr}px`;
+      });
+    }
+
+    function initHandles() {
+      let dragging = null;
+      let startPoints = null;
+      let panning = false;
+      let lastPan = null;
+
+      function onWheel(e) {
+        e.preventDefault();
+        const factor = e.deltaY > 0 ? 0.9 : 1.1;
+        const newK = Math.min(3, Math.max(0.5, state.view.k * factor));
+        if (newK === state.view.k) return;
+        state.view.k = newK;
+        render();
+      }
+
+      function onPanDown(e) {
+        // Ignore if a handle is being dragged
+        if (dragging !== null) return;
+        panning = true;
+        lastPan = { x: e.clientX, y: e.clientY };
+        els.canvas.setPointerCapture(e.pointerId);
+      }
+
+      function onPanMove(e) {
+        if (!panning || !lastPan) return;
+        const dpr = window.devicePixelRatio || 1;
+        const dx = (e.clientX - lastPan.x) * dpr;
+        const dy = (e.clientY - lastPan.y) * dpr;
+        state.view.tx += dx;
+        state.view.ty += dy;
+        lastPan = { x: e.clientX, y: e.clientY };
+        render();
+      }
+
+      function onPanUp(e) {
+        if (panning) {
+          panning = false;
+          lastPan = null;
+          els.canvas.releasePointerCapture(e.pointerId);
+        }
+      }
+
+      function animateProjection(fromPts, toPts) {
+        const interp = [
+          d3.interpolateNumber(fromPts[0][0], toPts[0][0]),
+          d3.interpolateNumber(fromPts[0][1], toPts[0][1]),
+          d3.interpolateNumber(fromPts[1][0], toPts[1][0]),
+          d3.interpolateNumber(fromPts[1][1], toPts[1][1]),
+        ];
+        const duration = 500;
+        const ease = t => t < 0.5
+          ? 2 * t * t              // ease-in
+          : -1 + (4 - 2 * t) * t;  // ease-out (symmetric)
+        const start = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - start) / duration);
+          const k = ease(t);
+          state.points = [
+            [interp[0](k), interp[1](k)],
+            [interp[2](k), interp[3](k)],
+          ];
+          render();
+          if (t < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+
+      function onMove(e) {
+        if (dragging === null || !state.projection) return;
+        const rect = els.canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const x = (e.clientX - rect.left) * dpr;
+        const y = (e.clientY - rect.top) * dpr;
+        const inv = state.projection.invert([x, y]);
+        if (!inv) return;
+        state.points[dragging] = inv;
+        setInputsFromState();
+        updateHandles(state.projection);
+      }
+      function onUp() {
+        dragging = null;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        if (startPoints) {
+          animateProjection(startPoints, state.points);
+          startPoints = null;
+        }
+      }
+      [els.handle0, els.handle1].forEach((h) => {
+        if (!h) return;
+        h.addEventListener("pointerdown", (e) => {
+          dragging = parseInt(e.currentTarget.dataset.idx, 10);
+          startPoints = state.points.map(p => [...p]);
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+          e.preventDefault();
+        });
+      });
+
+      // Canvas pan/zoom
+      els.canvas.addEventListener("wheel", onWheel, { passive: false });
+      els.canvas.addEventListener("pointerdown", onPanDown);
+      els.canvas.addEventListener("pointermove", onPanMove);
+      els.canvas.addEventListener("pointerup", onPanUp);
+    }
+
+    function hideTooltip() {
+      els.tooltip.style.display = "none";
+    }
+
+    function showTooltip(html, x, y) {
+      const offsetX = 20;
+      els.tooltip.innerHTML = html;
+      els.tooltip.style.display = "block";
+      // Get tooltip height after setting content
+      const tooltipHeight = els.tooltip.offsetHeight;
+      els.tooltip.style.left = `${x + offsetX}px`;
+      els.tooltip.style.top = `${y - tooltipHeight - 10}px`;
+    }
+
+    function formatAreaKm2(feature) {
+      const areaSr = d3.geoArea(feature); // steradians
+      return areaSr * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+    }
+
+    function initTooltip() {
+      let panning = false;
+      els.canvas.addEventListener("pointerdown", () => { panning = true; });
+      els.canvas.addEventListener("pointerup", () => { panning = false; });
+
+      const onMove = (e) => {
+        if (!state.projection || !state.currentGeo || panning) {
+          hideTooltip();
+          return;
+        }
+        const rect = els.canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const x = (e.clientX - rect.left) * dpr;
+        const y = (e.clientY - rect.top) * dpr;
+        const lnglat = state.projection.invert([x, y]);
+        if (!lnglat) {
+          hideTooltip();
+          return;
+        }
+
+        // Linear scan (datasets are modest); replace with spatial index if needed
+        const feature = state.currentGeo.features.find(f => d3.geoContains(f, lnglat));
+        if (!feature) {
+          hideTooltip();
+          return;
+        }
+
+        const code = feature.properties?.anthrome;
+        const label = state.legend[code]?.label || "Unknown";
+        const color = state.legend[code]?.color || "#fff";
+        const areaKm2 = formatAreaKm2(feature);
+        const idx = state.currentGeo.features.indexOf(feature);
+
+        const html = `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span style="width:14px;height:14px;border-radius:4px;background:${color};display:inline-block;border:1px solid #fff3;"></span>
+            <strong>${code ?? "?"} · ${label}</strong>
+          </div>
+          <div>Shape ID: ${idx}</div>
+          <div>Area: ${areaKm2.toLocaleString(undefined, { maximumFractionDigits: 0 })} km²</div>
+        `;
+        // Convert to canvas-relative coordinates
+        const canvasX = e.clientX - rect.left;
+        const canvasY = e.clientY - rect.top;
+        showTooltip(html, canvasX, canvasY);
+      };
+
+      els.canvas.addEventListener("pointermove", onMove);
+      els.canvas.addEventListener("pointerleave", hideTooltip);
+    }
+
+    async function loadAndRender(forceReload = false) {
+      try {
+        showLoading(true);
+        if (forceReload) state.cache.clear();
+        const year = state.years[state.yearIndex];
+        const loader = state.source === "geo" ? loadGeo : loadTopo;
+        const { geo, loadMs } = await loader(state.profile, year);
+        const cacheKey = `${state.source}:${state.profile}-${year}`;
+        const cached = state.cache.get(cacheKey);
+        if (cached) cached.loadMs = loadMs;
+        render();
+      } catch (err) {
+        console.error(err);
+        els.stats.innerHTML = `<span style="color:#f87171;">${err.message}</span>`;
+        return;
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    // Init
+    (async function init() {
+      resizeCanvas();
+      window.addEventListener("resize", () => {
+        resizeCanvas();
+        render();
+      });
+
+      initProfileSelect();
+      initProjectionInputs();
+      initHandles();
+      initTooltip();
+      await loadLegend();
+      const years = await loadYears();
+      initYearSlider(years);
+      await loadAndRender();
+    })();
+  </script>
+</body>
+</html>

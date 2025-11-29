@@ -5,8 +5,14 @@
  * Converts GeoJSON polygons to TopoJSON format with topology preservation
  * and optional simplification to reduce file size.
  *
- * Usage:
- *   node 2_generate_topojson.js [--simplification=0.05] [--quantization=1e4]
+ * see processing/readme.md for usage examples
+ *
+ * Options (real-world meaning):
+ *   --simplification  Topology simplify threshold in quantized units; higher drops
+ *                     more small bends/coastline detail (0.05 keeps more detail than 0.08).
+ *   --quantization    Coordinate quantization grid size; larger (e.g., 1e5) snaps
+ *                     to a coarser lattice, shrinking files but removing sub-arcsecond detail.
+ *   --input/--output  Source GeoJSON folder and destination TopoJSON folder per profile.
  */
 
 import fs from 'fs';
@@ -14,21 +20,25 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import * as topojson from 'topojson-server';
 import * as topojsonSimplify from 'topojson-simplify';
+import { quantize as quantizeTopology } from 'topojson-client';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Configuration
-const INPUT_DIR = path.join(__dirname, 'geojson');
-const OUTPUT_DIR = path.join(__dirname, '../public/topojson');
-
 // Parse CLI arguments
 const args = process.argv.slice(2);
-const simplification = parseFloat(
-  args.find(arg => arg.startsWith('--simplification='))?.split('=')[1] || '0.05'
+function getArg(name, defaultValue) {
+  const raw = args.find(arg => arg.startsWith(`--${name}=`));
+  return raw ? raw.split('=')[1] : defaultValue;
+}
+
+const inputDir = path.resolve(
+  getArg('input', path.join(__dirname, 'geojson'))
 );
-const quantization = parseFloat(
-  args.find(arg => arg.startsWith('--quantization='))?.split('=')[1] || '1e4'
+const outputDir = path.resolve(
+  getArg('output', path.join(__dirname, '../public/topojson'))
 );
+const simplification = parseFloat(getArg('simplification', '0'));
+const quantization = parseFloat(getArg('quantization', '1e5'));
 
 /**
  * Convert a single GeoJSON file to TopoJSON
@@ -38,14 +48,19 @@ function convertToTopojson(geojsonPath, topojsonPath) {
   const geojson = JSON.parse(fs.readFileSync(geojsonPath, 'utf8'));
   const inputSize = fs.statSync(geojsonPath).size;
 
-  // Convert to TopoJSON
-  let topology = topojson.topology({ anthromes: geojson }, quantization);
+// Build topology (no quantization yet; we'll apply it after any simplification)
+let topology = topojson.topology({ anthromes: geojson });
 
-  // Apply simplification if specified
-  if (simplification > 0) {
-    topology = topojsonSimplify.presimplify(topology);
-    topology = topojsonSimplify.simplify(topology, simplification);
-  }
+// Apply simplification if specified
+if (simplification > 0) {
+  topology = topojsonSimplify.presimplify(topology);
+  topology = topojsonSimplify.simplify(topology, simplification);
+}
+
+// Apply quantization last so the output retains a transform + integer arcs
+if (quantization > 0) {
+  topology = quantizeTopology(topology, quantization);
+}
 
   // Write TopoJSON
   fs.writeFileSync(topojsonPath, JSON.stringify(topology));
@@ -64,17 +79,17 @@ function convertToTopojson(geojsonPath, topojsonPath) {
  */
 function main() {
   // Create output directory
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
   }
 
   // Get all GeoJSON files
-  const geojsonFiles = fs.readdirSync(INPUT_DIR)
+  const geojsonFiles = fs.readdirSync(inputDir)
     .filter(f => f.endsWith('.geojson'))
     .sort();
 
   if (geojsonFiles.length === 0) {
-    console.log(`❌ No GeoJSON files found in ${INPUT_DIR}`);
+    console.log(`❌ No GeoJSON files found in ${inputDir}`);
     console.log(`   Run: python3 1_extract_geojson.py first`);
     return;
   }
@@ -88,8 +103,8 @@ function main() {
 
   geojsonFiles.forEach((file, i) => {
     const year = file.replace('.geojson', '');
-    const geojsonPath = path.join(INPUT_DIR, file);
-    const topojsonPath = path.join(OUTPUT_DIR, `${year}.topojson`);
+    const geojsonPath = path.join(inputDir, file);
+    const topojsonPath = path.join(outputDir, `${year}.topojson`);
 
     try {
       const stats = convertToTopojson(geojsonPath, topojsonPath);
@@ -119,7 +134,7 @@ function main() {
   console.log(`\n✅ TopoJSON generation complete!`);
   console.log(`   Total features: ${totalFeatures.toLocaleString()}`);
   console.log(`   Total size: ${totalInputMB} MB → ${totalOutputMB} MB (${totalCompression}% smaller)`);
-  console.log(`   Output: ${OUTPUT_DIR}/`);
+  console.log(`   Output: ${outputDir}/`);
 }
 
 main();

@@ -5,7 +5,7 @@ Interactive visualizations of biomes and anthromes data.
 ## Architecture
 
 - **Framework**: Svelte 5 with Vite
-- **Visualization**: D3.js for radial charts, MapLibre GL for maps
+- **Visualization**: D3.js for radial charts and (planned) map rendering
 - **Structure**: Two independent SPAs (biomes, anthromes) with shared styling
 - **Data**: JSON files in `public/data/` loaded at runtime
 

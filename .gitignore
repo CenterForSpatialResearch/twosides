@@ -10,7 +10,10 @@ node_modules/
 
 # Processing intermediates
 processing/geojson/
+processing/unoptimized_backup/
 
 #working docs
 .claude/
 PROJECT_PHASES.MD
+
+archive/
