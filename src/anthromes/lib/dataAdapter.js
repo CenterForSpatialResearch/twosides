@@ -7,9 +7,18 @@
  */
 export async function loadData() {
   const [summaryResponse, legendResponse] = await Promise.all([
-    fetch('/data/summary.json'),
-    fetch('/data/anthrome-legend.json')
+    fetch('/data/summary.json', { cache: 'no-cache' }),
+    fetch('/data/anthrome-legend.json', { cache: 'no-cache' })
   ]);
+
+  const ensureOk = (res, label) => {
+    if (!res.ok) {
+      throw new Error(`Failed to load ${label} (status ${res.status})`);
+    }
+  };
+
+  ensureOk(summaryResponse, 'summary.json');
+  ensureOk(legendResponse, 'anthrome-legend.json');
 
   const summary = await summaryResponse.json();
   const legend = await legendResponse.json();

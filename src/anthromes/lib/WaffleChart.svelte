@@ -1,102 +1,73 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import * as d3 from 'd3';
+  import MapCanvas from './MapCanvas.svelte';
   import Tooltip from '../../shared/Tooltip.svelte';
+  import { TOPO_PROFILE } from './constants.js';
 
-  // Props
   let {
     data = [],
     years = [],
     colorMapping = {},
     labelMapping = {},
     orderedCodes = [],
+    legend = {},
     selectedAnthromes = $bindable([]),
     selectedYear = $bindable(null),
-    yearRange = null,
-    size = 'full' // 'full' or 'preview'
+    size = 'full',
+    debugMenuVisible = false,
+    mapReady = $bindable(false)
   } = $props();
 
-  // State
+  const fullSize = 7000;
+  const previewSize = 1200;
+
   let svgElement = $state(null);
+  let chartContainer = $state(null);
+
   let tooltipVisible = $state(false);
   let tooltipX = $state(0);
   let tooltipY = $state(0);
   let tooltipContent = $state('');
   let tooltipPinned = $state(false);
 
-  // Constants
-  const fullSize = 7000;
-  const previewSize = 1200;
+  let zoomTransform = $state(d3.zoomIdentity);
+  let mapZoom = $state({ k: 1, x: 0, y: 0 });
+  let containerWidth = $state(0);
+  let containerHeight = $state(0);
+  let innerRadiusPx = $state(0);
+  let yearAngles = $state(new Map());
 
-  // Render the visualization
-  function render() {
-    if (!svgElement || !data.length) return;
+  let mapYear = $state(null);
+  let yearPreview = $state(null);
+  let draggingYear = $state(false);
+  let mapPoints = $state([
+    [-75, 41],
+    [48, -15]
+  ]);
+  let clipAngle = $state(120);
 
-    const dim = size === 'full' ? fullSize : previewSize;
-    const svg = d3.select(svgElement);
+  function zoomFilter(event) {
+    if (draggingYear) return false;
+    if (event.ctrlKey) return false;
+    return true;
+  }
 
-    svg.attr('viewBox', `${-dim/2} ${-dim/2} ${dim} ${dim}`);
-
-    // Clear previous content but keep zoom container
-    let zoomGroup = svg.select('g.zoom-container');
-    if (zoomGroup.empty()) {
-      zoomGroup = svg.append('g').attr('class', 'zoom-container');
-    }
-    zoomGroup.selectAll('*').remove();
-
-    const g = zoomGroup.append('g');
-    const defs = svg.select('defs');
-    if (defs.empty()) {
-      svg.append('defs');
-    }
-    svg.select('defs').selectAll('*').remove();
-
-    const outerMargin = 260;
-    const radius = dim/2 - outerMargin;
-    const innerRadius = (size === 'full') ? 2200 : Math.max(180, radius * 0.44);
-
-    // Clip path for center image
-    const clipId = 'map-clip';
-    defs.append('clipPath')
-      .attr('id', clipId)
-      .append('circle')
-      .attr('r', innerRadius)
-      .attr('cx', 0)
-      .attr('cy', 0);
-
-    // Center map image (if available)
-    g.append('image')
-      .attr('href', '/anthromes/2017AD_twoPoint_sphere-plain.png')
-      .attr('x', -innerRadius * 1.75)
-      .attr('y', -innerRadius * 1.1)
-      .attr('width', innerRadius * 3.7)
-      .attr('height', innerRadius * 2.2)
-      .attr('preserveAspectRatio', 'none')
-      .attr('clip-path', `url(#${clipId})`);
-
-    g.append('circle')
-      .attr('class', 'map-mask-stroke')
-      .attr('r', innerRadius)
-      .attr('cx', 0)
-      .attr('cy', 0);
-
-    // Prepare data for stacking
-    const codeToLabel = {};
-    orderedCodes.forEach(code => {
-      if (labelMapping[code]) {
-        codeToLabel[code] = labelMapping[code];
-      }
+  const zoomScale = d3.zoom()
+    .filter(zoomFilter)
+    .scaleExtent([1, 15])
+    .on('zoom', (event) => {
+      zoomTransform = event.transform;
+      d3.select(svgElement).select('g.zoom-container').attr('transform', event.transform);
     });
 
+  // Memoized computed values using $derived
+  const stackedData = $derived.by(() => {
+    if (!data.length || !orderedCodes.length || !years.length) return null;
+
+    performance.mark('stack-start');
     const labels = orderedCodes.map(code => labelMapping[code]).filter(Boolean);
 
-    // Calculate totals by year
-    const totalsByYear = new Map();
-    data.forEach(d => {
-      totalsByYear.set(d.year, d.total);
-    });
-
-    // Prepare data for stacking: [year, {label: count, ...}]
     const dataByYear = data.map(d => {
       const obj = {};
       Object.keys(d.counts).forEach(code => {
@@ -108,24 +79,105 @@
       return [d.year, obj];
     });
 
-    // Stack the data
-    const stacked = d3.stack()
+    const stack = d3.stack()
       .keys(labels)
       .value((yearEntry, key) => yearEntry[1][key] || 0)
       (dataByYear);
 
-    // Scales
+    const totalsByYear = new Map(data.map(d => [d.year, d.total]));
+
+    performance.mark('stack-end');
+    performance.measure('stack-computation', 'stack-start', 'stack-end');
+
+    return { stack, labels, dataByYear, totalsByYear };
+  });
+
+  const layout = $derived.by(() => {
+    if (!stackedData) return null;
+
+    performance.mark('layout-start');
+    const dim = size === 'full' ? fullSize : previewSize;
+    const outerMargin = 260;
+    const radius = dim / 2 - outerMargin;
+    const innerRadius = size === 'full' ? 2200 : Math.max(180, radius * 0.44);
+
     const angle = d3.scaleBand()
       .domain(years)
       .range([0, 2 * Math.PI])
       .align(0);
 
-    const maxCount = d3.max(stacked[stacked.length - 1], d => d[1]);
+    const maxCount = d3.max(stackedData.stack[stackedData.stack.length - 1], d => d[1]);
     const rScale = d3.scaleLinear()
       .domain([0, maxCount])
       .range([innerRadius, radius]);
 
-    // Arc generators
+    performance.mark('layout-end');
+    performance.measure('layout-computation', 'layout-start', 'layout-end');
+
+    return { dim, radius, innerRadius, angle, rScale };
+  });
+
+  // Update innerRadiusPx when layout or container size changes
+  $effect(() => {
+    if (!layout || !containerWidth || !containerHeight) return;
+    const pxPerUnit = Math.min(containerWidth, containerHeight) / layout.dim;
+    innerRadiusPx = layout.innerRadius * pxPerUnit;
+  });
+
+  function createTooltipHTML(d) {
+    const code = Object.keys(labelMapping).find(k => labelMapping[k] === d.label);
+    const color = colorMapping[code] || '#ccc';
+    const total = stackedData?.totalsByYear?.get(d.year) || 0;
+    const count = d.seg[1] - d.seg[0];
+    const pct = total > 0 ? ((count / total) * 100).toFixed(1) + '%' : '—';
+
+    return `
+      <div class="tip-head">
+        <span class="chip" style="background:${color}"></span>
+        <div>
+          <div class="title">${d.label}</div>
+          <div class="subtitle">Year ${d.year}</div>
+        </div>
+      </div>
+      <div class="summary">In <b>${d.year}</b>, <b>${d.label}</b> accounts for <b>${count.toLocaleString()}</b> units (<b>${pct}</b> of the year's total).</div>
+      <div class="kv">
+        <div class="k">Year total</div><div>${total.toLocaleString()}</div>
+        <div class="k">Segment value</div><div>${count.toLocaleString()}</div>
+        <div class="k">Share</div><div>${pct}</div>
+      </div>
+    `;
+  }
+
+  function renderChart() {
+    if (!svgElement || !stackedData || !layout) return;
+
+    const { dim, innerRadius, radius, angle, rScale } = layout;
+    const svg = d3.select(svgElement);
+
+    svg.attr('viewBox', `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
+
+    // Ensure zoom container exists
+    let zoomGroup = svg.select('g.zoom-container');
+    if (zoomGroup.empty()) {
+      zoomGroup = svg.append('g').attr('class', 'zoom-container');
+    }
+    zoomGroup.selectAll('*').remove();
+
+    let defs = svg.select('defs');
+    if (defs.empty()) {
+      defs = svg.append('defs');
+    }
+    defs.selectAll('*').remove();
+
+    const g = zoomGroup.append('g');
+
+    g.append('circle')
+      .attr('class', 'map-mask-stroke')
+      .attr('r', innerRadius)
+      .attr('cx', 0)
+      .attr('cy', 0);
+
+    // Stack layers
     const arc = d3.arc()
       .innerRadius(d => rScale(d.seg[0]))
       .outerRadius(d => rScale(d.seg[1]))
@@ -142,9 +194,8 @@
       .padAngle(0.006)
       .padRadius(innerRadius);
 
-    // Create layers
     const layers = g.selectAll('g.layer')
-      .data(stacked, d => d.key)
+      .data(stackedData.stack, d => d.key)
       .join('g')
       .attr('class', 'layer')
       .attr('fill', d => {
@@ -152,16 +203,14 @@
         return colorMapping[code] || '#ccc';
       });
 
-    // Create segments
-    const segments = layers.selectAll('path.segment')
+    layers.selectAll('path.segment')
       .data(d => d.map(seg => ({ label: d.key, year: seg.data[0], seg: [seg[0], seg[1]] })))
       .join('path')
       .attr('class', 'segment')
       .attr('d', arc)
       .attr('data-key', d => `${d.year}__${d.label}`);
 
-    // Create hit areas
-    const hits = layers.selectAll('path.hit')
+    layers.selectAll('path.hit')
       .data(d => d.map(seg => ({ label: d.key, year: seg.data[0], seg: [seg[0], seg[1]] })))
       .join('path')
       .attr('class', 'hit')
@@ -201,7 +250,7 @@
         }
       });
 
-    // Add radial grid
+    // Radial grid
     const tickCount = 6;
     const ticks = rScale.ticks(tickCount);
     g.append('g')
@@ -211,167 +260,357 @@
       .join('circle')
       .attr('r', rScale);
 
-    // Add year axis
+    // Year axis + labels
+    const labelRadius = innerRadius - 30;
+    yearAngles = new Map();
     const yearAxis = g.append('g').attr('class', 'year-axis');
-    years.forEach(year => {
-      const a = angle(year) + angle.bandwidth() / 2 - Math.PI / 2;
+
+    const yearNodes = yearAxis.selectAll('g.year-node')
+      .data(years, d => d)
+      .join(enter => {
+        const node = enter.append('g').attr('class', 'year-node');
+        node.append('line').attr('class', 'year-tick');
+        node.append('text')
+          .attr('class', 'year-label')
+          .attr('data-year', d => d)
+          .on('click', (event, yr) => {
+            event.stopPropagation();
+            commitYear(yr);
+          });
+        return node;
+      });
+
+    yearNodes.each(function(yr) {
+      const a = angle(yr) + angle.bandwidth() / 2 - Math.PI / 2;
+      yearAngles.set(yr, a);
       const x1 = Math.cos(a) * (innerRadius - 6);
       const y1 = Math.sin(a) * (innerRadius - 6);
       const x2 = Math.cos(a) * innerRadius;
       const y2 = Math.sin(a) * innerRadius;
-
-      yearAxis.append('line')
+      const lx = Math.cos(a) * labelRadius;
+      const ly = Math.sin(a) * labelRadius;
+      const rot = (a * 180) / Math.PI + 90;
+      const isTop = Math.sin(a) < 0;
+      let flipY = Math.sin(a) > 0 ? -1 : 1; // bottom half flipped horizontally
+      if (yr === '100AD') flipY = -flipY; // Special case: flip 100AD
+      const node = d3.select(this);
+      node.select('line')
         .attr('x1', x1).attr('y1', y1)
         .attr('x2', x2).attr('y2', y2)
-        .attr('data-year', year);
-
-      const lx = Math.cos(a) * (innerRadius - 20);
-      const ly = Math.sin(a) * (innerRadius - 20);
-
-      yearAxis.append('text')
-        .attr('x', lx).attr('y', ly)
+        .attr('data-year', yr);
+      node.select('text')
+        .attr('transform', `translate(${lx},${ly}) rotate(${rot}) scale(${flipY}, ${isTop ? 1 : -1})`)
         .attr('text-anchor', 'middle')
         .attr('alignment-baseline', 'middle')
-        .attr('data-year', year)
-        .text(year);
+        .text(yr);
     });
+
+    const handle = yearAxis.selectAll('circle.year-handle')
+      .data([null])
+      .join('circle')
+      .attr('class', 'year-handle')
+      .attr('r', 40)
+      .on('pointerdown', startYearDrag);
+
+    handle.raise();
+    updateYearHighlight();
   }
-
-  // Create tooltip HTML
-  function createTooltipHTML(d) {
-    const code = Object.keys(labelMapping).find(k => labelMapping[k] === d.label);
-    const color = colorMapping[code] || '#ccc';
-    const total = d3.sum(Object.values(data.find(yd => yd.year === d.year)?.counts || {}));
-    const count = d.seg[1] - d.seg[0];
-    const pct = total > 0 ? ((count / total) * 100).toFixed(1) + '%' : '—';
-
-    return `
-      <div class="tip-head">
-        <span class="chip" style="background:${color}"></span>
-        <div>
-          <div class="title">${d.label}</div>
-          <div class="subtitle">Year ${d.year}</div>
-        </div>
-      </div>
-      <div class="summary">In <b>${d.year}</b>, <b>${d.label}</b> accounts for <b>${count.toLocaleString()}</b> units (<b>${pct}</b> of the year's total).</div>
-      <div class="kv">
-        <div class="k">Year total</div><div>${total.toLocaleString()}</div>
-        <div class="k">Segment value</div><div>${count.toLocaleString()}</div>
-        <div class="k">Share</div><div>${pct}</div>
-      </div>
-    `;
-  }
-
-  // Re-render when props change
-  $effect(() => {
-    if (data.length > 0) {
-      render();
-    }
-  });
-
-  // Apply filters when selection changes
-  $effect(() => {
-    if (!svgElement) return;
-
-    // Track dependencies
-    selectedAnthromes.length;
-    yearRange?.value;
-
-    applyFilters();
-  });
 
   function applyFilters() {
-    if (!svgElement) return;
+    if (!svgElement || !orderedCodes.length) return;
 
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
 
-    // Create inverse mapping (label -> code) for O(1) lookup
-    // Convert string keys to numbers to match orderedCodes type
     const labelToCode = {};
     Object.keys(labelMapping).forEach(code => {
       labelToCode[labelMapping[code]] = Number(code);
     });
 
-    // Get year range values and create year index map for O(1) lookup
-    const allYears = yearRange?.years || [];
-    const yearMinIdx = yearRange?.value[0] ?? 0;
-    const yearMaxIdx = yearRange?.value[1] ?? allYears.length - 1;
-    const yearToIdx = new Map(allYears.map((year, idx) => [year, idx]));
-
-    // Check if all anthromes and all years are selected (no filtering)
     const allAnthromesSelected = selectedAnthromes.length === orderedCodes.length;
-    const allYearsSelected = !yearRange || (yearMinIdx === 0 && yearMaxIdx === allYears.length - 1);
-
-    if (allAnthromesSelected && allYearsSelected) {
+    if (allAnthromesSelected) {
       g.classed('isolated', false);
       g.selectAll('.segment, .hit').style('opacity', null).style('pointer-events', null);
       return;
     }
 
-    // Create set of selected anthrome codes for fast lookup
     const selectedSet = new Set(selectedAnthromes);
-
     g.classed('isolated', true);
 
-    // Filter segments
     g.selectAll('.segment').each(function() {
       const segment = d3.select(this);
       const d = segment.datum();
       const code = labelToCode[d.label];
-      const inAnthrome = code && selectedSet.has(code);
-
-      // Year filtering: Use Map for O(1) lookup instead of indexOf
-      const yearIdx = yearToIdx.get(d.year) ?? -1;
-      const inYear = !yearRange || (yearIdx >= yearMinIdx && yearIdx <= yearMaxIdx);
-
-      const show = inAnthrome && inYear;
+      const show = code && selectedSet.has(code);
       segment.style('opacity', show ? null : 0.02)
-             .style('pointer-events', show ? 'all' : 'none');
+        .style('pointer-events', show ? 'all' : 'none');
     });
 
-    // Filter hit areas
     g.selectAll('.hit').each(function() {
       const hit = d3.select(this);
       const d = hit.datum();
       const code = labelToCode[d.label];
-      const inAnthrome = code && selectedSet.has(code);
-
-      // Year filtering: Use Map for O(1) lookup
-      const yearIdx = yearToIdx.get(d.year) ?? -1;
-      const inYear = !yearRange || (yearIdx >= yearMinIdx && yearIdx <= yearMaxIdx);
-
-      const show = inAnthrome && inYear;
+      const show = code && selectedSet.has(code);
       hit.style('opacity', show ? null : 0)
-         .style('pointer-events', show ? 'all' : 'none');
+        .style('pointer-events', show ? 'all' : 'none');
     });
   }
 
-  onMount(() => {
-    // Set up zoom behavior
-    const svg = d3.select(svgElement);
+  function updateYearHighlight() {
+    if (!svgElement || !layout || !yearAngles || yearAngles.size === 0) return;
+    const displayYear = draggingYear ? yearPreview : selectedYear;
+    if (!displayYear || !yearAngles.has(displayYear)) return;
 
-    // Ensure zoom container exists
-    let zoomGroup = svg.select('g.zoom-container');
-    if (zoomGroup.empty()) {
-      zoomGroup = svg.append('g').attr('class', 'zoom-container');
+    const a = yearAngles.get(displayYear);
+    const handleRadius = layout.innerRadius - 72; // Push towards center by half handle radius (40/2 = 20, so 52 + 20 = 72)
+    const hx = Math.cos(a) * handleRadius;
+    const hy = Math.sin(a) * handleRadius;
+
+    const svg = d3.select(svgElement);
+    svg.selectAll('.year-label')
+      .classed('selected', d => d === displayYear);
+
+    svg.selectAll('.year-handle')
+      .attr('cx', hx)
+      .attr('cy', hy);
+  }
+
+  function angularDistance(a, b) {
+    const diff = Math.abs(a - b) % (2 * Math.PI);
+    return diff > Math.PI ? 2 * Math.PI - diff : diff;
+  }
+
+  function pointerToChartCoords(event) {
+    if (!chartContainer || !layout) return null;
+    const rect = chartContainer.getBoundingClientRect();
+    const scale = layout.dim / rect.width;
+    const localX = (event.clientX - rect.left - rect.width / 2) * scale;
+    const localY = (event.clientY - rect.top - rect.height / 2) * scale;
+    const t = zoomTransform || d3.zoomIdentity;
+    const x = (localX - t.x) / t.k;
+    const y = (localY - t.y) / t.k;
+    return { x, y };
+  }
+
+  function nearestYearFromPointer(event) {
+    if (!yearAngles || yearAngles.size === 0) return null;
+    const coords = pointerToChartCoords(event);
+    if (!coords) return null;
+    const theta = Math.atan2(coords.y, coords.x);
+    let bestYear = null;
+    let bestDiff = Infinity;
+    yearAngles.forEach((ang, yr) => {
+      const diff = angularDistance(theta, ang);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestYear = yr;
+      }
+    });
+    return bestYear;
+  }
+
+  function commitYear(year) {
+    if (!year) return;
+    selectedYear = year;
+    mapYear = year;
+    yearPreview = year;
+    draggingYear = false;
+    updateYearHighlight();
+  }
+
+  function startYearDrag(event) {
+    event.stopPropagation();
+    event.preventDefault();
+    draggingYear = true;
+    const yr = nearestYearFromPointer(event) || selectedYear;
+    if (yr) yearPreview = yr;
+    updateYearHighlight();
+
+    window.addEventListener('pointermove', onYearDragMove);
+    window.addEventListener('pointerup', onYearDragEnd, { once: true });
+  }
+
+  function onYearDragMove(event) {
+    const yr = nearestYearFromPointer(event);
+    if (yr) {
+      yearPreview = yr;
+      updateYearHighlight();
+    }
+  }
+
+  function onYearDragEnd(event) {
+    const yr = nearestYearFromPointer(event) || yearPreview || selectedYear;
+    commitYear(yr);
+    window.removeEventListener('pointermove', onYearDragMove);
+  }
+
+  onMount(() => {
+    if (!selectedYear && years.length) {
+      selectedYear = years[years.length - 1];
+    }
+    mapYear = selectedYear;
+    yearPreview = selectedYear;
+
+    if (chartContainer) {
+      const rect = chartContainer.getBoundingClientRect();
+      containerWidth = rect.width;
+      containerHeight = rect.height;
+
+      const ro = new ResizeObserver(entries => {
+        const r = entries[0].contentRect;
+        containerWidth = r.width;
+        containerHeight = r.height;
+      });
+      ro.observe(chartContainer);
     }
 
-    // Capture zoomGroup reference in closure for better performance
-    const zoom = d3.zoom()
-      .scaleExtent([1, 15])
-      .on('zoom', (event) => {
-        // Use captured reference instead of re-querying DOM
-        zoomGroup.attr('transform', event.transform);
+    const svg = d3.select(svgElement);
+    // Base group for zoom target
+    svg.append('g').attr('class', 'zoom-container');
+
+    if (chartContainer) {
+      d3.select(chartContainer).call(zoomScale);
+    }
+  });
+
+  // Render chart when stackedData or layout change
+  $effect(() => {
+    if (!stackedData || !layout) return;
+
+    performance.mark('render-start');
+    untrack(() => {
+      renderChart();
+      applyFilters();
+    });
+    performance.mark('render-end');
+    performance.measure('chart-render', 'render-start', 'render-end');
+  });
+
+  // Apply filters when selection changes
+  $effect(() => {
+    selectedAnthromes.length;
+    applyFilters();
+  });
+
+  // Keep map year in sync when not dragging
+  $effect(() => {
+    if (!draggingYear && selectedYear) {
+      untrack(() => {
+        mapYear = selectedYear;
+        if (!yearPreview) {
+          yearPreview = selectedYear;
+        }
+        updateYearHighlight();
       });
+    }
+  });
 
-    svg.call(zoom);
+  // Sync zoom transform to map so both layers move together (zoom transform already in screen px)
+  $effect(() => {
+    zoomTransform.k;
+    zoomTransform.x;
+    zoomTransform.y;
+    containerWidth;
+    containerHeight;
+    layout;
 
-    render();
+    untrack(() => {
+      if (!layout || !containerWidth || !containerHeight) return;
+      const unitToPx = Math.min(containerWidth, containerHeight) / layout.dim;
+      mapZoom = {
+        k: zoomTransform.k,
+        x: zoomTransform.x * unitToPx,
+        y: zoomTransform.y * unitToPx
+      };
+    });
   });
 </script>
 
-<div class="chart-container">
+<div class="chart-container" bind:this={chartContainer}>
+  <MapCanvas
+    width={containerWidth}
+    height={containerHeight}
+    innerRadiusPx={innerRadiusPx}
+    profile={TOPO_PROFILE}
+    year={mapYear}
+    legend={legend}
+    selectedCodes={selectedAnthromes}
+    zoom={mapZoom}
+    bind:points={mapPoints}
+    bind:mapReady
+    {clipAngle}
+  />
+
+  {#if debugMenuVisible}
+    <div class="debug-panel">
+      <div class="debug-header">Projection Debug</div>
+
+      <div class="debug-section">
+        <div class="debug-label">Point A (Longitude, Latitude)</div>
+        <div class="debug-inputs">
+          <input
+            type="number"
+            step="0.1"
+            value={mapPoints[0][0]}
+            oninput={(e) => {
+              const newPoints = [[parseFloat(e.target.value), mapPoints[0][1]], mapPoints[1]];
+              mapPoints = newPoints;
+            }}
+            placeholder="Lon"
+          />
+          <input
+            type="number"
+            step="0.1"
+            value={mapPoints[0][1]}
+            oninput={(e) => {
+              const newPoints = [[mapPoints[0][0], parseFloat(e.target.value)], mapPoints[1]];
+              mapPoints = newPoints;
+            }}
+            placeholder="Lat"
+          />
+        </div>
+      </div>
+
+      <div class="debug-section">
+        <div class="debug-label">Point B (Longitude, Latitude)</div>
+        <div class="debug-inputs">
+          <input
+            type="number"
+            step="0.1"
+            value={mapPoints[1][0]}
+            oninput={(e) => {
+              const newPoints = [mapPoints[0], [parseFloat(e.target.value), mapPoints[1][1]]];
+              mapPoints = newPoints;
+            }}
+            placeholder="Lon"
+          />
+          <input
+            type="number"
+            step="0.1"
+            value={mapPoints[1][1]}
+            oninput={(e) => {
+              const newPoints = [mapPoints[0], [mapPoints[1][0], parseFloat(e.target.value)]];
+              mapPoints = newPoints;
+            }}
+            placeholder="Lat"
+          />
+        </div>
+      </div>
+
+      <div class="debug-section">
+        <div class="debug-label">Clip Angle</div>
+        <input
+          type="number"
+          step="1"
+          value={clipAngle}
+          oninput={(e) => clipAngle = parseFloat(e.target.value)}
+          placeholder="Angle"
+          class="full-width"
+        />
+      </div>
+    </div>
+  {/if}
+
   <svg bind:this={svgElement} id="chart"></svg>
 
   <Tooltip
@@ -380,6 +619,7 @@
     bind:y={tooltipY}
     bind:pinned={tooltipPinned}
     content={tooltipContent}
+    onClose={() => (tooltipPinned = false)}
   />
 </div>
 
@@ -390,14 +630,21 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
+    overflow: hidden;
+    touch-action: none;
   }
 
   svg {
     display: block;
     margin: auto;
-    background: var(--bg);
+    background: transparent;
     max-width: 100%;
     max-height: 100%;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
   }
 
   :global(.layer path.segment) {
@@ -405,6 +652,7 @@
     stroke-linecap: round;
     stroke: none;
     opacity: 0.92;
+    pointer-events: all;
   }
 
   :global(.segment.is-hover) {
@@ -436,14 +684,99 @@
 
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 11px;
-    opacity: 0.9;
+    font-size: 52px;
+    opacity: 0.95;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    pointer-events: all;
+  }
+
+  :global(.year-axis text.selected) {
+    fill: var(--accent);
+  }
+
+  :global(.year-handle) {
+    fill: #ffffff;
+    stroke: #0e0b16;
+    stroke-width: 2px;
+    filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.45));
+    cursor: grab;
+    pointer-events: all;
+  }
+
+  :global(.year-handle:active) {
+    cursor: grabbing;
   }
 
   :global(.map-mask-stroke) {
     fill: none;
     stroke: #ffffff;
-    stroke-opacity: 0.25;
+    stroke-opacity: 0.3;
     stroke-width: 1.5;
+  }
+
+  .debug-panel {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: rgba(14, 11, 22, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+    min-width: 280px;
+    z-index: 1000;
+    font-family: system-ui, -apple-system, sans-serif;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+
+  .debug-header {
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .debug-section {
+    margin-bottom: 12px;
+  }
+
+  .debug-label {
+    font-size: 11px;
+    color: #9ca3af;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+
+  .debug-inputs {
+    display: flex;
+    gap: 8px;
+  }
+
+  .debug-panel input[type="number"] {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: #ffffff;
+    font-size: 13px;
+    font-family: 'SF Mono', Monaco, monospace;
+    flex: 1;
+    transition: border-color 0.15s ease;
+  }
+
+  .debug-panel input[type="number"]:focus {
+    outline: none;
+    border-color: var(--accent, #00d4ff);
+  }
+
+  .debug-panel input[type="number"].full-width {
+    width: 100%;
+  }
+
+  .debug-panel input[type="number"]::-webkit-inner-spin-button,
+  .debug-panel input[type="number"]::-webkit-outer-spin-button {
+    opacity: 1;
   }
 </style>

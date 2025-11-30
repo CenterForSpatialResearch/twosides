@@ -106,7 +106,7 @@
   .tooltip {
     position: fixed;
     pointer-events: none;
-    z-index: 10;
+    z-index: 100000;
     background: #111827;
     color: #f9fafb;
     border: 1px solid rgba(255, 255, 255, 0.12);
