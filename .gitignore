@@ -1,0 +1,16 @@
+# Source data files (root only, not public/data/)
+/data/
+
+# Build output
+dist/
+node_modules/
+
+# OS files
+.DS_Store
+
+# Processing intermediates
+processing/geojson/
+
+#working docs
+.claude/
+PROJECT_PHASES.MD

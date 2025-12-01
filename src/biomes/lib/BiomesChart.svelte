@@ -1,0 +1,981 @@
+<script>
+  import { onMount } from 'svelte';
+  import * as d3 from 'd3';
+  import Tooltip from '../../shared/Tooltip.svelte';
+  import {
+    colorMapping,
+    pickTextColor,
+    getPhylum,
+    prettyName,
+    lineage,
+    safe,
+    sgbLabel,
+    locationsFromMeta,
+    parseUSGB,
+    parseWestern,
+    isWesternYes,
+    isWesternNo
+  } from './dataAdapter.js';
+
+  // Props
+  let {
+    taxonomyTree = null,
+    selectedPhyla = $bindable([]),
+    unknownFilter = $bindable(false),
+    westernFilter = $bindable('any'),
+    size = 'full',
+    tension = 0.95
+  } = $props();
+
+  // State
+  let svgElement = $state(null);
+  let tooltipVisible = $state(false);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+  let tooltipContent = $state('');
+  let tooltipPinned = $state(false);
+  let currentTooltipDatum = $state(null); // Track which datum the tooltip is showing
+
+  // Internal state (handles doesn't need to be reactive)
+  let handles = { root: null, selections: {} };
+  let selectedLeafId = $state(null);
+  let highlightedLeaf = $state(null);
+  let maxGenomeCount = $state(1);
+  let tickDenom = $state(1);
+
+  // Constants
+  const fullSize = 7000;
+  const previewSize = 1200;
+  const fullRadius = 3000;
+  const previewRadius = 550;
+  const backgroundColor = '#0e0b16';
+  const DIM_OPACITY = 0.02;
+  const DIM_LABEL_OPACITY = 0.10;
+
+  // Render the visualization
+  function render() {
+    if (!svgElement || !taxonomyTree) {
+      return;
+    }
+
+    const dim = size === 'full' ? fullSize : previewSize;
+    const radius = size === 'full' ? fullRadius : previewRadius;
+
+    const svg = d3.select(svgElement);
+    svg.attr('viewBox', `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
+
+    // Ensure zoom container exists and is persistent
+    let g = svg.select('g.zoom-container');
+    if (g.empty()) {
+      g = svg.append('g').attr('class', 'zoom-container');
+    }
+
+    // Clear zoom container content but keep the container itself
+    g.selectAll('*').remove();
+
+    let defs = svg.select('defs');
+    if (defs.empty()) {
+      defs = svg.append('defs');
+    }
+    defs.selectAll('*').remove();
+
+    // Create tree layout
+    const tree = d3.cluster().size([2 * Math.PI, radius]);
+    const root = d3.hierarchy(taxonomyTree);
+    root.sort((a, b) => b.descendants().length - a.descendants().length);
+    tree(root);
+
+    handles.root = root;
+
+    const leaves = root.leaves();
+    leaves.forEach((d, i) => d.leafId = i);
+
+    // Calculate metrics
+    const reconstructedCounts = leaves.map(d => d.data.metadata?.["#_Reconstructed_genomes"] || 0);
+    const maxRec = d3.max(reconstructedCounts) || 0;
+    maxGenomeCount = Math.max(1, maxRec);
+
+    const sortedCounts = reconstructedCounts.slice().sort((a, b) => a - b);
+    const p95 = d3.quantileSorted(sortedCounts, 0.95) || maxRec;
+    tickDenom = Math.max(1, Math.round(p95));
+
+    // Ring dimensions
+    const angleWidth = 0.0005;
+    const usgbInner = radius + 20;
+    const usgbOuter = usgbInner + 24;
+    const westInner = usgbOuter + 12;
+    const westOuter = westInner + 24;
+    const barMaxLength = radius * 0.05;
+    const barScale = d3.scaleSymlog()
+      .domain([0, Math.max(1, maxRec)])
+      .range([0, barMaxLength])
+      .constant(1);
+    const barInner = westOuter + 30;
+
+    // Line generator with bundle curve
+    const line = d3.lineRadial()
+      .curve(d3.curveBundle.beta(tension))
+      .angle(d => d.x)
+      .radius(d => d.y);
+
+    // SGB lines + hits
+    const sgbGroup = g.append('g');
+    const sgbLines = sgbGroup.selectAll('path.sgb-line')
+      .data(leaves)
+      .join('path')
+      .attr('class', 'sgb-line')
+      .attr('data-leaf-id', d => d.leafId)
+      .attr('d', d => {
+        const theta = d.x - Math.PI / 2;
+        const x0 = Math.cos(theta) * d.y;
+        const y0 = Math.sin(theta) * d.y;
+        const outerRadius = barInner + barScale(d.data.metadata?.["#_Reconstructed_genomes"] || 0);
+        const x1 = Math.cos(theta) * outerRadius;
+        const y1 = Math.sin(theta) * outerRadius;
+        return `M${x0},${y0}L${x1},${y1}`;
+      });
+
+    const sgbHits = sgbGroup.selectAll('path.sgb-hit')
+      .data(leaves)
+      .join('path')
+      .attr('class', 'hit sgb-hit')
+      .attr('data-leaf-id', d => d.leafId)
+      .attr('d', d => {
+        const theta = d.x - Math.PI / 2;
+        const x0 = Math.cos(theta) * d.y;
+        const y0 = Math.sin(theta) * d.y;
+        const outerRadius = barInner + barScale(d.data.metadata?.["#_Reconstructed_genomes"] || 0);
+        const x1 = Math.cos(theta) * outerRadius;
+        const y1 = Math.sin(theta) * outerRadius;
+        return `M${x0},${y0}L${x1},${y1}`;
+      });
+
+    attachTooltipHandlers(sgbHits, d => d);
+
+    // Regions + labels
+    const regionsLayer = g.append('g');
+    const labelsLayer = g.append('g');
+    let id = 0;
+    const maxDepth = d3.max(root.descendants(), d => d.depth);
+    const regionPaths = [];
+    const labelEls = [];
+
+    for (let depth = 2; depth <= maxDepth; depth++) {
+      const nodes = root.descendants().filter(d => d.depth === depth);
+      d3.groups(nodes, d => getPhylum(d)).forEach(([phylum, group]) => {
+        if (group.length < 2) return;
+
+        const sorted = group.sort((a, b) => a.x - b.x);
+        const innerR = sorted[0].y - (radius / maxDepth) * 0.75;
+        const outerR = sorted[0].y;
+        const ptsOuter = sorted.map(d => [d.x, outerR]);
+        const ptsInner = sorted.map(d => [d.x, innerR]).reverse();
+        const pathData = d3.lineRadial()
+          .curve(d3.curveCardinalClosed.tension(0.7))
+          (ptsOuter.concat(ptsInner));
+
+        const gradID = `grad-${phylum}-${depth}`;
+        const gdef = defs.append('radialGradient').attr('id', gradID);
+        gdef.selectAll('stop')
+          .data([
+            { offset: '0%', color: backgroundColor, opacity: 0 },
+            { offset: '100%', color: colorMapping[phylum] || colorMapping.Other, opacity: 1 }
+          ])
+          .join('stop')
+          .attr('offset', d => d.offset)
+          .attr('stop-color', d => d.color)
+          .attr('stop-opacity', d => d.opacity);
+
+        const bandNode = sorted[0];
+        const region = regionsLayer.append('path')
+          .datum(bandNode)
+          .attr('class', 'region-path')
+          .attr('d', pathData)
+          .attr('fill', `url(#${gradID})`);
+        regionPaths.push(region.node());
+
+        const arcID = `arc-${id++}`;
+        defs.append('path')
+          .attr('id', arcID)
+          .attr('d', d3.arc()({
+            innerRadius: outerR - 12,
+            outerRadius: outerR - 12,
+            startAngle: sorted[0].x,
+            endAngle: sorted[sorted.length - 1].x
+          }));
+
+        const labelText = labelsLayer.append('text')
+          .attr('class', 'region-label');
+        labelText.append('textPath')
+          .attr('xlink:href', `#${arcID}`)
+          .attr('startOffset', '50%')
+          .text(phylum.replace(/_/g, ' '));
+        labelEls.push(labelText.node());
+      });
+    }
+
+    // Links + hits
+    const linkData = root.links().filter(d => !d.target.children);
+    const links = g.append('g')
+      .selectAll('path.link')
+      .data(linkData)
+      .join('path')
+      .attr('class', 'link')
+      .attr('data-leaf-id', d => d.target.leafId)
+      .attr('d', d => line(d.target.ancestors().reverse()));
+
+    const linkHits = g.append('g')
+      .selectAll('path.hit-link')
+      .data(linkData)
+      .join('path')
+      .attr('class', 'hit')
+      .attr('data-leaf-id', d => d.target.leafId)
+      .attr('d', d => line(d.target.ancestors().reverse()));
+
+    attachTooltipHandlers(linkHits, d => d.target);
+
+    // Nodes
+    const nodes = g.append('g')
+      .selectAll('g.node')
+      .data(root.descendants())
+      .join('g')
+      .attr('class', 'node')
+      .attr('data-leaf-id', d => d.children ? null : d.leafId)
+      .attr('transform', d => `rotate(${d.x * 180 / Math.PI - 90}) translate(${d.y},0)`);
+
+    nodes.append('circle')
+      .attr('r', d => d.children ? 0 : 2.5)
+      .attr('fill', d => colorMapping[getPhylum(d)] || colorMapping.Other);
+
+    attachTooltipHandlers(nodes, d => d);
+
+    // Internal labels
+    const internals = g.append('g')
+      .selectAll('text.internal-label')
+      .data(root.descendants().filter(d => d.children))
+      .join('text')
+      .attr('class', 'internal-label')
+      .attr('transform', d => `rotate(${d.x * 180 / Math.PI - 90}) translate(${d.y},0)` + (d.x >= Math.PI ? ' rotate(180)' : ''))
+      .attr('dy', '0.31em')
+      .attr('x', d => d.x < Math.PI ? 6 : -6)
+      .attr('text-anchor', d => d.x < Math.PI ? 'start' : 'end')
+      .text(d => (d.data.name || '').split('__').pop().replace(/_/g, ' '));
+
+    // Bars
+    const bars = g.append('g')
+      .selectAll('path.bar')
+      .data(leaves)
+      .join('path')
+      .attr('class', 'bar')
+      .attr('data-leaf-id', d => d.leafId)
+      .attr('d', d => {
+        const count = d.data.metadata?.["#_Reconstructed_genomes"] || 0;
+        const r0 = barInner;
+        const r1 = barInner + barScale(count);
+        return d3.arc()({
+          innerRadius: r0,
+          outerRadius: r1,
+          startAngle: d.x - 0.0005,
+          endAngle: d.x + 0.0005
+        });
+      })
+      .attr('fill', d => colorMapping[getPhylum(d)] || colorMapping.Other);
+
+    attachTooltipHandlers(bars);
+
+    // Bar axis
+    const axisGroup = g.append('g').attr('class', 'bar-axis');
+    axisGroup.append('line')
+      .attr('x1', 0).attr('y1', barInner)
+      .attr('x2', 0).attr('y2', barInner + barMaxLength)
+      .attr('stroke', 'white');
+
+    [1, 10, 100, 500].filter(v => v <= maxRec).forEach(t => {
+      const y = barInner + barScale(t);
+      axisGroup.append('line')
+        .attr('x1', 0).attr('y1', y)
+        .attr('x2', 8).attr('y2', y);
+      axisGroup.append('text')
+        .attr('x', 10).attr('y', y)
+        .attr('dy', '.32em')
+        .text(t);
+    });
+
+    // Unknown & Western rings
+    const usgb = g.append('g')
+      .selectAll('path.usgb')
+      .data(leaves)
+      .join('path')
+      .attr('class', 'usgb')
+      .attr('data-leaf-id', d => d.leafId)
+      .attr('d', d => d3.arc()({
+        innerRadius: usgbInner,
+        outerRadius: usgbOuter,
+        startAngle: d.x - 0.0005,
+        endAngle: d.x + 0.0005
+      }))
+      .attr('fill', d => (parseUSGB(d.data.metadata) === 'Yes') ? 'white' : 'black')
+      .attr('opacity', d => (parseUSGB(d.data.metadata) === 'Yes') ? 1 : 0.5);
+
+    attachTooltipHandlers(usgb);
+
+    g.append('circle')
+      .attr('r', (usgbInner + usgbOuter) / 2)
+      .attr('fill', 'none')
+      .attr('stroke', 'white')
+      .attr('stroke-width', 2);
+
+    const west = g.append('g')
+      .selectAll('path.western')
+      .data(leaves)
+      .join('path')
+      .attr('class', 'western')
+      .attr('data-leaf-id', d => d.leafId)
+      .attr('d', d => d3.arc()({
+        innerRadius: westInner,
+        outerRadius: westOuter,
+        startAngle: d.x - 0.0005,
+        endAngle: d.x + 0.0005
+      }))
+      .attr('fill', d => isWesternNo(d.data.metadata) ? 'white' : 'black')
+      .attr('opacity', d => isWesternNo(d.data.metadata) ? 1 : 0.5);
+
+    attachTooltipHandlers(west);
+
+    g.append('circle')
+      .attr('r', (westInner + westOuter) / 2)
+      .attr('fill', 'none')
+      .attr('stroke', 'white')
+      .attr('stroke-width', 2);
+
+    // Store selections for filtering
+    handles.selections = {
+      nodes,
+      internals,
+      links,
+      linkHits,
+      bars,
+      sgbLines,
+      usgb,
+      west,
+      regions: d3.selectAll(regionsLayer.selectAll('path').nodes()),
+      labels: d3.selectAll(labelsLayer.selectAll('text').nodes())
+    };
+
+    applyFilters();
+  }
+
+  // Create tooltip HTML with mini-glyph and genome meter
+  function createTooltipHTML(d) {
+    const phylum = getPhylum(d);
+    const meta = d?.data?.metadata || {};
+    const rec = +meta["#_Reconstructed_genomes"] || 0;
+    const status = (parseUSGB(meta) === 'Yes') ? 'Unknown' : '—';
+    const geo = (parseWestern(meta) === 'western') ? 'Western' : (parseWestern(meta) === 'nonwestern' ? 'Non-Western' : '—');
+    const leaf = !d.children;
+    const color = colorMapping[phylum] || colorMapping.Other;
+    const glyphStroke = color;
+
+    // Mini-glyph path
+    const chain = d.ancestors().reverse();
+    const yVals = chain.map(n => n.y);
+    const yMin = Math.min(...yVals);
+    const yMax = Math.max(...yVals);
+    const rMin = 12, rMax = 50;
+    const glyphLine = d3.lineRadial()
+      .curve(d3.curveBundle.beta(0.85))
+      .angle(n => n.x)
+      .radius(n => (yMax === yMin ? (rMin + rMax) / 2 : rMin + (n.y - yMin) / (yMax - yMin) * (rMax - rMin)));
+    const glyphPath = glyphLine(chain);
+
+    // Summary text
+    const loc = locationsFromMeta(meta);
+    const sgb = sgbLabel(d);
+    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> genomes within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.`;
+
+    // Genome meter ticks
+    const maxTicks = 20;
+    const denom = Math.max(1, tickDenom);
+    const fraction = Math.min(1, rec / denom);
+    const targetTicks = Math.max((rec > 0 ? 1 : 0), fraction * maxTicks);
+    const ticksInt = Math.min(maxTicks, Math.round(targetTicks));
+
+    let ticksHTML = '';
+    for (let i = 0; i < maxTicks; i++) {
+      const filled = i < ticksInt ? 'filled' : '';
+      ticksHTML += `<span class="tick ${filled}" style="--tickColor: ${color}"></span>`;
+    }
+
+    return `
+      <div class="tip-header">
+        <div class="h-left">
+          <span class="swatch" style="background:${color}"></span>
+          <div>
+            <div class="title">${sgb}</div>
+            <div class="subtitle">${phylum.replace(/_/g, ' ')}${lineage(d) ? ' • ' + lineage(d) : ''}</div>
+          </div>
+        </div>
+        <svg class="mini-glyph" viewBox="-60 -60 120 120" aria-hidden="true">
+          <path d="${glyphPath}" stroke="${glyphStroke}" fill="none" stroke-width="1.2" vector-effect="non-scaling-stroke" />
+        </svg>
+      </div>
+
+      <div class="summary">${summary}</div>
+
+      <div class="genome-meter">
+        <div class="ticks">${ticksHTML}</div>
+        <div class="num"><span class="val">${rec.toLocaleString()}</span> genomes identified</div>
+      </div>
+
+      <div class="kv">
+        <div class="k">Status</div><div>${safe(status)}</div>
+        <div class="k">Geography</div><div>${safe(geo)}</div>
+      </div>
+
+      ${leaf ? `<div class="actions">
+        <button data-act="highlight">Highlight this species</button>
+      </div>` : ''}
+    `;
+  }
+
+  // Attach tooltip handlers
+  function attachTooltipHandlers(selection, accessor = (d) => d) {
+    selection
+      .classed('hover-target', true)
+      .on('mousemove', function (event, d) {
+        if (tooltipPinned) return;
+        const datum = accessor(d);
+        tooltipX = event.clientX;
+        tooltipY = event.clientY;
+        tooltipContent = createTooltipHTML(datum);
+        currentTooltipDatum = datum; // Track current datum
+        tooltipVisible = true;
+      })
+      .on('mouseover', function (event, d) {
+        d3.select(this).classed('is-hover', true);
+        const lid = this.getAttribute('data-leaf-id');
+        if (lid) toggleClassForLeaf(lid, 'is-hover', true);
+        if (!tooltipPinned) {
+          const datum = accessor(d);
+          tooltipContent = createTooltipHTML(datum);
+          currentTooltipDatum = datum; // Track current datum
+          tooltipVisible = true;
+        }
+      })
+      .on('mouseout', function () {
+        d3.select(this).classed('is-hover', false);
+        const lid = this.getAttribute('data-leaf-id');
+        if (lid) toggleClassForLeaf(lid, 'is-hover', false);
+        if (!tooltipPinned) {
+          tooltipVisible = false;
+          currentTooltipDatum = null; // Clear datum when hiding
+        }
+      })
+      .on('click', function (event, d) {
+        const datum = accessor(d);
+        const lid = this.getAttribute('data-leaf-id');
+
+        if (tooltipPinned && currentTooltipDatum === datum) {
+          tooltipPinned = false;
+          clearSelected();
+          event.stopPropagation();
+          return;
+        }
+
+        tooltipPinned = true;
+        tooltipX = event.clientX;
+        tooltipY = event.clientY;
+        tooltipContent = createTooltipHTML(datum);
+        currentTooltipDatum = datum; // Track current datum
+        tooltipVisible = true;
+
+        if (lid) {
+          clearSelected();
+          selectedLeafId = lid;
+          toggleClassForLeaf(lid, 'is-selected', true);
+        }
+
+        event.stopPropagation();
+      });
+  }
+
+  // Helper functions
+  function toggleClassForLeaf(id, cls, on = true) {
+    if (id == null) return;
+    const svg = d3.select(svgElement);
+    svg.selectAll(`[data-leaf-id="${id}"]`).classed(cls, on);
+  }
+
+  function clearSelected() {
+    selectedLeafId = null;
+    const svg = d3.select(svgElement);
+    svg.selectAll('.is-selected').classed('is-selected', false);
+  }
+
+  function clearHighlight() {
+    highlightedLeaf = null;
+    const svg = d3.select(svgElement);
+    const g = svg.select('g.zoom-container');
+    g.classed('isolated', false);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+      .attr('opacity', null)
+      .style('pointer-events', null);
+  }
+
+  function highlightLeaf(d) {
+    highlightedLeaf = d;
+    const keep = new Set(d.ancestors());
+    keep.add(d);
+
+    const svg = d3.select(svgElement);
+    const g = svg.select('g.zoom-container');
+    g.classed('isolated', true);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+      .attr('opacity', datum => {
+        const nd = datum?.target ? datum.target : datum;
+        return keep.has(nd) ? 1 : DIM_OPACITY;
+      })
+      .style('pointer-events', datum => {
+        const nd = datum?.target ? datum.target : datum;
+        return keep.has(nd) ? null : 'none';
+      });
+  }
+
+  // Filtering logic
+  function leafMatchesFilters(leaf) {
+    if (selectedPhyla.length > 0) {
+      const ph = getPhylum(leaf);
+      if (!selectedPhyla.includes(ph)) return false;
+    }
+    if (unknownFilter) {
+      if (parseUSGB(leaf.data.metadata) !== 'Yes') return false;
+    }
+    if (westernFilter === 'western') {
+      if (!isWesternYes(leaf.data.metadata)) return false;
+    } else if (westernFilter === 'nonwestern') {
+      if (!isWesternNo(leaf.data.metadata)) return false;
+    }
+    return true;
+  }
+
+  function computeKeepSet(root) {
+    const anyActive = selectedPhyla.length > 0 || unknownFilter || westernFilter !== 'any';
+    if (!anyActive) return null;
+
+    const matchedLeaves = root.leaves().filter(leafMatchesFilters);
+    const keep = new Set();
+    matchedLeaves.forEach(l => {
+      l.ancestors().forEach(a => keep.add(a));
+      keep.add(l);
+    });
+    return keep;
+  }
+
+  function applyFilters() {
+    const { root, selections } = handles;
+    if (!root) return;
+
+    const keep = computeKeepSet(root);
+
+    function styleDim(sel, isKept, isLabel = false) {
+      return sel
+        .attr('opacity', d => isKept(d) ? 1 : (isLabel ? DIM_LABEL_OPACITY : DIM_OPACITY))
+        .style('pointer-events', d => isKept(d) ? null : 'none');
+    }
+
+    const svg = d3.select(svgElement);
+    const g = svg.select('g.zoom-container');
+
+    if (keep === null) {
+      g.classed('isolated', false);
+      Object.values(selections).forEach(sel => {
+        if (sel) {
+          sel.attr('opacity', null).style('pointer-events', null);
+        }
+      });
+      return;
+    }
+
+    g.classed('isolated', true);
+    styleDim(selections.nodes, d => keep.has(d));
+    styleDim(selections.internals, d => keep.has(d), true);
+    styleDim(selections.links, d => keep.has(d.target));
+    styleDim(selections.linkHits, d => keep.has(d.target));
+    styleDim(selections.bars, d => keep.has(d));
+    styleDim(selections.sgbLines, d => keep.has(d));
+    styleDim(selections.usgb, d => keep.has(d));
+    styleDim(selections.west, d => keep.has(d));
+    styleDim(selections.regions, d => keep.has(d));
+    styleDim(selections.labels, d => keep.has(d), true);
+  }
+
+  // Handle tooltip actions
+  function handleTooltipAction(event) {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+
+    const act = btn.getAttribute('data-act');
+    if (act === 'highlight' && currentTooltipDatum) {
+      highlightLeaf(currentTooltipDatum);
+      btn.textContent = 'Highlighted';
+      setTimeout(() => {
+        btn.textContent = 'Highlight this species';
+      }, 1200);
+    }
+  }
+
+  // Handle window click (unpin, clear selection, clear highlight)
+  function handleWindowClick(event) {
+    const target = event.target;
+    if (target.closest('#tooltip') || target.closest('svg#chart')) return;
+
+    tooltipPinned = false;
+    tooltipVisible = false;
+    currentTooltipDatum = null;
+    clearSelected();
+    clearHighlight();
+    applyFilters();
+  }
+
+  // Handle escape key
+  function handleEscape(event) {
+    if (event.key === 'Escape') {
+      tooltipPinned = false;
+      tooltipVisible = false;
+      currentTooltipDatum = null;
+      clearSelected();
+      clearHighlight();
+      applyFilters();
+    }
+  }
+
+  // Re-render when props change
+  $effect(() => {
+    if (taxonomyTree) {
+      render();
+    }
+  });
+
+  // Re-apply filters when filter props change
+  $effect(() => {
+    // Track dependencies
+    selectedPhyla.length;
+    unknownFilter;
+    westernFilter;
+
+    applyFilters();
+  });
+
+  onMount(() => {
+    // Set up zoom behavior on zoom-container
+    const svg = d3.select(svgElement);
+
+    // Ensure zoom container exists
+    let zoomGroup = svg.select('g.zoom-container');
+    if (zoomGroup.empty()) {
+      zoomGroup = svg.append('g').attr('class', 'zoom-container');
+    }
+
+    // Capture zoomGroup reference in closure for better performance
+    const zoom = d3.zoom()
+      .scaleExtent([1, 15])
+      .on('zoom', (event) => {
+        // Use captured reference instead of re-querying DOM
+        zoomGroup.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
+
+    // Don't render here - let $effect handle it when taxonomyTree is set
+
+    // Add event listeners
+    window.addEventListener('click', handleWindowClick);
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      window.removeEventListener('click', handleWindowClick);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  });
+</script>
+
+<div class="chart-container">
+  <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
+  </svg>
+
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    id="tooltip"
+    class="biomes-tooltip"
+    class:hidden={!tooltipVisible}
+    style="left: {tooltipX}px; top: {tooltipY}px;"
+    onclick={handleTooltipAction}
+  >
+    {@html tooltipContent}
+  </div>
+</div>
+
+<style>
+  .chart-container {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  svg {
+    display: block;
+    margin: auto;
+    background: var(--bg);
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  :global(.region-path) {
+    fill-opacity: 1;
+    stroke: none;
+  }
+
+  :global(.region-label) {
+    font-size: 24px;
+    fill: var(--fg);
+    font-weight: 300;
+  }
+
+  :global(.internal-label) {
+    font-size: 6px;
+    fill: var(--fg);
+  }
+
+  :global(.node circle) {
+    stroke: white;
+    stroke-width: 0.4;
+  }
+
+  :global(.link) {
+    fill: none;
+    stroke: var(--fg);
+    stroke-width: 0.5;
+    stroke-opacity: 0.35;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+  }
+
+  :global(.sgb-line) {
+    stroke: var(--fg);
+    stroke-width: 0.5;
+    fill: none;
+    opacity: 0.8;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+  }
+
+  :global(.hit) {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 14;
+    pointer-events: stroke;
+  }
+
+  :global(.hit.sgb-hit) {
+    stroke-width: 16;
+  }
+
+  :global(.bar-axis line) {
+    stroke: var(--fg);
+    stroke-width: 1;
+  }
+
+  :global(.bar-axis text) {
+    fill: var(--fg);
+    font-size: 10px;
+  }
+
+  :global(.hover-target) {
+    cursor: crosshair;
+  }
+
+  :global(.is-hover.link),
+  :global(.is-selected.link) {
+    stroke-opacity: 1;
+  }
+
+  :global(.is-hover.link) {
+    stroke-width: 1.2;
+  }
+
+  :global(.is-selected.link) {
+    stroke-width: 2;
+  }
+
+  :global(.is-hover.sgb-line) {
+    stroke-width: 1.2;
+    opacity: 1;
+  }
+
+  :global(.is-selected.sgb-line) {
+    stroke-width: 2;
+    opacity: 1;
+  }
+
+  :global(.is-hover .node circle),
+  :global(.node.is-hover circle) {
+    r: 4;
+  }
+
+  :global(.node.is-selected circle) {
+    r: 5;
+    stroke-width: 1;
+  }
+
+  :global(.bar.is-hover),
+  :global(.usgb.is-hover),
+  :global(.western.is-hover) {
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.7));
+  }
+
+  :global(.bar.is-selected),
+  :global(.usgb.is-selected),
+  :global(.western.is-selected) {
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.9));
+  }
+
+  /* Biomes-specific tooltip styles */
+  .biomes-tooltip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    pointer-events: auto;
+    z-index: 10;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    max-width: 380px;
+    min-width: 260px;
+    padding: 12px 14px;
+    line-height: 1.45;
+  }
+
+  .biomes-tooltip.hidden {
+    display: none;
+  }
+
+  :global(.biomes-tooltip .tip-header) {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  :global(.biomes-tooltip .h-left) {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  :global(.biomes-tooltip .swatch) {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    margin-top: 4px;
+  }
+
+  :global(.biomes-tooltip .title) {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  :global(.biomes-tooltip .subtitle) {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  :global(.biomes-tooltip .mini-glyph) {
+    width: 110px;
+    height: 110px;
+    flex: 0 0 auto;
+  }
+
+  :global(.biomes-tooltip .summary) {
+    font-size: 13px;
+    margin: 8px 0 6px;
+  }
+
+  :global(.biomes-tooltip .summary b) {
+    font-weight: 700;
+  }
+
+  :global(.biomes-tooltip .kv) {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 12px;
+    margin-top: 6px;
+    font-size: 12px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.12);
+    padding-top: 8px;
+  }
+
+  :global(.biomes-tooltip .kv .k) {
+    color: var(--muted);
+  }
+
+  :global(.biomes-tooltip .actions) {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  :global(.biomes-tooltip button) {
+    pointer-events: auto;
+    background: #1d1a33;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  :global(.biomes-tooltip .genome-meter) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  :global(.biomes-tooltip .genome-meter .ticks) {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    flex-wrap: nowrap;
+  }
+
+  :global(.biomes-tooltip .genome-meter .tick) {
+    width: 6px;
+    height: 12px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 2px;
+  }
+
+  :global(.biomes-tooltip .genome-meter .tick.filled) {
+    background: var(--tickColor, #fff);
+    border-color: transparent;
+  }
+
+  :global(.biomes-tooltip .genome-meter .num) {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+</style>
