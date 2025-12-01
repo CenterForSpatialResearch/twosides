@@ -246,11 +246,12 @@
         </select>
       </label>
 
-      <label>
+      <label for="tension-slider">
         <span>Bundling Tension</span>
         <span class="tension-value">{tension.toFixed(2)}</span>
       </label>
       <input
+        id="tension-slider"
         type="range"
         bind:value={tension}
         min="0.1"

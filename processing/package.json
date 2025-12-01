@@ -1,0 +1,14 @@
+{
+  "name": "twosides-processing",
+  "version": "1.0.0",
+  "description": "Data processing pipeline for anthromes GeoTIFF → GeoJSON → TopoJSON",
+  "type": "module",
+  "scripts": {
+    "generate": "node 2_generate_topojson.js"
+  },
+  "dependencies": {
+    "topojson-server": "^3.0.1",
+    "topojson-simplify": "^3.0.3"
+  },
+  "devDependencies": {}
+}

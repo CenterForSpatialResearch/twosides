@@ -4,10 +4,11 @@ Interactive visualizations of biomes and anthromes data.
 
 ## Architecture
 
-- **Framework**: Svelte 5 with Vite
-- **Visualization**: D3.js for radial charts, MapLibre GL for maps
-- **Structure**: Two independent SPAs (biomes, anthromes) with shared styling
-- **Data**: JSON files in `public/data/` loaded at runtime
+- **Framework**: Svelte 5 with Vite (multi-page)
+- **Visualization**: D3.js for radial charts and maps
+- **Structure**: Two independent SPAs (`src/biomes`, `src/anthromes`) with shared UI components
+- **Data**: JSON in `public/data/` and TopoJSON tiles in `public/topojson/` (Git LFS)
+- **Pipeline**: Data-processing scripts in `processing/` produce the JSON/TopoJSON inputs
 
 ## Repository Structure
 
@@ -15,6 +16,8 @@ Interactive visualizations of biomes and anthromes data.
 twosides/
 ├── public/
 │   ├── data/              # JSON data files (biomes taxonomy, anthrome summaries)
+│   ├── topojson/          # Map tiles (tracked via Git LFS)
+│   ├── fonts/             # Web fonts
 │   └── index.html         # Landing page
 ├── src/
 │   ├── biomes/            # Biomes visualization
@@ -24,8 +27,8 @@ twosides/
 │   │   ├── App.svelte     # Main component with filter UI
 │   │   └── lib/           # WaffleChart, dataAdapter
 │   └── shared/            # Shared components
-├── biomes.html            # Biomes entry point
-├── anthromes.html         # Anthromes entry point
+├── processing/            # Data pipeline for GeoTIFF → GeoJSON/TopoJSON
+├── archive/               # Legacy assets and prototypes (includes old biomes/anthromes D3 pages)
 └── vite.config.js         # Multi-page build config
 ```
 
@@ -47,6 +50,6 @@ npm run preview
 
 ## Development
 
-- Navigate to `/biomes.html` or `/anthromes.html` in dev mode
+- Run `npm run dev` and use the landing page (`/`) or go directly to `/src/biomes/` or `/src/anthromes/`
 - Filter controls: Click/drag to select ranges, Shift+click to extend
 - Year slider: Dual-thumb control filters by time period

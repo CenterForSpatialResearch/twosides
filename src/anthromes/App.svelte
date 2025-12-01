@@ -19,6 +19,9 @@
   let selectedYear = $state(null);
   let viewSize = $state('full'); // 'full' or 'preview'
   let settingsOpen = $state(false);
+  let debugMenuVisible = $state(true);
+  let mapReady = $state(false);
+  let initialLoad = $state(true);
 
   // Filter state
   let filterExpanded = $state(false);
@@ -27,13 +30,13 @@
   let expandedTimestamp = $state(0);
   let filterCircleEl = $state(null);
 
-  // Year range for filter
-  let yearRange = $state(null);
-
   // Load data on mount
   onMount(async () => {
     try {
+      performance.mark('data-prep-start');
       const result = await prepareAnthromesData();
+      performance.mark('data-prep-end');
+      performance.measure('data-preparation', 'data-prep-start', 'data-prep-end');
 
       data = result.data;
       years = result.years;
@@ -45,16 +48,6 @@
 
       // Initialize selectedAnthromes with all codes
       selectedAnthromes = [...orderedCodes];
-
-      // Initialize year range
-      if (allYears.length > 0) {
-        yearRange = {
-          min: 0,
-          max: allYears.length - 1,
-          value: [0, allYears.length - 1],
-          years: allYears
-        };
-      }
 
       // Set default selected year
       if (years.length > 0) {
@@ -69,22 +62,23 @@
     }
   });
 
+  // Track when initial map load completes
+  $effect(() => {
+    if (!loading && mapReady && initialLoad) {
+      initialLoad = false;
+    }
+  });
+
   // Handle select all - resets to show everything
   function handleSelectAll() {
     if (!orderedCodes.length || !allYears.length) return;
     selectedAnthromes = [...orderedCodes];
-    if (yearRange) {
-      yearRange.value = [0, allYears.length - 1];
-    }
   }
 
   // Handle clear - in original, this also resets to show everything (same as Select All)
   function handleClear() {
     if (!orderedCodes.length || !allYears.length) return;
     selectedAnthromes = [...orderedCodes];
-    if (yearRange) {
-      yearRange.value = [0, allYears.length - 1];
-    }
   }
 
   // Handle keyboard shortcuts
@@ -176,19 +170,26 @@
 
 <svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} onmouseup={handleLegendMouseUp} />
 
-{#if loading}
-  <div class="loading">
-    <p>Loading anthromes data...</p>
-  </div>
-{:else if error}
+{#if error}
   <div class="error">
     <h2>Error</h2>
     <p>{error}</p>
   </div>
 {:else}
+  <!-- Loading overlay -->
+  {#if loading}
+    <div class="loading-overlay">
+      <p>Loading anthromes data...</p>
+    </div>
+  {:else if !mapReady && initialLoad}
+    <div class="loading-overlay">
+      <p>Rendering map...</p>
+    </div>
+  {/if}
+
   <div class="app">
     <!-- Side Title -->
-    <div class="side-title">ANTHROMES // 12,017 YEARS OF LAND USE</div>
+    <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
 
     <!-- Settings Toggle -->
     <button
@@ -210,6 +211,11 @@
         </select>
       </label>
 
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={debugMenuVisible} />
+        <span>Show Projection Debug Menu</span>
+      </label>
+
       <button class="export-btn" onclick={handleExport}>
         Export SVG
       </button>
@@ -225,11 +231,13 @@
       {years}
       {colorMapping}
       {labelMapping}
+      {legend}
       {orderedCodes}
       bind:selectedAnthromes
       bind:selectedYear
-      {yearRange}
+      bind:mapReady
       size={viewSize}
+      {debugMenuVisible}
     />
 
     <!-- Circular Filter Widget -->
@@ -245,7 +253,7 @@
         <circle class="filter-ring" cx="0" cy="0" r="{filterCircleSize/2 - 3}" />
         <text class="filter-caption" style="opacity: {filterExpanded ? 1 : 0};">
           <textPath href="#fc-arc-right" startOffset="50%" text-anchor="middle">
-            MODELING 12,017 YEARS OF LAND USE
+              MODELING 12,025 YEARS OF LAND USE
           </textPath>
         </text>
         <defs>
@@ -294,35 +302,6 @@
                 <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
               </section>
 
-              {#if yearRange && allYears.length > 0}
-                <section class="section">
-                  <h3>Year Range</h3>
-                  <div class="year-display">
-                    <span class="year-label">{allYears[yearRange.value[0]]}</span>
-                    <span class="year-separator">to</span>
-                    <span class="year-label">{allYears[yearRange.value[1]]}</span>
-                  </div>
-                  <div class="year-slider">
-                    <div class="year-track"></div>
-                    <input
-                      type="range"
-                      min={yearRange.min}
-                      max={yearRange.max}
-                      bind:value={yearRange.value[0]}
-                      class="year-thumb year-thumb-min"
-                      aria-label="Start year"
-                    />
-                    <input
-                      type="range"
-                      min={yearRange.min}
-                      max={yearRange.max}
-                      bind:value={yearRange.value[1]}
-                      class="year-thumb year-thumb-max"
-                      aria-label="End year"
-                    />
-                  </div>
-                </section>
-              {/if}
             </div>
           </div>
         {/if}
@@ -332,7 +311,7 @@
 {/if}
 
 <style>
-  .loading,
+  .loading-overlay,
   .error {
     display: flex;
     align-items: center;
@@ -340,6 +319,13 @@
     height: 100vh;
     text-align: center;
     color: var(--fg);
+  }
+
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 10000;
   }
 
   .error h2 {
@@ -369,6 +355,18 @@
 
   .export-btn:hover {
     opacity: 0.8;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    cursor: pointer;
   }
 
   /* Filter Circle Styles */
@@ -602,108 +600,4 @@
     text-align: center;
   }
 
-  /* Year Range Slider Styles */
-  .year-display {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .year-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--fg);
-    min-width: 60px;
-    text-align: center;
-  }
-
-  .year-separator {
-    font-size: 10px;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-
-  .year-slider {
-    position: relative;
-    width: 100%;
-    height: 32px;
-    display: flex;
-    align-items: center;
-  }
-
-  .year-track {
-    position: absolute;
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 2px;
-    pointer-events: none;
-  }
-
-  .year-thumb {
-    position: absolute;
-    width: 100%;
-    height: 4px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: transparent;
-    pointer-events: none;
-    margin: 0;
-  }
-
-  .year-thumb::-webkit-slider-track {
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 2px;
-  }
-
-  .year-thumb::-moz-range-track {
-    width: 100%;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 2px;
-  }
-
-  .year-thumb::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--fg);
-    border: 2px solid var(--bg);
-    cursor: pointer;
-    pointer-events: auto;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  }
-
-  .year-thumb::-moz-range-thumb {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--fg);
-    border: 2px solid var(--bg);
-    cursor: pointer;
-    pointer-events: auto;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  }
-
-  .year-thumb:hover::-webkit-slider-thumb {
-    background: #ffffff;
-  }
-
-  .year-thumb:hover::-moz-range-thumb {
-    background: #ffffff;
-  }
-
-  .year-thumb-min {
-    z-index: 1;
-  }
-
-  .year-thumb-max {
-    z-index: 2;
-  }
 </style>

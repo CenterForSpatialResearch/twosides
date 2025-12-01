@@ -11,14 +11,14 @@
 /* ABCPelikan font declarations */
 @font-face {
   font-family: 'ABCPelikan';
-  src: url('/fonts/ABCPelikan-Regular-Trial.woff') format('woff');
+  src: url('../assets/fonts/ABCPelikan-Regular-Trial.woff') format('woff');
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'ABCPelikanCondensed';
-  src: url('/fonts/ABCPelikanCondensed-Regular-Trial.woff') format('woff');
+  src: url('../assets/fonts/ABCPelikanCondensed-Regular-Trial.woff') format('woff');
   font-weight: normal;
   font-style: normal;
 }

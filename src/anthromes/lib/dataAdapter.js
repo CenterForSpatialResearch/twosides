@@ -7,9 +7,18 @@
  */
 export async function loadData() {
   const [summaryResponse, legendResponse] = await Promise.all([
-    fetch('/data/summary.json'),
-    fetch('/data/anthrome-legend.json')
+    fetch('/data/summary.json', { cache: 'no-cache' }),
+    fetch('/data/anthrome-legend.json', { cache: 'no-cache' })
   ]);
+
+  const ensureOk = (res, label) => {
+    if (!res.ok) {
+      throw new Error(`Failed to load ${label} (status ${res.status})`);
+    }
+  };
+
+  ensureOk(summaryResponse, 'summary.json');
+  ensureOk(legendResponse, 'anthrome-legend.json');
 
   const summary = await summaryResponse.json();
   const legend = await legendResponse.json();
@@ -27,12 +36,12 @@ export async function loadData() {
  */
 export function filterYears(allYears) {
   return allYears.filter(yearStr => {
-    const { year, isBC } = parseYearString(yearStr);
+    const { year, isBCE } = parseYearString(yearStr);
 
-    // Include all BC years
-    if (isBC) return true;
+    // Include all BCE years
+    if (isBCE) return true;
 
-    // Include all AD years before 1950
+    // Include all CE/AD years before 1950
     if (year < 1950) return true;
 
     // From 1950 onwards, include every 5 years
@@ -41,39 +50,52 @@ export function filterYears(allYears) {
 }
 
 /**
- * Parse a year string like "10000BC" or "2017AD"
+ * Parse a year string like "10000BC" or "2017AD" (or already formatted BCE/CE)
  * @param {string} yearStr - Year string to parse
- * @returns {{ year: number, isBC: boolean, original: string }}
+ * @returns {{ year: number, isBCE: boolean, original: string }}
  */
 export function parseYearString(yearStr) {
-  const isBC = yearStr.endsWith('BC');
+  const isBCE = /(BCE?|BC)$/.test(yearStr);
   const year = parseInt(yearStr.replace(/[^\d]/g, ''), 10);
 
   return {
     year,
-    isBC,
+    isBCE,
     original: yearStr
   };
 }
 
 /**
- * Sort years chronologically (BC to AD, oldest to newest)
+ * Convert a data year label to a display label (BC → BCE, AD → CE)
+ * @param {string} yearStr
+ * @returns {string}
+ */
+export function formatYearLabel(yearStr) {
+  if (!yearStr) return '';
+  if (yearStr.endsWith('BCE') || yearStr.endsWith('CE')) return yearStr;
+  if (yearStr.endsWith('BC')) return yearStr.replace(/BC$/, 'BCE');
+  if (yearStr.endsWith('AD')) return yearStr.replace(/AD$/, 'CE');
+  return yearStr;
+}
+
+/**
+ * Sort years chronologically (BCE to CE/AD, oldest to newest)
  * @param {string[]} years - Array of year strings
  * @returns {string[]} Sorted array
  */
 export function sortYears(years) {
   return [...years].sort((a, b) => {
-    const { year: yearA, isBC: isBCA } = parseYearString(a);
-    const { year: yearB, isBC: isBCB } = parseYearString(b);
+    const { year: yearA, isBCE: isBCEA } = parseYearString(a);
+    const { year: yearB, isBCE: isBCEB } = parseYearString(b);
 
-    // Both BC: larger number = older (10000BC < 1000BC)
-    if (isBCA && isBCB) return yearB - yearA;
+    // Both BCE: larger number = older (10000BCE < 1000BCE)
+    if (isBCEA && isBCEB) return yearB - yearA;
 
-    // Both AD: normal sort
-    if (!isBCA && !isBCB) return yearA - yearB;
+    // Both CE: normal sort
+    if (!isBCEA && !isBCEB) return yearA - yearB;
 
-    // BC comes before AD
-    return isBCA ? -1 : 1;
+    // BCE comes before CE
+    return isBCEA ? -1 : 1;
   });
 }
 

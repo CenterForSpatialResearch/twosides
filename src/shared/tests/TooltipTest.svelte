@@ -11,10 +11,10 @@
       <span class="chip" style="background: #5f0f40;"></span>
       <div>
         <div class="title">Urban</div>
-        <div class="subtitle">Year 2020AD</div>
+        <div class="subtitle">Year 2020CE</div>
       </div>
     </div>
-    <div class="summary">In <b>2020AD</b>, <b>Urban</b> accounts for <b>1,234,567</b> units (<b>12.3%</b> of the year's total).</div>
+    <div class="summary">In <b>2020CE</b>, <b>Urban</b> accounts for <b>1,234,567</b> units (<b>12.3%</b> of the year's total).</div>
     <div class="kv">
       <div class="k">Year total</div><div>10,000,000</div>
       <div class="k">Segment value</div><div>1,234,567</div>
