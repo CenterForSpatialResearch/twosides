@@ -48,7 +48,8 @@ export function pickTextColor(hex) {
  */
 export async function loadTaxonomyData() {
   try {
-    const response = await fetch('/data/sgb_taxonomy_tree.json');
+    const base = import.meta.env.BASE_URL;
+    const response = await fetch(`${base}data/sgb_taxonomy_tree.json`);
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

@@ -139,7 +139,8 @@
     loading = true;
     const fetchPromise = (async () => {
       performance.mark('topo-load-start');
-      const url = new URL(`/topojson/${profile}/${targetYear}.topojson`, window.location.origin).toString();
+      const base = import.meta.env.BASE_URL;
+      const url = `${base}topojson/${profile}/${targetYear}.topojson`;
 
       try {
         mapReady = false;

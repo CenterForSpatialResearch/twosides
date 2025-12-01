@@ -6,9 +6,10 @@
  * Load JSON data files
  */
 export async function loadData() {
+  const base = import.meta.env.BASE_URL;
   const [summaryResponse, legendResponse] = await Promise.all([
-    fetch('/data/summary.json', { cache: 'no-cache' }),
-    fetch('/data/anthrome-legend.json', { cache: 'no-cache' })
+    fetch(`${base}data/summary.json`, { cache: 'no-cache' }),
+    fetch(`${base}data/anthrome-legend.json`, { cache: 'no-cache' })
   ]);
 
   const ensureOk = (res, label) => {
