@@ -5,8 +5,10 @@
   import * as topojson from 'topojson-client';
   import { TOPO_PROFILE } from './constants.js';
   import Tooltip from '../../shared/Tooltip.svelte';
+  import { formatYearLabel } from './dataAdapter.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
+  const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
 
   let {
     width = 0,
@@ -15,6 +17,7 @@
     profile = TOPO_PROFILE,
     year = null,
     legend = {},
+    yearDataLookup = new Map(),
     selectedCodes = [],
     zoom = { k: 1, x: 0, y: 0 },
     points = $bindable([
@@ -479,6 +482,12 @@
     const color = legendEntry?.color || '#ffffff';
     const areaSr = d3.geoArea(feature);
     const areaKm2 = areaSr * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+    const yearEntry = yearDataLookup?.get?.(year);
+    const percent = yearEntry?.percentages?.[String(code)];
+    const percentDisplay = percent != null ? `${percent.toFixed(2)}%` : '—';
+    const globalAreaKm2 = percent != null ? (percent / 100) * EARTH_SURFACE_KM2 : null;
+    const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
+    const yearLabel = formatYearLabel(year) || '';
 
     tooltipX = e.clientX;
     tooltipY = e.clientY;
@@ -487,12 +496,13 @@
         <span class="chip" style="background:${color}"></span>
         <div>
           <div class="title">${label}</div>
-          <div class="subtitle">Year ${year || ''}</div>
+          <div class="subtitle">Year ${yearLabel}</div>
         </div>
       </div>
-      <div class="summary">In <b>${year || ''}</b>, <b>${label}</b> covers <b>${Math.round(areaKm2).toLocaleString()}</b> km² in this region.</div>
+      <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth’s surface.</div>
       <div class="kv">
         <div class="k">Area</div><div>${Math.round(areaKm2).toLocaleString()} km²</div>
+        <div class="k">Total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
         <div class="k">Anthrome code</div><div>${code}</div>
       </div>
     `;

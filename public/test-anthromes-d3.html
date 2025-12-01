@@ -275,18 +275,25 @@
     };
 
     // Utilities
+    function formatYearLabel(yearStr) {
+      if (!yearStr) return "";
+      if (yearStr.endsWith("BCE") || yearStr.endsWith("CE")) return yearStr;
+      if (yearStr.endsWith("BC")) return yearStr.replace(/BC$/, "BCE");
+      if (yearStr.endsWith("AD")) return yearStr.replace(/AD$/, "CE");
+      return yearStr;
+    }
     function parseYearString(yearStr) {
-      const isBC = yearStr.endsWith("BC");
+      const isBCE = /(BCE?|BC)$/.test(yearStr);
       const year = parseInt(yearStr.replace(/[^\d]/g, ""), 10);
-      return { year, isBC, original: yearStr };
+      return { year, isBCE, original: yearStr };
     }
     function sortYears(years) {
       return [...years].sort((a, b) => {
-        const { year: aYear, isBC: aBC } = parseYearString(a);
-        const { year: bYear, isBC: bBC } = parseYearString(b);
-        if (aBC && bBC) return bYear - aYear; // BC: larger number is older
-        if (!aBC && !bBC) return aYear - bYear; // AD ascending
-        return aBC ? -1 : 1; // BC before AD
+        const { year: aYear, isBCE: aBCE } = parseYearString(a);
+        const { year: bYear, isBCE: bBCE } = parseYearString(b);
+        if (aBCE && bBCE) return bYear - aYear; // BCE: larger number is older
+        if (!aBCE && !bBCE) return aYear - bYear; // CE ascending
+        return aBCE ? -1 : 1; // BCE before CE
       });
     }
 
@@ -311,10 +318,10 @@
       els.year.max = years.length - 1;
       els.year.value = years.length - 1;
       state.yearIndex = years.length - 1;
-      els.yearLabel.textContent = years[state.yearIndex];
+      els.yearLabel.textContent = formatYearLabel(years[state.yearIndex]);
       els.year.addEventListener("input", () => {
         state.yearIndex = +els.year.value;
-        els.yearLabel.textContent = state.years[state.yearIndex];
+        els.yearLabel.textContent = formatYearLabel(state.years[state.yearIndex]);
         loadAndRender();
       });
     }

@@ -4,6 +4,7 @@
   import MapCanvas from './MapCanvas.svelte';
   import Tooltip from '../../shared/Tooltip.svelte';
   import { TOPO_PROFILE } from './constants.js';
+  import { formatYearLabel } from './dataAdapter.js';
 
   let {
     data = [],
@@ -46,6 +47,10 @@
     [48, -15]
   ]);
   let clipAngle = $state(120);
+  const defaultPoints = [
+    [-75, 41],
+    [48, -15]
+  ];
 
   function zoomFilter(event) {
     if (draggingYear) return false;
@@ -92,6 +97,8 @@
     return { stack, labels, dataByYear, totalsByYear };
   });
 
+  const yearDataLookup = $derived.by(() => new Map(data.map(d => [d.year, d])));
+
   const layout = $derived.by(() => {
     if (!stackedData) return null;
 
@@ -136,10 +143,10 @@
         <span class="chip" style="background:${color}"></span>
         <div>
           <div class="title">${d.label}</div>
-          <div class="subtitle">Year ${d.year}</div>
+          <div class="subtitle">Year ${formatYearLabel(d.year)}</div>
         </div>
       </div>
-      <div class="summary">In <b>${d.year}</b>, <b>${d.label}</b> accounts for <b>${count.toLocaleString()}</b> units (<b>${pct}</b> of the year's total).</div>
+      <div class="summary">In <b>${formatYearLabel(d.year)}</b>, <b>${d.label}</b> accounts for <b>${count.toLocaleString()}</b> units (<b>${pct}</b> of the year's total).</div>
       <div class="kv">
         <div class="k">Year total</div><div>${total.toLocaleString()}</div>
         <div class="k">Segment value</div><div>${count.toLocaleString()}</div>
@@ -302,7 +309,7 @@
         .attr('transform', `translate(${lx},${ly}) rotate(${rot}) scale(${flipY}, ${isTop ? 1 : -1})`)
         .attr('text-anchor', 'middle')
         .attr('alignment-baseline', 'middle')
-        .text(yr);
+        .text(formatYearLabel(yr));
     });
 
     const handle = yearAxis.selectAll('circle.year-handle')
@@ -362,7 +369,7 @@
     if (!displayYear || !yearAngles.has(displayYear)) return;
 
     const a = yearAngles.get(displayYear);
-    const handleRadius = layout.innerRadius - 72; // Push towards center by half handle radius (40/2 = 20, so 52 + 20 = 72)
+    const handleRadius = layout.innerRadius - 100;
     const hx = Math.cos(a) * handleRadius;
     const hy = Math.sin(a) * handleRadius;
 
@@ -534,6 +541,7 @@
     profile={TOPO_PROFILE}
     year={mapYear}
     legend={legend}
+    yearDataLookup={yearDataLookup}
     selectedCodes={selectedAnthromes}
     zoom={mapZoom}
     bind:points={mapPoints}
@@ -607,6 +615,18 @@
           placeholder="Angle"
           class="full-width"
         />
+      </div>
+
+      <div class="debug-section">
+        <button
+          class="reset-btn"
+          type="button"
+          onclick={() => {
+            mapPoints = defaultPoints.map(p => [...p]);
+          }}
+        >
+          Reset projection points
+        </button>
       </div>
     </div>
   {/if}
@@ -778,5 +798,22 @@
   .debug-panel input[type="number"]::-webkit-inner-spin-button,
   .debug-panel input[type="number"]::-webkit-outer-spin-button {
     opacity: 1;
+  }
+
+  .reset-btn {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .reset-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.35);
   }
 </style>

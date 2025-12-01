@@ -34,11 +34,9 @@
   onMount(async () => {
     try {
       performance.mark('data-prep-start');
-      console.info('Anthromes: loading data…');
       const result = await prepareAnthromesData();
       performance.mark('data-prep-end');
       performance.measure('data-preparation', 'data-prep-start', 'data-prep-end');
-      console.info('Anthromes: data loaded');
 
       data = result.data;
       years = result.years;
@@ -191,7 +189,7 @@
 
   <div class="app">
     <!-- Side Title -->
-    <div class="side-title">ANTHROMES // 12,017 YEARS OF LAND USE</div>
+    <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
 
     <!-- Settings Toggle -->
     <button
@@ -255,7 +253,7 @@
         <circle class="filter-ring" cx="0" cy="0" r="{filterCircleSize/2 - 3}" />
         <text class="filter-caption" style="opacity: {filterExpanded ? 1 : 0};">
           <textPath href="#fc-arc-right" startOffset="50%" text-anchor="middle">
-            MODELING 12,017 YEARS OF LAND USE
+              MODELING 12,025 YEARS OF LAND USE
           </textPath>
         </text>
         <defs>
