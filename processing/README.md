@@ -6,10 +6,10 @@ Converts HYDE 3.5 anthrome GeoTIFF files to optimized GeoJSON/TopoJSON for D3 re
 
 Generally, the processing flow is:
 
-Input: GeoTIFF at `data/HYDE-3.5/baseline/anthromes_geotiff`
-  → `processing/1_extract_geojson.py`: resample to geojson features. Option to decrease resolution, dissolve features, sieve small features (such as islands), or simplify features. output to `processing/geojson/` according to name in `--profile`. The contents of this folder are not tracked.
-  → `processing/2_generate_topojson.js`: convert to topojson features (and combine share boundaries). Option to simplify. 
-→ Output: TopoJSON per year for rendering at `/Users/akv2118-admin/Documents/GitHub/twosides/public/topojson`. **Contents of this folder are tracked using Git LFS, only push what is necessary.**
+- Input: GeoTIFF at `data/HYDE-3.5/baseline/anthromes_geotiff`
+- `processing/1_extract_geojson.py`: resample to geojson features. Option to decrease resolution, dissolve features, sieve small features (such as islands), or simplify features. output to `processing/geojson/` according to name in `--profile`. The contents of this folder are not tracked.
+- `processing/2_generate_topojson.js`: convert to topojson features (and combine share boundaries). Option to simplify. 
+- Output: TopoJSON per year for rendering at `/Users/akv2118-admin/Documents/GitHub/twosides/public/topojson`. Contents of this folder are tracked using Git LFS. Changes will not be tracked, but still, **only push data that will be used in production.**
 
 ### Testing
 
