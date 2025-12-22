@@ -1,21 +1,31 @@
 # Data Processing Pipeline
 
-Converts HYDE 3.5 anthrome GeoTIFF files to optimized GeoJSON/TopoJSON for D3 rendering (projection-flexible).
+Converts HYDE 3.5 anthrome GeoTIFF files to optimized GeoJSON/TopoJSON for D3 rendering (projection-flexible). 
 
-## Pipeline Overview
+## Overview
 
-```
-GeoTIFF (raster)
-  → optional resample (mode) to coarser grid
-  → dissolve by anthrome code + simplify
-  → GeoJSON per year
-  → TopoJSON per year (quantize + simplify)
-```
+Generally, the processing flow is:
 
-**Input:** 106 GeoTIFF files from HYDE 3.5 dataset  
-**Output:** One or more optimized TopoJSON sets (by profile) for map rendering
+Input: GeoTIFF at `data/HYDE-3.5/baseline/anthromes_geotiff`
+  → `processing/1_extract_geojson.py`: resample to geojson features. Option to decrease resolution, dissolve features, sieve small features (such as islands), or simplify features. output to `processing/geojson/` according to name in `--profile`. The contents of this folder are not tracked.
+  → `processing/2_generate_topojson.js`: convert to topojson features (and combine share boundaries). Option to simplify. 
+→ Output: TopoJSON per year for rendering at `/Users/akv2118-admin/Documents/GitHub/twosides/public/topojson`. **Contents of this folder are tracked using Git LFS, only push what is necessary.**
 
-## Prerequisites
+### Testing
+
+You can compare multiple profiles at public/test-anthromes-d3.html. This includes stats of load and render times. By default, all of the profiles included in the below "Required Files" section are included. Add or edit profiles under the `const profiles = [` array.
+
+*note*: in production in the anthromes viz: the load and render times are slightly longer than in the test page. The load times come from having to wait for the waffle chart to load, and the render times come from the overhead of clipping the boundary of the map to the inside of the waffle chart. This has been optimized pretty hard, but potentially could be improved upon.
+
+## Setup
+
+### Required Files
+
+Files used in processing pipeline are not tracked, but can be found [here](https://drive.google.com/open?id=15qKjOuMAIivtimwi3568i6LhuqeRompI&usp=drive_fs). In this folder are two subdirectories that can be copied to the project root:
+
+`/data/HYDE-3.5`: The entire `baseline` scenario hosted [here](https://geo.public.data.uu.nl/vault-hyde/hyde35_c9_apr2025%5B1749214444%5D/original/). The result is output to `/anthromes-geotiff`. The result folder is all you need to run the next processing steps. 
+
+`/processing/geojson`: geojsons processed from the extracted geotiffs according to the instructiosn below from a resolution of 10km to 55km. There are also two variants for the 33km resolution that "dissolve" the features - combining individual cells with a shared `anthromes` value into one larger feature. In my testing, dissolving features would lead to reduced geojsons, but any gains would subsequently vanish when converted to topojson compared to not-dissolved geojsons at the same resolution. Also, because the resulting polygons were so complexed, render time increased drastically. 
 
 ### Python Requirements
 ```bash
@@ -29,6 +39,8 @@ npm install
 ```
 
 ## Usage
+
+Above is all you need to get started, but below is more information on the flags in each script, and examples from the `10km`, `33km` and `50km` profiles available above.
 
 ### Step 1: Extract + Dissolve GeoJSON
 ```bash
@@ -64,7 +76,7 @@ Customization Flags (TopoJSON generate):
 - `--quantization`: snaps coordinates to an evenly spaced grid; grid step = 360° / quantization. Examples: `1e5` → 0.0036° (~400 m at the equator); `1e6` → 0.00036° (~40 m). Larger values shrink files but coarsen precision; smaller retains precision with larger files.
 
 
-## Used Profiles
+## Example of Used Profiles
 
 Run commands from `processing/`. Each profile writes to its own directories so you can A/B test:
 
