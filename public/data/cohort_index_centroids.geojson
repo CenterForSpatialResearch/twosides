@@ -1,0 +1,464 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          46.669491179453075,
+          -18.646691
+        ]
+      },
+      "properties": {
+        "cohort_id": "madagascar_a",
+        "label": "Madagascar cohort \u2014 Community A",
+        "geography_type": "cohort_within_country",
+        "country_iso3": "MDG",
+        "country_name": "Madagascar",
+        "samples_total": 83,
+        "studies": [
+          "CM_madagascar"
+        ],
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 503
+        },
+        "top_sgbs": [
+          {
+            "sgb": 14321,
+            "samples": 10
+          },
+          {
+            "sgb": 14427,
+            "samples": 10
+          },
+          {
+            "sgb": 14492,
+            "samples": 10
+          },
+          {
+            "sgb": 14823,
+            "samples": 10
+          },
+          {
+            "sgb": 3926,
+            "samples": 9
+          },
+          {
+            "sgb": 7970,
+            "samples": 9
+          },
+          {
+            "sgb": 6836,
+            "samples": 7
+          },
+          {
+            "sgb": 14815,
+            "samples": 7
+          },
+          {
+            "sgb": 1623,
+            "samples": 6
+          },
+          {
+            "sgb": 4950,
+            "samples": 6
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          46.669491179453075,
+          -18.646691
+        ]
+      },
+      "properties": {
+        "cohort_id": "madagascar_b",
+        "label": "Madagascar cohort \u2014 Community B",
+        "geography_type": "cohort_within_country",
+        "country_iso3": "MDG",
+        "country_name": "Madagascar",
+        "samples_total": 0,
+        "studies": [],
+        "body_sites": [],
+        "westernized_counts": {},
+        "top_sgbs": []
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          177.9759493013698,
+          -17.937620000000003
+        ]
+      },
+      "properties": {
+        "cohort_id": "fiji_brito_stool",
+        "label": "Traditional Fijian population (Brito et al., 2016) \u2014 Stool",
+        "geography_type": "named_population",
+        "country_iso3": "FJI",
+        "country_name": "Fiji",
+        "samples_total": 170,
+        "studies": [
+          "BritoIL_2016"
+        ],
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 1698
+        },
+        "top_sgbs": [
+          {
+            "sgb": 376,
+            "samples": 10
+          },
+          {
+            "sgb": 1016,
+            "samples": 10
+          },
+          {
+            "sgb": 1475,
+            "samples": 10
+          },
+          {
+            "sgb": 1614,
+            "samples": 10
+          },
+          {
+            "sgb": 1657,
+            "samples": 10
+          },
+          {
+            "sgb": 1663,
+            "samples": 10
+          },
+          {
+            "sgb": 1668,
+            "samples": 10
+          },
+          {
+            "sgb": 1672,
+            "samples": 10
+          },
+          {
+            "sgb": 1676,
+            "samples": 10
+          },
+          {
+            "sgb": 1677,
+            "samples": 10
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          177.9759493013698,
+          -17.937620000000003
+        ]
+      },
+      "properties": {
+        "cohort_id": "fiji_brito_oral",
+        "label": "Traditional Fijian population (Brito et al., 2016) \u2014 Oral cavity",
+        "geography_type": "named_population",
+        "country_iso3": "FJI",
+        "country_name": "Fiji",
+        "samples_total": 68,
+        "studies": [
+          "BritoIL_2016"
+        ],
+        "body_sites": [
+          "Oral cavity"
+        ],
+        "westernized_counts": {
+          "No": 170
+        },
+        "top_sgbs": [
+          {
+            "sgb": 1554,
+            "samples": 10
+          },
+          {
+            "sgb": 9465,
+            "samples": 10
+          },
+          {
+            "sgb": 17130,
+            "samples": 10
+          },
+          {
+            "sgb": 9449,
+            "samples": 9
+          },
+          {
+            "sgb": 16975,
+            "samples": 7
+          },
+          {
+            "sgb": 9450,
+            "samples": 5
+          },
+          {
+            "sgb": 1545,
+            "samples": 4
+          },
+          {
+            "sgb": 2043,
+            "samples": 4
+          },
+          {
+            "sgb": 6946,
+            "samples": 4
+          },
+          {
+            "sgb": 9464,
+            "samples": 4
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          34.14207067870728,
+          -6.207829500000001
+        ]
+      },
+      "properties": {
+        "cohort_id": "hadza_tanzania_stool",
+        "label": "Hadza population (Rampelli 2015; Smits 2017) \u2014 Stool",
+        "geography_type": "named_population",
+        "country_iso3": "TZA",
+        "country_name": "Tanzania",
+        "samples_total": 42,
+        "studies": [
+          "RampelliS_2015",
+          "SmitsSA_2017"
+        ],
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 161
+        },
+        "top_sgbs": [
+          {
+            "sgb": 4931,
+            "samples": 8
+          },
+          {
+            "sgb": 17317,
+            "samples": 8
+          },
+          {
+            "sgb": 1333,
+            "samples": 5
+          },
+          {
+            "sgb": 4559,
+            "samples": 5
+          },
+          {
+            "sgb": 1370,
+            "samples": 4
+          },
+          {
+            "sgb": 1606,
+            "samples": 4
+          },
+          {
+            "sgb": 1625,
+            "samples": 4
+          },
+          {
+            "sgb": 4168,
+            "samples": 4
+          },
+          {
+            "sgb": 5806,
+            "samples": 4
+          },
+          {
+            "sgb": 6971,
+            "samples": 4
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          105.33397585460423,
+          46.846779
+        ]
+      },
+      "properties": {
+        "cohort_id": "mongolia_agropastoral_stool",
+        "label": "Traditional agro-pastoral Mongolian population (Liu et al., 2016) \u2014 Stool",
+        "geography_type": "named_population",
+        "country_iso3": "MNG",
+        "country_name": "Mongolia",
+        "samples_total": 39,
+        "studies": [
+          "LiuW_2016"
+        ],
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 160
+        },
+        "top_sgbs": [
+          {
+            "sgb": 15016,
+            "samples": 6
+          },
+          {
+            "sgb": 8773,
+            "samples": 4
+          },
+          {
+            "sgb": 13964,
+            "samples": 4
+          },
+          {
+            "sgb": 15310,
+            "samples": 4
+          },
+          {
+            "sgb": 15370,
+            "samples": 4
+          },
+          {
+            "sgb": 1005,
+            "samples": 3
+          },
+          {
+            "sgb": 1673,
+            "samples": 3
+          },
+          {
+            "sgb": 4153,
+            "samples": 3
+          },
+          {
+            "sgb": 4391,
+            "samples": 3
+          },
+          {
+            "sgb": 14256,
+            "samples": 3
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -75.87473845667213,
+          -9.247523000000001
+        ]
+      },
+      "properties": {
+        "cohort_id": "peru_rural_stool",
+        "label": "Peruvian rural community (Obregon-Tito et al., 2015) \u2014 Stool",
+        "geography_type": "named_population",
+        "country_iso3": "PER",
+        "country_name": "Peru",
+        "samples_total": 36,
+        "studies": [
+          "Obregon-TitoAJ_2015"
+        ],
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 167
+        },
+        "top_sgbs": [
+          {
+            "sgb": 5808,
+            "samples": 5
+          },
+          {
+            "sgb": 15321,
+            "samples": 4
+          },
+          {
+            "sgb": 19436,
+            "samples": 4
+          },
+          {
+            "sgb": 2075,
+            "samples": 3
+          },
+          {
+            "sgb": 4363,
+            "samples": 3
+          },
+          {
+            "sgb": 4558,
+            "samples": 3
+          },
+          {
+            "sgb": 4883,
+            "samples": 3
+          },
+          {
+            "sgb": 6488,
+            "samples": 3
+          },
+          {
+            "sgb": 15218,
+            "samples": 3
+          },
+          {
+            "sgb": 1612,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          40.489673,
+          9.145
+        ]
+      },
+      "properties": {
+        "cohort_id": "ethiopia_cm_ethiopia_stool",
+        "label": "Ethiopian cohort (This publication) \u2014 Stool",
+        "geography_type": "cohort_only",
+        "country_iso3": "ETH",
+        "country_name": "Ethiopia",
+        "samples_total": 0,
+        "studies": [],
+        "body_sites": [],
+        "westernized_counts": {},
+        "top_sgbs": []
+      }
+    }
+  ]
+}
