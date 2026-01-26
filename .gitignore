@@ -17,3 +17,6 @@ processing/unoptimized_backup/
 PROJECT_PHASES.MD
 
 archive/
+
+# Utilities
+utilities/

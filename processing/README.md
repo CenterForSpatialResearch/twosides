@@ -1,6 +1,8 @@
 # Data Processing Pipeline
 
-Converts HYDE 3.5 anthrome GeoTIFF files to optimized GeoJSON/TopoJSON for D3 rendering (projection-flexible). 
+Converts HYDE 3.5 anthrome GeoTIFF files to optimized GeoJSON/TopoJSON for D3 rendering (projection-flexible).
+
+**Development Environment:** This project is developed on Windows using PowerShell. Python and Node.js commands work cross-platform, but file paths may need adjustment for your environment.
 
 ## Overview
 
@@ -28,11 +30,26 @@ Files used in processing pipeline are not tracked, but can be found [here](https
 `/processing/geojson`: geojsons processed from the extracted geotiffs according to the instructiosn below from a resolution of 10km to 55km. There are also two variants for the 33km resolution that "dissolve" the features - combining individual cells with a shared `anthromes` value into one larger feature. In my testing, dissolving features would lead to reduced geojsons, but any gains would subsequently vanish when converted to topojson compared to not-dissolved geojsons at the same resolution. Also, because the resulting polygons were so complexed, render time increased drastically. 
 
 ### Python Requirements
+
+**Windows (PowerShell):**
+```powershell
+pip install rasterio shapely numpy
+```
+
+**Linux/macOS:**
 ```bash
 pip install rasterio shapely numpy
 ```
 
 ### Node.js Requirements
+
+**Windows (PowerShell):**
+```powershell
+cd processing
+npm install
+```
+
+**Linux/macOS:**
 ```bash
 cd processing/
 npm install

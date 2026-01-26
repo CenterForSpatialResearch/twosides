@@ -190,7 +190,7 @@
       .outerRadius(d => rScale(d.seg[1]))
       .startAngle(d => angle(d.year))
       .endAngle(d => angle(d.year) + angle.bandwidth())
-      .padAngle(0.003)
+      .padAngle(0.006)
       .padRadius(innerRadius);
 
     const arcHit = d3.arc()
@@ -198,7 +198,7 @@
       .outerRadius(d => rScale(d.seg[1]) + 8)
       .startAngle(d => angle(d.year))
       .endAngle(d => angle(d.year) + angle.bandwidth())
-      .padAngle(0.006)
+      .padAngle(0.012)
       .padRadius(innerRadius);
 
     const layers = g.selectAll('g.layer')
@@ -704,7 +704,7 @@
 
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 52px;
+    font-size: 26px;
     opacity: 0.95;
     font-weight: 800;
     letter-spacing: 0.08em;
