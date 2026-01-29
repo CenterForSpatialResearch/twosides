@@ -17,6 +17,7 @@
     selectedYear = $bindable(null),
     size = 'full',
     debugMenuVisible = false,
+    showBoundaries = false,
     mapReady = $bindable(false)
   } = $props();
 
@@ -547,6 +548,7 @@
     bind:points={mapPoints}
     bind:mapReady
     {clipAngle}
+    {showBoundaries}
   />
 
   {#if debugMenuVisible}

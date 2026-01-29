@@ -2,10 +2,6 @@
 
 Interactive visualizations of biomes and anthromes data.
 
-## Development Environment
-
-This project is developed on Windows using PowerShell. All command examples use PowerShell syntax unless otherwise noted. Bash alternatives are provided where applicable.
-
 ## Architecture
 
 - **Framework**: Svelte 5 with Vite (multi-page)

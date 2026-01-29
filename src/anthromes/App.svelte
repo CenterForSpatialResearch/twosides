@@ -20,6 +20,7 @@
   let viewSize = $state('full'); // 'full' or 'preview'
   let settingsOpen = $state(false);
   let debugMenuVisible = $state(true);
+  let showBoundaries = $state(true);
   let mapReady = $state(false);
   let initialLoad = $state(true);
 
@@ -216,6 +217,11 @@
         <span>Show Projection Debug Menu</span>
       </label>
 
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={showBoundaries} />
+        <span>Show Country Boundaries</span>
+      </label>
+
       <button class="export-btn" onclick={handleExport}>
         Export SVG
       </button>
@@ -238,6 +244,7 @@
       bind:mapReady
       size={viewSize}
       {debugMenuVisible}
+      {showBoundaries}
     />
 
     <!-- Circular Filter Widget -->

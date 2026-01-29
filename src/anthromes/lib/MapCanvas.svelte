@@ -3,7 +3,7 @@
   import * as d3 from 'd3';
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
-  import { TOPO_PROFILE } from './constants.js';
+  import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import Tooltip from '../../shared/Tooltip.svelte';
   import { formatYearLabel } from './dataAdapter.js';
 
@@ -25,7 +25,8 @@
       [48, -15]
     ]),
     clipAngle = 120,
-    mapReady = $bindable(false)
+    mapReady = $bindable(false),
+    showBoundaries = false
   } = $props();
 
   let canvasEl = $state(null);
@@ -34,6 +35,8 @@
   let currentMesh = $state(null);
   let loading = $state(false);
   let errorMsg = $state('');
+  let boundariesMesh = $state(null);
+  let boundariesLoading = $state(false);
   const cache = new Map();
   const inFlight = new Map();
   let draggingHandle = $state(false);
@@ -186,6 +189,32 @@
     }
   }
 
+  async function loadBoundaries() {
+    if (boundariesMesh || boundariesLoading) return;
+    boundariesLoading = true;
+    try {
+      const base = import.meta.env.BASE_URL;
+      // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
+      const url = USE_PIXEL_BOUNDARIES
+        ? `${base}topojson/admin-boundaries/${TOPO_PROFILE}/countries.topojson`
+        : `${base}topojson/admin-boundaries/countries-110m.topojson`;
+      const res = await fetch(url, { cache: 'force-cache' });
+      if (!res.ok) {
+        throw new Error(`Failed to load boundaries (${res.status})`);
+      }
+      const topo = await res.json();
+      const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
+      if (!objKey) {
+        throw new Error('Boundaries TopoJSON missing objects');
+      }
+      boundariesMesh = topojson.mesh(topo, topo.objects[objKey]);
+    } catch (err) {
+      console.error('MapCanvas: Failed to load boundaries', err);
+    } finally {
+      boundariesLoading = false;
+    }
+  }
+
   function updateHandles(currentPoints = points) {
     if (!projection || !currentPoints || currentPoints.length < 2) {
       handlePositions = handlePositions.map(h => ({ ...h, visible: false }));
@@ -330,6 +359,18 @@
     }
     performance.mark('feature-render-end');
     performance.measure('feature-render', 'feature-render-start', 'feature-render-end');
+
+    // Draw country boundaries overlay if enabled
+    if (showBoundaries && boundariesMesh) {
+      performance.mark('boundaries-render-start');
+      ctx.beginPath();
+      path(boundariesMesh);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+      performance.mark('boundaries-render-end');
+      performance.measure('boundaries-render', 'boundaries-render-start', 'boundaries-render-end');
+    }
 
     performance.mark('draw-cleanup-start');
     ctx.restore();
@@ -595,9 +636,18 @@
     zoom?.k;
     zoom?.x;
     zoom?.y;
+    showBoundaries;
+    boundariesMesh;
 
     if (initialDrawDone) {
       scheduleDraw();
+    }
+  });
+
+  // Load boundaries when toggled on
+  $effect(() => {
+    if (showBoundaries && !boundariesMesh && !boundariesLoading) {
+      loadBoundaries();
     }
   });
 </script>
