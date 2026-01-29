@@ -1,0 +1,212 @@
+{
+  "definition": {
+    "unit": "Sample (Study__Sample_ID)",
+    "presence_definition": "SGB is considered present in a sample if \u22651 reconstructed genome for that SGB is associated with that sample in the taxonomy tree Genome_Names list.",
+    "filters": {
+      "body_site": "Stool",
+      "age_category": "Adult"
+    },
+    "notes": [
+      "These proxies reflect an assembled-SGB footprint rather than a full relative-abundance microbiome profile.",
+      "Medoids are approximated using Jaccard distance on a random candidate subset (for tractability)."
+    ]
+  },
+  "computed": {
+    "westernized_medoid": {
+      "method": "approx_medoid_jaccard_on_candidates",
+      "candidate_count": 350,
+      "population_count": 2814,
+      "seed": 7
+    },
+    "non_westernized_medoid": {
+      "method": "approx_medoid_jaccard_on_candidates",
+      "candidate_count": 300,
+      "population_count": 300,
+      "seed": 7
+    },
+    "counts": {
+      "westernized_samples_in_subset": 2814,
+      "non_westernized_samples_in_subset": 300
+    }
+  },
+  "proxies": {
+    "westernized_medoid_stool_adult": {
+      "sample_key": "HanniganGD_2017__MG100161",
+      "study": "HanniganGD_2017",
+      "sample_id": "MG100161",
+      "subset": "Westernized",
+      "body_site": "Stool",
+      "age_category": "Adult",
+      "sgb_richness": 1,
+      "sgbs": [
+        14470
+      ]
+    },
+    "non_westernized_medoid_stool_adult": {
+      "sample_key": "CM_madagascar__A62_01_1FE",
+      "study": "CM_madagascar",
+      "sample_id": "A62_01_1FE",
+      "subset": "Non-Westernized",
+      "body_site": "Stool",
+      "age_category": "Adult",
+      "sgb_richness": 11,
+      "sgbs": [
+        1474,
+        1623,
+        3926,
+        4552,
+        6836,
+        7970,
+        7980,
+        9341,
+        14823,
+        15285,
+        19692
+      ]
+    },
+    "westernized_high_diversity_exemplar_stool_adult": {
+      "sample_key": "Bengtsson-PalmeJ_2015__TRAVELRES18",
+      "study": "Bengtsson-PalmeJ_2015",
+      "sample_id": "TRAVELRES18",
+      "subset": "Westernized",
+      "body_site": "Stool",
+      "age_category": "Adult",
+      "sgb_richness": 58,
+      "sgbs": [
+        1782,
+        1895,
+        1963,
+        2326,
+        3952,
+        4394,
+        4546,
+        4557,
+        4648,
+        4659,
+        4714,
+        4889,
+        4894,
+        4930,
+        4957,
+        5058,
+        5076,
+        5119,
+        5820,
+        6276,
+        6293,
+        6340,
+        6371,
+        6465,
+        6486,
+        6491,
+        6506,
+        6524,
+        6540,
+        6579,
+        6601,
+        8599,
+        9198,
+        9203,
+        9208,
+        9347,
+        9704,
+        13979,
+        14026,
+        14042,
+        14189,
+        14193,
+        14198,
+        14205,
+        14215,
+        14222,
+        14230,
+        14243,
+        14248,
+        14250,
+        15019,
+        15054,
+        15091,
+        15097,
+        15176,
+        15195,
+        15315,
+        15465
+      ]
+    },
+    "westernized_low_diversity_exemplar_stool_adult": {
+      "sample_key": "LiJ_2014__O2.UC31-1",
+      "study": "LiJ_2014",
+      "sample_id": "O2.UC31-1",
+      "subset": "Westernized",
+      "body_site": "Stool",
+      "age_category": "Adult",
+      "sgb_richness": 1,
+      "sgbs": [
+        1303
+      ]
+    },
+    "non_westernized_high_diversity_exemplar_stool_adult": {
+      "sample_key": "BritoIL_2016__M1.27.ST",
+      "study": "BritoIL_2016",
+      "sample_id": "M1.27.ST",
+      "subset": "Non-Westernized",
+      "body_site": "Stool",
+      "age_category": "Adult",
+      "sgb_richness": 40,
+      "sgbs": [
+        376,
+        1005,
+        1017,
+        1333,
+        1404,
+        1666,
+        1677,
+        1705,
+        2212,
+        2240,
+        3546,
+        3548,
+        4402,
+        4886,
+        5066,
+        5099,
+        5234,
+        5239,
+        5741,
+        5904,
+        5910,
+        6420,
+        6427,
+        6778,
+        6970,
+        6973,
+        8608,
+        8640,
+        8651,
+        8774,
+        9243,
+        9278,
+        9311,
+        13979,
+        13999,
+        14007,
+        14205,
+        14237,
+        15087,
+        17348
+      ]
+    },
+    "non_westernized_low_diversity_exemplar_stool_adult": {
+      "sample_key": "RampelliS_2015__H8",
+      "study": "RampelliS_2015",
+      "sample_id": "H8",
+      "subset": "Non-Westernized",
+      "body_site": "Stool",
+      "age_category": "Adult",
+      "sgb_richness": 1,
+      "sgbs": [
+        1623
+      ]
+    }
+  }
+}
