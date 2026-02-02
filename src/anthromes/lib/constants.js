@@ -1,5 +1,5 @@
 // Central place to pick the topojson profile/resolution for the map.
-export const TOPO_PROFILE = '33km';
+export const TOPO_PROFILE = '100km';
 
 // Whether to use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries.
 // false = smooth boundaries from admin-boundaries/countries-110m.topojson

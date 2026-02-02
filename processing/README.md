@@ -76,6 +76,7 @@ Customization Flags (GeoJSON extract):
 - `--sieve-size`: drops raster components smaller than N pixels before polygonization. At `--target-res=0.5`, a single pixel is ~3,000 km² at the equator; `--sieve-size=8` would drop clusters smaller than ~24,000 km² (removes tiny islands/slivers).
 - `--skip-dissolve`: keeps per-cell polygons (no merge by anthrome). Omitting it dissolves by anthrome code, yielding far fewer, larger polygons. Dissolve can siginificantly drop files size, but will lead to higher render times.
 - `--profile`: output folder name under `processing/geojson/` (also used in Topo step).
+- `--boundaries`: path to Natural Earth shapefile for country lookup. When provided, adds `cellId` (deterministic grid position ID) and `country` (ISO3 code) to each feature. Required for historical visualization and country-based crosswalk.
 
 ### Step 2: Generate TopoJSON
 ```bash
@@ -92,6 +93,23 @@ Customization Flags (TopoJSON generate):
 - `--simplification`: topology simplification threshold applied after quantization. Recommend not using this, usually causes winding in polygons.
 - `--quantization`: snaps coordinates to an evenly spaced grid; grid step = 360° / quantization. Examples: `1e5` → 0.0036° (~400 m at the equator); `1e6` → 0.00036° (~40 m). Larger values shrink files but coarsen precision; smaller retains precision with larger files.
 
+### Step 3: Generate Cell History (Optional)
+```bash
+cd processing/
+python3 3_generate_cell_history.py --input=geojson/100km --output=../public/data/cell-history-100km.json
+```
+
+Generates a JSON lookup file mapping each cell to its anthrome values across all displayed years (74 years from 10000BC to 2025AD). This powers the historical bar chart visualization when a user clicks on a cell.
+
+**Requirements**: GeoJSON files must have been generated with `--boundaries` flag to include `cellId` property.
+
+**Output format**:
+```json
+{
+  "12345": { "10000BC": 62, "9000BC": 62, ..., "2025AD": 12 },
+  "12346": { "10000BC": 54, ..., "2025AD": 23 }
+}
+```
 
 ## Example of Used Profiles
 
@@ -99,9 +117,10 @@ Run commands from `processing/`. Each profile writes to its own directories so y
 
 | Profile | Extract command (GeoJSON) | Topo command (TopoJSON) | Notes |
 |---------|---------------------------|-------------------------|-------|
-| `10km` | `python3 1_extract_geojson.py --target-res=0.20 --sieve-size=0 --skip-dissolve --profile=10km` | `node 2_generate_topojson.js --input=geojson/10km --output=../public/topojson/10km --simplification=0 --quantization=1e4` | Original (10km) Resolution
-| `33km` | `python3 1_extract_geojson.py --target-res=0.30 --sieve-size=0 --skip-dissolve --profile=33km` | `node 2_generate_topojson.js --input=geojson/33km --output=../public/topojson/33km --simplification=0 --quantization=1e4` | Resample to 33km grid, balance between resolution and performance
-| `50km` | `python3 1_extract_geojson.py --target-res=0.45 --sieve-size=0 --skip-dissolve --profile=50km` | `node 2_generate_topojson.js --input=geojson/50km --output=../public/topojson/50km --simplification=0 --quantization=1e4` | Resample to 50km grid, high performance
+| `10km` | `python3 1_extract_geojson.py --target-res=0.20 --sieve-size=0 --skip-dissolve --profile=10km --boundaries=../data/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp` | `node 2_generate_topojson.js --input=geojson/10km --output=../public/topojson/10km --simplification=0 --quantization=1e4` | Original (10km) Resolution
+| `33km` | `python3 1_extract_geojson.py --target-res=0.30 --sieve-size=0 --skip-dissolve --profile=33km --boundaries=../data/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp` | `node 2_generate_topojson.js --input=geojson/33km --output=../public/topojson/33km --simplification=0 --quantization=1e4` | Resample to 33km grid, balance between resolution and performance
+| `50km` | `python3 1_extract_geojson.py --target-res=0.45 --sieve-size=0 --skip-dissolve --profile=50km --boundaries=../data/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp` | `node 2_generate_topojson.js --input=geojson/50km --output=../public/topojson/50km --simplification=0 --quantization=1e4` | Resample to 50km grid, high performance
+| `100km` | `python3 1_extract_geojson.py --target-res=0.90 --sieve-size=0 --skip-dissolve --profile=100km --boundaries=../data/ne_110m_admin_0_countries/ne_110m_admin_0_countries.shp` | `node 2_generate_topojson.js --input=geojson/100km --output=../public/topojson/100km --simplification=0 --quantization=1e3` | Resample to 100km grid, maximum performance
 
 Tip: `--profile` is just a folder name; adjust numbers as needed. Use `--target-res=0` (or omit) to keep native resolution. 
 Warning: For light per-cell/dissolved sets (`r025_light`, `r02_light-dissolve`), keep TopoJSON simplification ≤0.08. At 0.1 the topo simplifier can flip ring winding, yielding globe-sized polygons in D3.
@@ -117,6 +136,14 @@ Warning: For light per-cell/dissolved sets (`r025_light`, `r02_light-dissolve`),
 | 0.40 | 24.0' | ~44.5 km |
 | 0.45 | 27.0' | ~50.1 km |
 | 0.50 | 30.0' | ~55.7 km |
+| 0.55 | 33.0' | ~61.2 km |
+| 0.60 | 36.0' | ~66.8 km |
+| 0.65 | 39.0' | ~72.4 km |
+| 0.70 | 42.0' | ~77.9 km |
+| 0.75 | 45.0' | ~83.5 km |
+| 0.80 | 48.0' | ~89.1 km |
+| 0.85 | 51.0' | ~94.6 km |
+| 0.90 | 54.0' | ~100.2 km |
 
 ## Troubleshooting
 - `ModuleNotFoundError`: `pip install rasterio shapely numpy pyshp`
@@ -149,6 +176,7 @@ Run commands from `processing/`. Output goes to `public/topojson/admin-boundarie
 | `10km` | `python3 4_boundaries_geojson.py --profile=10km --target-res=0.20` | `node 2_generate_topojson.js --input=geojson/admin-boundaries/10km --output=../public/topojson/admin-boundaries/10km --quantization=1e4` | Matches 10km anthromes |
 | `33km` | `python3 4_boundaries_geojson.py --profile=33km --target-res=0.30` | `node 2_generate_topojson.js --input=geojson/admin-boundaries/33km --output=../public/topojson/admin-boundaries/33km --quantization=1e4` | Matches 33km anthromes |
 | `50km` | `python3 4_boundaries_geojson.py --profile=50km --target-res=0.45` | `node 2_generate_topojson.js --input=geojson/admin-boundaries/50km --output=../public/topojson/admin-boundaries/50km --quantization=1e4` | Matches 50km anthromes |
+| `100km` | `python3 4_boundaries_geojson.py --profile=100km --target-res=0.90` | `node 2_generate_topojson.js --input=geojson/admin-boundaries/100km --output=../public/topojson/admin-boundaries/100km --quantization=1e4` | Matches 100km anthromes |
 
 ### Notes
 

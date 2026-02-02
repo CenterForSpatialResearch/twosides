@@ -19,7 +19,7 @@
   let selectedYear = $state(null);
   let viewSize = $state('full'); // 'full' or 'preview'
   let settingsOpen = $state(false);
-  let debugMenuVisible = $state(true);
+  let debugMenuVisible = $state(false);
   let showBoundaries = $state(true);
   let mapReady = $state(false);
   let initialLoad = $state(true);

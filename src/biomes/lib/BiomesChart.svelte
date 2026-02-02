@@ -43,6 +43,11 @@
   let maxGenomeCount = $state(1);
   let tickDenom = $state(1);
 
+  // Cross-highlighting state
+  let highlightedSGBs = $state(new Set());
+  let crossHighlightActive = $state(false);
+  let showBackButton = $state(false);
+
   // Constants
   const fullSize = 7000;
   const previewSize = 1200;
@@ -434,6 +439,7 @@
 
       ${leaf ? `<div class="actions">
         <button data-act="highlight">Highlight this species</button>
+        ${meta?.SGB_ID ? `<button data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</button>` : ''}
       </div>` : ''}
     `;
   }
@@ -514,6 +520,8 @@
 
   function clearHighlight() {
     highlightedLeaf = null;
+    highlightedSGBs = new Set();
+    crossHighlightActive = false;
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
     g.classed('isolated', false);
@@ -526,6 +534,27 @@
     highlightedLeaf = d;
     const keep = new Set(d.ancestors());
     keep.add(d);
+
+    const svg = d3.select(svgElement);
+    const g = svg.select('g.zoom-container');
+    g.classed('isolated', true);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+      .attr('opacity', datum => {
+        const nd = datum?.target ? datum.target : datum;
+        return keep.has(nd) ? 1 : DIM_OPACITY;
+      })
+      .style('pointer-events', datum => {
+        const nd = datum?.target ? datum.target : datum;
+        return keep.has(nd) ? null : 'none';
+      });
+  }
+
+  function highlightMultipleLeaves(leaves) {
+    const keep = new Set();
+    leaves.forEach(leaf => {
+      leaf.ancestors().forEach(a => keep.add(a));
+      keep.add(leaf);
+    });
 
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
@@ -621,12 +650,25 @@
       setTimeout(() => {
         btn.textContent = 'Highlight this species';
       }, 1200);
+    } else if (act === 'highlight-countries') {
+      const sgbId = parseInt(btn.getAttribute('data-sgb'), 10);
+      if (sgbId) {
+        const base = import.meta.env.BASE_URL;
+        window.location.href = `${base}src/anthromes/index.html?highlightSGB=${sgbId}`;
+      }
     }
+  }
+
+  function handleBackButton() {
+    const sgbsParam = new URLSearchParams(window.location.search).get('highlightSGBs');
+    const base = import.meta.env.BASE_URL;
+    window.location.href = `${base}src/anthromes/index.html${sgbsParam ? `?highlightSGBs=${sgbsParam}` : ''}`;
   }
 
   // Handle window click (unpin, clear selection, clear highlight)
   function handleWindowClick(event) {
     const target = event.target;
+    if (target.closest('.back-button')) return;
     if (target.closest('#tooltip') || target.closest('svg#chart')) return;
 
     tooltipPinned = false;
@@ -634,6 +676,17 @@
     currentTooltipDatum = null;
     clearSelected();
     clearHighlight();
+
+    // Clear URL parameters and cross-highlighting state
+    if (crossHighlightActive || showBackButton) {
+      crossHighlightActive = false;
+      showBackButton = false;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('highlightSGBs');
+      url.searchParams.delete('highlightSGB');
+      window.history.replaceState({}, '', url);
+    }
+
     applyFilters();
   }
 
@@ -688,6 +741,68 @@
 
     // Don't render here - let $effect handle it when taxonomyTree is set
 
+    // Check for cross-highlighting from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const highlightSGBsParam = urlParams.get('highlightSGBs');
+    const highlightSGBParam = urlParams.get('highlightSGB');
+
+    if (highlightSGBsParam || highlightSGBParam) {
+      showBackButton = true;
+      crossHighlightActive = true;
+
+      // Wait for taxonomy tree to load using polling
+      const checkTreeInterval = setInterval(() => {
+        if (taxonomyTree && handles.root) {
+          clearInterval(checkTreeInterval);
+
+          // Parse comma-separated SGB IDs (or single SGB ID)
+          const sgbIds = highlightSGBsParam
+            ? highlightSGBsParam.split(',').map(id => parseInt(id.trim(), 10))
+            : [parseInt(highlightSGBParam, 10)];
+
+          // Find ALL matching leaves
+          const leaves = handles.root.leaves();
+          const matchedLeaves = leaves.filter(leaf => {
+            const sgbId = leaf?.data?.metadata?.SGB_ID;
+            return sgbId && sgbIds.includes(sgbId);
+          });
+
+          if (matchedLeaves.length > 0) {
+            // Collect all ancestors to keep visible
+            const keep = new Set();
+            matchedLeaves.forEach(leaf => {
+              keep.add(leaf);
+              leaf.ancestors().forEach(a => keep.add(a));
+            });
+
+            // Dim non-highlighted nodes
+            const g = svg.select('g.zoom-container');
+            g.classed('isolated', true);
+            g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+              .attr('opacity', datum => {
+                const nd = datum?.target ? datum.target : datum;
+                return keep.has(nd) ? 1 : 0.02;
+              })
+              .style('pointer-events', datum => {
+                const nd = datum?.target ? datum.target : datum;
+                return keep.has(nd) ? null : 'none';
+              });
+
+            // Make matched leaves bold
+            matchedLeaves.forEach(leaf => {
+              if (leaf.leafId != null) {
+                svg.selectAll(`[data-leaf-id="${leaf.leafId}"]`)
+                   .classed('is-selected', true);
+              }
+            });
+          }
+        }
+      }, 100);
+
+      // Safety timeout
+      setTimeout(() => clearInterval(checkTreeInterval), 10000);
+    }
+
     // Add event listeners
     window.addEventListener('click', handleWindowClick);
     window.addEventListener('keydown', handleEscape);
@@ -700,6 +815,14 @@
 </script>
 
 <div class="chart-container">
+  {#if crossHighlightActive}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="back-button" onclick={handleBackButton}>
+      ← Back to Anthromes
+    </div>
+  {/if}
+
   <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
   </svg>
 
@@ -977,5 +1100,25 @@
     font-size: 12px;
     color: var(--muted);
     white-space: nowrap;
+  }
+
+  .back-button {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(14, 11, 22, 0.85);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+  }
+
+  .back-button:hover {
+    background: rgba(14, 11, 22, 0.95);
+    border-color: rgba(255, 255, 255, 0.25);
   }
 </style>

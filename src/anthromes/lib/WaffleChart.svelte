@@ -44,13 +44,13 @@
   let yearPreview = $state(null);
   let draggingYear = $state(false);
   let mapPoints = $state([
-    [-75, 41],
-    [48, -15]
+    [-117, 33],
+    [36, 4]
   ]);
-  let clipAngle = $state(120);
+  let clipAngle = $state(180);
   const defaultPoints = [
-    [-75, 41],
-    [48, -15]
+    [-117, 33],
+    [36, 4]
   ];
 
   function zoomFilter(event) {
@@ -549,6 +549,7 @@
     bind:mapReady
     {clipAngle}
     {showBoundaries}
+    {debugMenuVisible}
   />
 
   {#if debugMenuVisible}
