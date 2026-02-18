@@ -53,9 +53,64 @@
   const previewSize = 1200;
   const fullRadius = 3000;
   const previewRadius = 550;
+  const zoomMin = 0.6;
+  const zoomMax = 2.5;
+  const zoomStep = 1.25;
+  const anchorFraction = -0.25;  // zoom anchor 25% viewport width to the left of screen
+  const anchorPx = null;         // use fraction-based anchor; set number to override
+  const resetFraction = 1 / 3;   // default position: center at one-third viewport width
+  const resetPx = null;          // set to number to override resetFraction
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
+  let currentTransform = d3.zoomIdentity;
+  let zoomBehavior = null;
+
+  function applyTransforms() {
+    if (!svgElement) return;
+    const g = d3.select(svgElement).select('g.zoom-container');
+    g.attr('transform', currentTransform);
+  }
+
+  function clampScale(k) {
+    return Math.max(zoomMin, Math.min(zoomMax, k));
+  }
+
+  function applyZoom(k, anchorX, anchorY) {
+    const rect = svgElement.getBoundingClientRect();
+    const dim = size === 'full' ? fullSize : previewSize;
+    const scale = dim / rect.width; // convert screen px -> user units
+    // Translate so disk center moves from screen center to anchor in user space
+    const tx = (anchorX - rect.width / 2) * scale;
+    const ty = (anchorY - rect.height / 2) * scale;
+    const target = d3.zoomIdentity.translate(tx, ty).scale(k);
+    currentTransform = target;
+    if (zoomBehavior && svgElement) {
+      d3.select(svgElement).call(zoomBehavior.transform, target);
+    } else {
+      applyTransforms();
+    }
+  }
+
+  function performZoomStep(dir = 1) {
+    if (!svgElement) return;
+    const rect = svgElement.getBoundingClientRect();
+    const anchorX = anchorPx ?? rect.width * anchorFraction;
+    const anchorY = rect.height / 2;
+    const nextK = clampScale(currentTransform.k * (dir > 0 ? zoomStep : 1 / zoomStep));
+    applyZoom(nextK, anchorX, anchorY);
+  }
+
+  const zoomIn = () => performZoomStep(1);
+  const zoomOut = () => performZoomStep(-1);
+
+  function resetView() {
+    if (!svgElement) return;
+    const rect = svgElement.getBoundingClientRect();
+    const anchorX = resetPx ?? rect.width * resetFraction;
+    applyZoom(1, anchorX, rect.height / 2);
+    // also clear rotation if we later add it back
+  }
 
   // Render the visualization
   function render() {
@@ -368,6 +423,7 @@
     };
 
     applyFilters();
+    applyTransforms();
   }
 
   // Create tooltip HTML with mini-glyph and genome meter
@@ -720,7 +776,6 @@
   });
 
   onMount(() => {
-    // Set up zoom behavior on zoom-container
     const svg = d3.select(svgElement);
 
     // Ensure zoom container exists
@@ -729,15 +784,23 @@
       zoomGroup = svg.append('g').attr('class', 'zoom-container');
     }
 
-    // Capture zoomGroup reference in closure for better performance
-    const zoom = d3.zoom()
-      .scaleExtent([1, 15])
+    zoomBehavior = d3.zoom()
+      .filter((event) => {
+        // Disable wheel/pinch; allow drag for pan
+        const t = event.type;
+        if (t === 'wheel' || t === 'touchstart' || t === 'touchmove') return false;
+        return true;
+      })
+      .scaleExtent([zoomMin, zoomMax])
       .on('zoom', (event) => {
-        // Use captured reference instead of re-querying DOM
-        zoomGroup.attr('transform', event.transform);
+        currentTransform = event.transform;
+        applyTransforms();
       });
 
-    svg.call(zoom);
+    svg.call(zoomBehavior);
+
+    // Initial transform: full view centered
+    resetView();
 
     // Don't render here - let $effect handle it when taxonomyTree is set
 
@@ -823,6 +886,12 @@
     </div>
   {/if}
 
+  <div class="zoom-controls" aria-label="Zoom controls">
+    <button onclick={zoomOut} title="Zoom out">−</button>
+    <button onclick={resetView} title="Reset view">◯</button>
+    <button onclick={zoomIn} title="Zoom in">＋</button>
+  </div>
+
   <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
   </svg>
 
@@ -841,7 +910,7 @@
 
 <style>
   .chart-container {
-    width: 100%;
+    width: 100vw;
     height: 100vh;
     display: flex;
     align-items: center;
@@ -853,8 +922,33 @@
     display: block;
     margin: auto;
     background: var(--bg);
-    max-width: 100%;
-    max-height: 100%;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .zoom-controls {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    display: flex;
+    gap: 6px;
+    z-index: 8;
+  }
+
+  .zoom-controls button {
+    background: rgba(14, 11, 22, 0.8);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .zoom-controls button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.3);
   }
 
   :global(.region-path) {
