@@ -18,6 +18,10 @@
   let tension = $state(0.95);
   let settingsOpen = $state(false);
   let filterExpanded = $state(false);
+  let selectedBodySites = $state(new Set());
+  let selectedProxyKey = $state(null);
+  let proxySampleKeys = $state([]);
+  const bodySiteFilters = ['Stool', 'Oral', 'Skin', 'Other'];
 
   // Circular filter state
   let filterCircleSize = $state(160); // diameter (COLLAPSED_R * 2)
@@ -44,6 +48,17 @@
       const phylaSet = new Set(leaves.map(leaf => getPhylum(leaf)));
       allPhyla = Array.from(phylaSet).sort((a, b) => a.localeCompare(b));
 
+      // Load proxy sample keys from public data
+      try {
+        const proxyRes = await fetch('/data/proxy_samples.json');
+        if (proxyRes.ok) {
+          const proxyJson = await proxyRes.json();
+          proxySampleKeys = Object.keys(proxyJson?.proxies || {}).slice(0, 24);
+        }
+      } catch (e) {
+        console.warn('Failed to load proxy samples', e);
+      }
+
       loading = false;
     } catch (err) {
       console.error('Failed to load biomes data:', err);
@@ -62,6 +77,8 @@
     selectedPhyla = [];
     unknownFilter = false;
     westernFilter = 'any';
+    selectedBodySites = new Set();
+    selectedProxyKey = null;
   }
 
   // Handle phylum chip toggle
@@ -71,6 +88,16 @@
     } else {
       selectedPhyla = [...selectedPhyla, phylum];
     }
+  }
+
+  function toggleBodySite(site) {
+    const next = new Set(selectedBodySites);
+    next.has(site) ? next.delete(site) : next.add(site);
+    selectedBodySites = next;
+  }
+
+  function selectProxyKey(key) {
+    selectedProxyKey = selectedProxyKey === key ? null : key;
   }
 
   // Handle keyboard shortcuts
@@ -235,6 +262,8 @@
       bind:westernFilter
       size={viewSize}
       {tension}
+      bodySiteFilter={selectedBodySites}
+      proxyKey={selectedProxyKey}
     />
 
     <!-- Circular Filter Widget -->
@@ -299,11 +328,11 @@
               </section>
 
               <section class="section">
-                <h3>Geography</h3>
-                <div class="pills">
-                  <label class="pill">
-                    <input type="radio" name="western" value="any" bind:group={westernFilter} />
-                    Any
+              <h3>Geography</h3>
+              <div class="pills">
+                <label class="pill">
+                  <input type="radio" name="western" value="any" bind:group={westernFilter} />
+                  Any
                   </label>
                   <label class="pill">
                     <input type="radio" name="western" value="western" bind:group={westernFilter} />
@@ -322,6 +351,36 @@
                   <input type="checkbox" bind:checked={unknownFilter} />
                   Unknown
                 </label>
+              </section>
+
+              <section class="section">
+                <h3>Body Site</h3>
+                <div class="chips">
+                  {#each bodySiteFilters as site}
+                    <button
+                      class="chip"
+                      class:active={selectedBodySites.has(site)}
+                      onclick={() => toggleBodySite(site)}
+                    >
+                      {site}
+                    </button>
+                  {/each}
+                </div>
+              </section>
+
+              <section class="section">
+                <h3>Samples / Studies</h3>
+                <div class="chips proxy-grid">
+                  {#each proxySampleKeys as key}
+                    <button
+                      class="chip"
+                      class:active={selectedProxyKey === key}
+                      onclick={() => selectProxyKey(key)}
+                    >
+                      {key}
+                    </button>
+                  {/each}
+                </div>
               </section>
             </div>
           </div>
@@ -620,6 +679,13 @@
     flex-wrap: wrap;
     gap: 8px;
     justify-content: center;
+  }
+
+  .proxy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    width: 100%;
   }
 
   .chip {

@@ -23,6 +23,8 @@
     selectedPhyla = $bindable([]),
     unknownFilter = $bindable(false),
     westernFilter = $bindable('any'),
+    bodySiteFilter = $bindable(new Set()),
+    proxyKey = $bindable(null),
     size = 'full',
     tension = 0.95
   } = $props();
@@ -54,19 +56,45 @@
   const fullRadius = 3000;
   const previewRadius = 550;
   const zoomMin = 0.5;
-  const zoomMax = 3.2;           // allows one closer zoom level
+  const zoomMax = 3.0;           // allows one closer zoom level
   const zoomStep = 1.25;
-  const anchorFraction = -0.5;   // zoom anchor 50% viewport width to the left of screen
+  const anchorFraction = -0.30;  // shift left on zoom, but keep disk within its 2/3 column
   const anchorPx = null;         // use fraction-based anchor; set number to override
   const rotateStepDeg = 10;
-  const resetFraction = 1 / 3;   // default position: center at one-third viewport width
+  const resetFraction = 0.5;     // center within the 2/3 viz area
+  const resetYOffset = -60;      // lift disk on reset/zoom to avoid low placement
   const resetPx = null;          // set to number to override resetFraction
+  const defaultScale = 0.85;     // slightly smaller default fit inside 2/3 viewport
+  const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
+  const bodySiteFilters = ['Stool', 'Oral', 'Skin', 'Other'];
+  const proxyFilters = ['Proxy', 'Study', 'Site'];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
   let currentTransform = d3.zoomIdentity;
   let zoomBehavior = null;
   let rotationDeg = 0;
+  // filter state
+  // filter state
+  let selectedGeo = $state(null); // 'Western' | 'Non-Western' | 'Unknown'
+  let infoPanelEl = $state(null);
+  let panelContent = $state('');
+  let panelVisible = $state(false);
+  let connectorStart = $state(null);
+  let connectorEnd = $state(null);
+  let viewportW = $state(0);
+  let viewportH = $state(0);
+  let proxySgbMap = {};
+  let proxyLoaded = false;
+
+  function closePanel() {
+    panelVisible = false;
+    panelContent = '';
+    connectorStart = null;
+    connectorEnd = null;
+    currentTooltipDatum = null;
+    tooltipPinned = false;
+  }
 
   function applyTransforms() {
     if (!svgElement) return;
@@ -98,7 +126,7 @@
     if (!svgElement) return;
     const rect = svgElement.getBoundingClientRect();
     const anchorX = anchorPx ?? rect.width * anchorFraction;
-    const anchorY = rect.height / 2;
+    const anchorY = rect.height / 2 + resetYOffset;
     const nextK = clampScale(currentTransform.k * (dir > 0 ? zoomStep : 1 / zoomStep));
     applyZoom(nextK, anchorX, anchorY);
   }
@@ -110,7 +138,7 @@
     if (!svgElement) return;
     const rect = svgElement.getBoundingClientRect();
     const anchorX = resetPx ?? rect.width * resetFraction;
-    applyZoom(1, anchorX, rect.height / 2);
+    applyZoom(defaultScale, anchorX, rect.height / 2 + resetYOffset);
     rotationDeg = 0;
     applyTransforms();
   }
@@ -437,6 +465,15 @@
     applyTransforms();
   }
 
+  function updateConnector() {
+    if (!panelVisible || !infoPanelEl || !connectorStart) return;
+    const rect = infoPanelEl.getBoundingClientRect();
+    const x2 = rect.left + 6; // slight inset from panel edge
+    const midY = rect.top + rect.height / 2;
+    const y2 = Math.max(rect.top + 6, Math.min(rect.bottom - 6, connectorStart.y || midY));
+    connectorEnd = { x: x2, y: y2 };
+  }
+
   // Create tooltip HTML with mini-glyph and genome meter
   function createTooltipHTML(d) {
     const phylum = getPhylum(d);
@@ -520,9 +557,11 @@
         const datum = accessor(d);
         tooltipX = event.clientX;
         tooltipY = event.clientY;
-        tooltipContent = createTooltipHTML(datum);
+        connectorStart = { x: event.clientX, y: event.clientY };
+        panelContent = createTooltipHTML(datum);
+        panelVisible = true;
         currentTooltipDatum = datum; // Track current datum
-        tooltipVisible = true;
+        updateConnector();
       })
       .on('mouseover', function (event, d) {
         d3.select(this).classed('is-hover', true);
@@ -530,9 +569,11 @@
         if (lid) toggleClassForLeaf(lid, 'is-hover', true);
         if (!tooltipPinned) {
           const datum = accessor(d);
-          tooltipContent = createTooltipHTML(datum);
+          panelContent = createTooltipHTML(datum);
+          panelVisible = true;
           currentTooltipDatum = datum; // Track current datum
-          tooltipVisible = true;
+          connectorStart = { x: event.clientX, y: event.clientY };
+          updateConnector();
         }
       })
       .on('mouseout', function () {
@@ -540,8 +581,10 @@
         const lid = this.getAttribute('data-leaf-id');
         if (lid) toggleClassForLeaf(lid, 'is-hover', false);
         if (!tooltipPinned) {
-          tooltipVisible = false;
+          panelVisible = false;
           currentTooltipDatum = null; // Clear datum when hiding
+          connectorStart = null;
+          connectorEnd = null;
         }
       })
       .on('click', function (event, d) {
@@ -558,9 +601,11 @@
         tooltipPinned = true;
         tooltipX = event.clientX;
         tooltipY = event.clientY;
-        tooltipContent = createTooltipHTML(datum);
+        panelContent = createTooltipHTML(datum);
         currentTooltipDatum = datum; // Track current datum
-        tooltipVisible = true;
+        panelVisible = true;
+        connectorStart = { x: event.clientX, y: event.clientY };
+        updateConnector();
 
         if (lid) {
           clearSelected();
@@ -651,11 +696,35 @@
     } else if (westernFilter === 'nonwestern') {
       if (!isWesternNo(leaf.data.metadata)) return false;
     }
+    // Geography pills override westernFilter when selected
+    if (selectedGeo) {
+      if (selectedGeo === 'Western' && !isWesternYes(leaf.data.metadata)) return false;
+      if (selectedGeo === 'Non-Western' && !isWesternNo(leaf.data.metadata)) return false;
+      if (selectedGeo === 'Unknown' && parseUSGB(leaf.data.metadata) !== 'Yes') return false;
+    }
+    // Body site filter (best-effort; expects metadata.body_site)
+    if (bodySiteFilter.size > 0) {
+      const bs = (leaf.data?.metadata?.body_site || '').toLowerCase();
+      const matches = Array.from(bodySiteFilter).some(site => bs.includes(site.toLowerCase()));
+      if (!matches) return false;
+    }
+    // Proxy filter placeholder (no-op if no proxy selected)
+    if (proxyKey) {
+      const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
+      const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
+      const allowed = proxySgbMap[proxyKey] || null;
+      if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
+    }
     return true;
   }
 
   function computeKeepSet(root) {
-    const anyActive = selectedPhyla.length > 0 || unknownFilter || westernFilter !== 'any';
+    const anyActive =
+      selectedPhyla.length > 0 ||
+      unknownFilter ||
+      westernFilter !== 'any' ||
+      bodySiteFilter.size > 0 ||
+      !!proxyKey;
     if (!anyActive) return null;
 
     const matchedLeaves = root.leaves().filter(leafMatchesFilters);
@@ -736,11 +805,9 @@
   function handleWindowClick(event) {
     const target = event.target;
     if (target.closest('.back-button')) return;
-    if (target.closest('#tooltip') || target.closest('svg#chart')) return;
+    if (target.closest('#info-panel') || target.closest('svg#chart') || target.closest('.zoom-controls')) return;
 
-    tooltipPinned = false;
-    tooltipVisible = false;
-    currentTooltipDatum = null;
+    closePanel();
     clearSelected();
     clearHighlight();
 
@@ -782,11 +849,27 @@
     selectedPhyla.length;
     unknownFilter;
     westernFilter;
+    bodySiteFilter.size;
+    proxyKey;
 
     applyFilters();
   });
 
   onMount(() => {
+    // Lazy-load proxy SGB map from public JSON
+    fetch('/data/proxy_samples.json')
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json?.proxies) {
+          Object.entries(json.proxies).forEach(([key, val]) => {
+            proxySgbMap[key] = new Set((val?.sgbs || []).map(Number));
+          });
+          proxyLoaded = true;
+          applyFilters();
+        }
+      })
+      .catch(() => {});
+
     const svg = d3.select(svgElement);
 
     // Ensure zoom container exists
@@ -906,38 +989,63 @@
     <button onclick={() => rotateBy(rotateStepDeg)} title="Rotate right">↻</button>
   </div>
 
-  <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
-  </svg>
+  <div class="viz-area">
+    <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
+    </svg>
 
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    id="tooltip"
-    class="biomes-tooltip"
-    class:hidden={!tooltipVisible}
-    style="left: {tooltipX}px; top: {tooltipY}px;"
-    onclick={handleTooltipAction}
-  >
-    {@html tooltipContent}
+    <svg class="connector-overlay" width="100%" height="100%" aria-hidden="true">
+      {#if connectorStart && connectorEnd && panelVisible}
+        <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
+      {/if}
+    </svg>
   </div>
+
+  {#if panelVisible && panelContent}
+    <aside class="info-panel" id="info-panel" bind:this={infoPanelEl} aria-live="polite">
+      <div class="info-header">
+        <div class="info-title">Details</div>
+        <button class="close-btn" onclick={closePanel} aria-label="Close">✕</button>
+      </div>
+      <div class="panel-content biomes-tooltip">
+        {@html panelContent}
+      </div>
+    </aside>
+  {/if}
+
+  <!-- Filters handled via circular menu in App; inline stack hidden -->
 </div>
 
 <style>
   .chart-container {
     width: 100vw;
     height: 100vh;
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    align-items: center;
+    position: relative;
+  }
+
+  .viz-area {
+    grid-column: 1;
+    grid-row: 1;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    background: var(--bg);
+    z-index: 1;
+    padding: 0 8px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
   }
 
   svg {
     display: block;
-    margin: auto;
-    background: var(--bg);
-    width: 100vw;
-    height: 100vh;
+    background: transparent;
+    width: 100%;
+    height: 100%;
   }
 
   .zoom-controls {
@@ -976,6 +1084,174 @@
     height: 18px;
     background: rgba(255, 255, 255, 0.18);
     margin: 0 4px;
+  }
+
+  .connector-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .connector-overlay line {
+    stroke: rgba(255, 255, 255, 0.5);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
+  .info-panel {
+    position: absolute;
+    top: 72px;
+    right: 16px;
+    width: 28vw;
+    max-width: 340px;
+    min-width: 220px;
+    max-height: 72vh;
+    background: var(--bg);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 12px;
+    padding: 12px 14px;
+    overflow: auto;
+    color: var(--fg);
+    z-index: 12;
+    box-shadow: var(--shadow);
+  }
+
+  .panel-content.biomes-tooltip {
+    position: relative;
+    left: 0;
+    top: 0;
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .info-panel .placeholder {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .info-panel .info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .info-panel .info-title {
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .info-panel .close-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--fg);
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+  }
+
+  .filter-stack {
+    position: absolute;
+    top: 72px;
+    right: 16px;
+    width: 28vw;
+    max-width: 340px;
+    min-width: 220px;
+    max-height: 72vh;
+    background: rgba(14, 11, 22, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 14px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    box-shadow: var(--shadow);
+    z-index: 11;
+    overflow: auto;
+  }
+
+  .panel-toggle {
+    position: absolute;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: rgba(14, 11, 22, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--fg);
+    font-weight: 700;
+    cursor: pointer;
+    z-index: 1001;
+    box-shadow: var(--shadow);
+  }
+
+  .panel-toggle.fab {
+    right: 24px;
+    bottom: 120px; /* stack above existing filter circle */
+  }
+
+  .filter-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px;
+  }
+
+  .card-title {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .pill-row.wrap {
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    padding: 10px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+  }
+
+  .pill:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+    transform: translateY(-1px);
+  }
+
+  .pill.small {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .pill.active {
+    background: var(--accent, #8af);
+    color: var(--bg);
+    border-color: var(--accent, #8af);
+  }
+
+  .proxy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 6px;
+    margin-top: 8px;
   }
 
   :global(.region-path) {
