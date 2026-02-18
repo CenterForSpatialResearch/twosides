@@ -17,7 +17,7 @@ Generally, the processing flow is:
 
 ### Required Files
 
-Files used in processing pipeline are not tracked, but can be found [here](https://drive.google.com/open?id=15qKjOuMAIivtimwi3568i6LhuqeRompI&usp=drive_fs). In this folder are two subdirectories that can be copied to the project root:
+Files used in processing pipeline are not tracked, but can be found [here](https://drive.google.com/drive/folders/1MhXSyV_r2wA3LeSslNq8d0JRCELBBtpP?usp=drive_link). In this folder are two subdirectories that can be copied to the project root:
 
 `/data/HYDE-3.5`: The entire `baseline` scenario hosted [here](https://geo.public.data.uu.nl/vault-hyde/hyde35_c9_apr2025%5B1749214444%5D/original/). The result is output to `/anthromes-geotiff`. The result folder is all you need to run the next processing steps.
 
