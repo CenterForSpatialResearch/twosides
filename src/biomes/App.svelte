@@ -225,49 +225,7 @@
     <!-- Side Title -->
     <div class="side-title">BIOMES // 5000 LINES 5000 SPECIES</div>
 
-    <!-- Settings Toggle -->
-    <button
-      id="menuToggle"
-      class="settings-toggle"
-      onclick={() => settingsOpen = !settingsOpen}
-      aria-label="Settings"
-      title="Settings (M)"
-    >
-      ⚙️
-    </button>
-
-    <!-- Settings Panel -->
-    <div id="settings" class="settings-panel" class:open={settingsOpen}>
-      <label>
-        <span>View Size</span>
-        <select bind:value={viewSize}>
-          <option value="preview">Preview (1200×1200)</option>
-          <option value="full">Full Export (6400×6400)</option>
-        </select>
-      </label>
-
-      <label for="tension-slider">
-        <span>Bundling Tension</span>
-        <span class="tension-value">{tension.toFixed(2)}</span>
-      </label>
-      <input
-        id="tension-slider"
-        type="range"
-        bind:value={tension}
-        min="0.1"
-        max="1.0"
-        step="0.05"
-        class="tension-slider"
-      />
-
-      <button class="export-btn" onclick={handleExport}>
-        Export SVG
-      </button>
-
-      <div class="tip">
-        Tip: hover for details, click to pin; click empty space to unpin. Press "M" to toggle this menu. Scroll to zoom, drag to pan.
-      </div>
-    </div>
+    <!-- Settings toggle & panel intentionally hidden for now -->
 
     <!-- Main Visualization -->
     <BiomesChart
@@ -398,7 +356,7 @@
 
   .side-title {
     position: fixed;
-    left: 14px;
+    right: 14px;
     top: 50%;
     transform: translateY(-50%);
     writing-mode: vertical-rl;
@@ -407,9 +365,16 @@
     font-weight: 600;
     font-size: 20px;
     color: var(--muted);
-    opacity: 0.9;
     user-select: none;
-    z-index: 4;
+    pointer-events: none; /* don’t block chart interactions */
+    z-index: 1;           /* sit behind chart overlays */
+    max-width: 32px;
+    background: var(--bg);
+    padding: 10px 8px;
+    border-radius: 12px;
+    border: none;
+    text-align: center;
+    opacity: 1;
   }
 
   .settings-toggle {
@@ -485,20 +450,7 @@
   }
 
   .export-btn {
-    width: 100%;
-    margin-top: 10px;
-    padding: 8px;
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 10px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s ease;
-  }
-
-  .export-btn:hover {
-    opacity: 0.8;
+    display: none;
   }
 
   .tip {

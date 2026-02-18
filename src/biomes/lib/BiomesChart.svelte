@@ -53,11 +53,12 @@
   const previewSize = 1200;
   const fullRadius = 3000;
   const previewRadius = 550;
-  const zoomMin = 0.6;
-  const zoomMax = 2.5;
+  const zoomMin = 0.5;
+  const zoomMax = 3.2;           // allows one closer zoom level
   const zoomStep = 1.25;
-  const anchorFraction = -0.25;  // zoom anchor 25% viewport width to the left of screen
+  const anchorFraction = -0.5;   // zoom anchor 50% viewport width to the left of screen
   const anchorPx = null;         // use fraction-based anchor; set number to override
+  const rotateStepDeg = 10;
   const resetFraction = 1 / 3;   // default position: center at one-third viewport width
   const resetPx = null;          // set to number to override resetFraction
   const backgroundColor = '#0e0b16';
@@ -65,11 +66,12 @@
   const DIM_LABEL_OPACITY = 0.10;
   let currentTransform = d3.zoomIdentity;
   let zoomBehavior = null;
+  let rotationDeg = 0;
 
   function applyTransforms() {
     if (!svgElement) return;
     const g = d3.select(svgElement).select('g.zoom-container');
-    g.attr('transform', currentTransform);
+    g.attr('transform', `${currentTransform} rotate(${rotationDeg || 0})`);
   }
 
   function clampScale(k) {
@@ -109,7 +111,16 @@
     const rect = svgElement.getBoundingClientRect();
     const anchorX = resetPx ?? rect.width * resetFraction;
     applyZoom(1, anchorX, rect.height / 2);
-    // also clear rotation if we later add it back
+    rotationDeg = 0;
+    applyTransforms();
+  }
+
+  function rotateBy(deltaDeg) {
+    // snap to 5° increments for fewer repaints
+    const snap = 5;
+    const snapped = Math.round(deltaDeg / snap) * snap;
+    rotationDeg = (rotationDeg + snapped + 360) % 360;
+    applyTransforms();
   }
 
   // Render the visualization
@@ -890,6 +901,9 @@
     <button onclick={zoomOut} title="Zoom out">−</button>
     <button onclick={resetView} title="Reset view">◯</button>
     <button onclick={zoomIn} title="Zoom in">＋</button>
+    <div class="divider"></div>
+    <button onclick={() => rotateBy(-rotateStepDeg)} title="Rotate left">↺</button>
+    <button onclick={() => rotateBy(rotateStepDeg)} title="Rotate right">↻</button>
   </div>
 
   <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
@@ -929,26 +943,39 @@
   .zoom-controls {
     position: absolute;
     top: 16px;
-    left: 16px;
+    right: 16px;
     display: flex;
     gap: 6px;
+    align-items: center;
+    background: rgba(14, 11, 22, 0.8);
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow: var(--shadow);
     z-index: 8;
   }
 
   .zoom-controls button {
-    background: rgba(14, 11, 22, 0.8);
+    background: rgba(255, 255, 255, 0.08);
     color: var(--fg);
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 8px;
-    padding: 6px 10px;
+    padding: 6px 8px;
     font-weight: 700;
     cursor: pointer;
     transition: background 0.2s ease, border-color 0.2s ease;
   }
 
   .zoom-controls button:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.16);
     border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .zoom-controls .divider {
+    width: 1px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.18);
+    margin: 0 4px;
   }
 
   :global(.region-path) {
