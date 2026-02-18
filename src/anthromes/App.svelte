@@ -355,6 +355,18 @@
     overflow: hidden;
   }
 
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    cursor: pointer;
+  }
+
   .export-btn {
     width: 100%;
     margin-top: 10px;
@@ -370,18 +382,6 @@
 
   .export-btn:hover {
     opacity: 0.8;
-  }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    margin-top: 8px;
-  }
-
-  .checkbox-label input[type="checkbox"] {
-    cursor: pointer;
   }
 
   /* Filter Circle Styles */
