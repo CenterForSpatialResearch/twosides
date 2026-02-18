@@ -1,0 +1,242 @@
+[
+  {
+    "title": "Sungai Merdeka, Indonesia",
+    "lat": -1.0,
+    "lon": 117.0,
+    "description": "Avg shift: 12.432 (74 cells)",
+    "shift": 12.4324,
+    "cell_count": 74
+  },
+  {
+    "title": "Bale, Ethiopia",
+    "lat": 7.0,
+    "lon": 41.0,
+    "description": "Avg shift: 9.124 (121 cells)",
+    "shift": 9.124,
+    "cell_count": 121
+  },
+  {
+    "title": "Golakonneh, Liberia",
+    "lat": 7.0,
+    "lon": -11.0,
+    "description": "Avg shift: 7.652 (92 cells)",
+    "shift": 7.6522,
+    "cell_count": 92
+  },
+  {
+    "title": "Dollo, Ethiopia",
+    "lat": 7.0,
+    "lon": 45.0,
+    "description": "Avg shift: 7.595 (121 cells)",
+    "shift": 7.595,
+    "cell_count": 121
+  },
+  {
+    "title": "Solomon Islands",
+    "lat": -9.0,
+    "lon": 159.0,
+    "description": "Avg shift: 6.696 (56 cells)",
+    "shift": 6.6964,
+    "cell_count": 56
+  },
+  {
+    "title": "Haiduan, Taiwan",
+    "lat": 23.0,
+    "lon": 121.0,
+    "description": "Avg shift: 5.481 (52 cells)",
+    "shift": 5.4808,
+    "cell_count": 52
+  },
+  {
+    "title": "Nova Maring\u00e1, Brazil",
+    "lat": -13.0,
+    "lon": -57.0,
+    "description": "Avg shift: 5.380 (121 cells)",
+    "shift": 5.3802,
+    "cell_count": 121
+  },
+  {
+    "title": "Latvia",
+    "lat": 57.0,
+    "lon": 21.0,
+    "description": "Avg shift: 4.817 (60 cells)",
+    "shift": 4.8167,
+    "cell_count": 60
+  },
+  {
+    "title": "Yopurga County, China",
+    "lat": 39.0,
+    "lon": 77.0,
+    "description": "Avg shift: 4.802 (121 cells)",
+    "shift": 4.8017,
+    "cell_count": 121
+  },
+  {
+    "title": "Onsu County, China",
+    "lat": 41.0,
+    "lon": 81.0,
+    "description": "Avg shift: 4.545 (121 cells)",
+    "shift": 4.5455,
+    "cell_count": 121
+  },
+  {
+    "title": "Bela Vista de Goi\u00e1s, Brazil",
+    "lat": -17.0,
+    "lon": -49.0,
+    "description": "Avg shift: 4.479 (121 cells)",
+    "shift": 4.4793,
+    "cell_count": 121
+  },
+  {
+    "title": "Maniamba, Mozambique",
+    "lat": -13.0,
+    "lon": 35.0,
+    "description": "Avg shift: 4.437 (119 cells)",
+    "shift": 4.437,
+    "cell_count": 119
+  },
+  {
+    "title": "Marale, Honduras",
+    "lat": 15.0,
+    "lon": -87.0,
+    "description": "Avg shift: 4.257 (109 cells)",
+    "shift": 4.2569,
+    "cell_count": 109
+  },
+  {
+    "title": "Trincomalee District, Sri Lanka",
+    "lat": 9.0,
+    "lon": 81.0,
+    "description": "Avg shift: 4.033 (61 cells)",
+    "shift": 4.0328,
+    "cell_count": 61
+  },
+  {
+    "title": "(43.00, 15.00)",
+    "lat": 43.0,
+    "lon": 15.0,
+    "description": "Avg shift: 3.896 (77 cells)",
+    "shift": 3.8961,
+    "cell_count": 77
+  },
+  {
+    "title": "Parroquia Agua Linda, Venezuela",
+    "lat": 11.0,
+    "lon": -69.0,
+    "description": "Avg shift: 3.529 (70 cells)",
+    "shift": 3.5286,
+    "cell_count": 70
+  },
+  {
+    "title": "\u0130kizce, Turkey",
+    "lat": 41.0,
+    "lon": 37.0,
+    "description": "Avg shift: 3.205 (83 cells)",
+    "shift": 3.2048,
+    "cell_count": 83
+  },
+  {
+    "title": "Sapporo, Japan",
+    "lat": 43.0,
+    "lon": 141.0,
+    "description": "Avg shift: 3.043 (70 cells)",
+    "shift": 3.0429,
+    "cell_count": 70
+  },
+  {
+    "title": "(33.00, -79.00)",
+    "lat": 33.0,
+    "lon": -79.0,
+    "description": "Avg shift: 3.016 (62 cells)",
+    "shift": 3.0161,
+    "cell_count": 62
+  },
+  {
+    "title": "Santiago, Brazil",
+    "lat": -29.0,
+    "lon": -55.0,
+    "description": "Avg shift: 2.909 (110 cells)",
+    "shift": 2.9091,
+    "cell_count": 110
+  },
+  {
+    "title": "Exeter, United States",
+    "lat": 43.0,
+    "lon": -71.0,
+    "description": "Avg shift: 1.784 (97 cells)",
+    "shift": 1.7835,
+    "cell_count": 97
+  },
+  {
+    "title": "Olympia, United States",
+    "lat": 47.0,
+    "lon": -123.0,
+    "description": "Avg shift: 1.583 (108 cells)",
+    "shift": 1.5833,
+    "cell_count": 108
+  },
+  {
+    "title": "Okhinsky District, Russia",
+    "lat": 53.0,
+    "lon": 143.0,
+    "description": "Avg shift: 1.556 (63 cells)",
+    "shift": 1.5556,
+    "cell_count": 63
+  },
+  {
+    "title": "Priuralsky Rayon, Russia",
+    "lat": 69.0,
+    "lon": 67.0,
+    "description": "Avg shift: 1.103 (68 cells)",
+    "shift": 1.1029,
+    "cell_count": 68
+  },
+  {
+    "title": "(29.00, -93.00)",
+    "lat": 29.0,
+    "lon": -93.0,
+    "description": "Avg shift: 0.907 (54 cells)",
+    "shift": 0.9074,
+    "cell_count": 54
+  },
+  {
+    "title": "Qeqertalik, Greenland",
+    "lat": 69.0,
+    "lon": -53.0,
+    "description": "Avg shift: 0.871 (70 cells)",
+    "shift": 0.8714,
+    "cell_count": 70
+  },
+  {
+    "title": "Alaska, United States",
+    "lat": 59.0,
+    "lon": -151.0,
+    "description": "Avg shift: 0.827 (52 cells)",
+    "shift": 0.8269,
+    "cell_count": 52
+  },
+  {
+    "title": "South Slave Region, Canada",
+    "lat": 61.0,
+    "lon": -115.0,
+    "description": "Avg shift: 0.345 (113 cells)",
+    "shift": 0.3451,
+    "cell_count": 113
+  },
+  {
+    "title": "Sirmilik National Park, Canada",
+    "lat": 73.0,
+    "lon": -77.0,
+    "description": "Avg shift: 0.216 (74 cells)",
+    "shift": 0.2162,
+    "cell_count": 74
+  },
+  {
+    "title": "North Saint Paul, United States",
+    "lat": 45.0,
+    "lon": -93.0,
+    "description": "Avg shift: 0.190 (121 cells)",
+    "shift": 0.1901,
+    "cell_count": 121
+  }
+]

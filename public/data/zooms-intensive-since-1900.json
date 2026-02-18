@@ -1,0 +1,242 @@
+[
+  {
+    "title": "San Pascual, Philippines",
+    "lat": 13.0,
+    "lon": 123.0,
+    "description": "Avg shift: 29.505 (95 cells)",
+    "shift": 29.5053,
+    "cell_count": 95
+  },
+  {
+    "title": "Khao Phraya Doen Thong, Thailand",
+    "lat": 15.0,
+    "lon": 101.0,
+    "description": "Avg shift: 23.182 (121 cells)",
+    "shift": 23.1818,
+    "cell_count": 121
+  },
+  {
+    "title": "Glades County, United States",
+    "lat": 27.0,
+    "lon": -81.0,
+    "description": "Avg shift: 21.422 (83 cells)",
+    "shift": 21.4217,
+    "cell_count": 83
+  },
+  {
+    "title": "(-39.00, -59.00)",
+    "lat": -39.0,
+    "lon": -59.0,
+    "description": "Avg shift: 21.237 (59 cells)",
+    "shift": 21.2373,
+    "cell_count": 59
+  },
+  {
+    "title": "Igalamela-Odolu, Nigeria",
+    "lat": 7.0,
+    "lon": 7.0,
+    "description": "Avg shift: 20.438 (121 cells)",
+    "shift": 20.438,
+    "cell_count": 121
+  },
+  {
+    "title": "Canaan No. 225, Canada",
+    "lat": 51.0,
+    "lon": -107.0,
+    "description": "Avg shift: 20.405 (121 cells)",
+    "shift": 20.405,
+    "cell_count": 121
+  },
+  {
+    "title": "Wabe, Ethiopia",
+    "lat": 7.0,
+    "lon": 39.0,
+    "description": "Avg shift: 20.339 (121 cells)",
+    "shift": 20.3388,
+    "cell_count": 121
+  },
+  {
+    "title": "Moqhaka Local Municipality, South Africa",
+    "lat": -27.0,
+    "lon": 27.0,
+    "description": "Avg shift: 20.314 (121 cells)",
+    "shift": 20.314,
+    "cell_count": 121
+  },
+  {
+    "title": "Tabapu\u00e3, Brazil",
+    "lat": -21.0,
+    "lon": -49.0,
+    "description": "Avg shift: 19.579 (121 cells)",
+    "shift": 19.5785,
+    "cell_count": 121
+  },
+  {
+    "title": "(-37.00, 139.00)",
+    "lat": -37.0,
+    "lon": 139.0,
+    "description": "Avg shift: 19.179 (56 cells)",
+    "shift": 19.1786,
+    "cell_count": 56
+  },
+  {
+    "title": "Ecuador",
+    "lat": -1.0,
+    "lon": -81.0,
+    "description": "Avg shift: 18.596 (57 cells)",
+    "shift": 18.5965,
+    "cell_count": 57
+  },
+  {
+    "title": "Bangluo, China",
+    "lat": 35.0,
+    "lon": 105.0,
+    "description": "Avg shift: 18.379 (66 cells)",
+    "shift": 18.3788,
+    "cell_count": 66
+  },
+  {
+    "title": "Araromi Owode, Nigeria",
+    "lat": 7.0,
+    "lon": 3.0,
+    "description": "Avg shift: 18.344 (93 cells)",
+    "shift": 18.3441,
+    "cell_count": 93
+  },
+  {
+    "title": "Chich\u00e9, Guatemala",
+    "lat": 15.0,
+    "lon": -91.0,
+    "description": "Avg shift: 18.313 (99 cells)",
+    "shift": 18.3131,
+    "cell_count": 99
+  },
+  {
+    "title": "Haq, Iran",
+    "lat": 37.0,
+    "lon": 45.0,
+    "description": "Avg shift: 16.955 (88 cells)",
+    "shift": 16.9545,
+    "cell_count": 88
+  },
+  {
+    "title": "Jangulla, Sri Lanka",
+    "lat": 7.0,
+    "lon": 81.0,
+    "description": "Avg shift: 14.851 (67 cells)",
+    "shift": 14.8507,
+    "cell_count": 67
+  },
+  {
+    "title": "\u0420\u043e\u0449\u0438\u043d\u0441\u043a\u0438\u0439 \u0441\u0435\u043b\u044c\u0441\u043e\u0432\u0435\u0442, Russia",
+    "lat": 55.0,
+    "lon": 79.0,
+    "description": "Avg shift: 14.579 (121 cells)",
+    "shift": 14.5785,
+    "cell_count": 121
+  },
+  {
+    "title": "Bab Berred, Morocco",
+    "lat": 35.0,
+    "lon": -5.0,
+    "description": "Avg shift: 13.596 (52 cells)",
+    "shift": 13.5962,
+    "cell_count": 52
+  },
+  {
+    "title": "\u041f\u0435\u0442\u0440\u043e\u0445\u0435\u0440\u0441\u043e\u043d\u0435\u0446\u043a\u0438\u0439 \u0441\u0435\u043b\u044c\u0441\u043e\u0432\u0435\u0442, Russia",
+    "lat": 53.0,
+    "lon": 53.0,
+    "description": "Avg shift: 13.421 (121 cells)",
+    "shift": 13.4215,
+    "cell_count": 121
+  },
+  {
+    "title": "\u062f\u0647\u0633\u062a\u0627\u0646 \u0633\u0648\u0631\u0633\u0648\u0631, Iran",
+    "lat": 35.0,
+    "lon": 47.0,
+    "description": "Avg shift: 13.394 (66 cells)",
+    "shift": 13.3939,
+    "cell_count": 66
+  },
+  {
+    "title": "Palas Tehsil, Pakistan",
+    "lat": 35.0,
+    "lon": 73.0,
+    "description": "Avg shift: 12.727 (66 cells)",
+    "shift": 12.7273,
+    "cell_count": 66
+  },
+  {
+    "title": "Poway, United States",
+    "lat": 33.0,
+    "lon": -117.0,
+    "description": "Avg shift: 11.855 (83 cells)",
+    "shift": 11.8554,
+    "cell_count": 83
+  },
+  {
+    "title": "Nampo, North Korea",
+    "lat": 39.0,
+    "lon": 125.0,
+    "description": "Avg shift: 11.782 (78 cells)",
+    "shift": 11.7821,
+    "cell_count": 78
+  },
+  {
+    "title": "Okhinsky District, Russia",
+    "lat": 53.0,
+    "lon": 143.0,
+    "description": "Avg shift: 6.302 (63 cells)",
+    "shift": 6.3016,
+    "cell_count": 63
+  },
+  {
+    "title": "Flj\u00f3tsdalshreppur, Iceland",
+    "lat": 65.0,
+    "lon": -15.0,
+    "description": "Avg shift: 5.962 (52 cells)",
+    "shift": 5.9615,
+    "cell_count": 52
+  },
+  {
+    "title": "\u0441\u0435\u043b\u044c\u0441\u043a\u043e\u0435 \u043f\u043e\u0441\u0435\u043b\u0435\u043d\u0438\u0435 \u041b\u043e\u0432\u043e\u0437\u0435\u0440\u043e, Russia",
+    "lat": 67.0,
+    "lon": 41.0,
+    "description": "Avg shift: 3.433 (60 cells)",
+    "shift": 3.4333,
+    "cell_count": 60
+  },
+  {
+    "title": "Lac-Normand, Canada",
+    "lat": 47.0,
+    "lon": -73.0,
+    "description": "Avg shift: 2.132 (121 cells)",
+    "shift": 2.1322,
+    "cell_count": 121
+  },
+  {
+    "title": "British Columbia, Canada",
+    "lat": 59.0,
+    "lon": -131.0,
+    "description": "Avg shift: 1.324 (105 cells)",
+    "shift": 1.3238,
+    "cell_count": 105
+  },
+  {
+    "title": "Tazovsky Rayon, Russia",
+    "lat": 71.0,
+    "lon": 77.0,
+    "description": "Avg shift: 0.838 (105 cells)",
+    "shift": 0.8381,
+    "cell_count": 105
+  },
+  {
+    "title": "Sirmilik National Park, Canada",
+    "lat": 73.0,
+    "lon": -77.0,
+    "description": "Avg shift: 0.216 (74 cells)",
+    "shift": 0.2162,
+    "cell_count": 74
+  }
+]

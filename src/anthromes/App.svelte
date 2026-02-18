@@ -29,7 +29,6 @@
   let filterCircleSize = $state(160); // diameter (COLLAPSED_R * 2)
   let filterCompact = $state(false);
   let expandedTimestamp = $state(0);
-  let filterCircleEl = $state(null);
 
   // Load data on mount
   onMount(async () => {
@@ -192,6 +191,16 @@
     <!-- Side Title -->
     <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
 
+    <!-- Anthrome Zooms Link -->
+    <a
+      class="zooms-link"
+      href="/anthrome-change-year-test.html"
+      aria-label="Anthrome Zooms"
+      title="Anthrome Zooms"
+    >
+      Anthrome Zooms
+    </a>
+
     <!-- Settings Toggle -->
     <button
       class="settings-toggle"
@@ -249,7 +258,6 @@
 
     <!-- Circular Filter Widget -->
     <div
-      bind:this={filterCircleEl}
       class="filter-circle"
       class:expanded={filterExpanded}
       class:compact={filterCompact}
