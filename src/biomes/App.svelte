@@ -17,23 +17,15 @@
   let viewSize = $state('full'); // 'full' or 'preview'
   let tension = $state(0.95);
   let settingsOpen = $state(false);
-  let filterExpanded = $state(false);
-  let selectedBodySites = $state(new Set());
+  let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
   let selectedProxyKey = $state(null);
+  let selectedStudyKey = $state(null);
   let proxySampleKeys = $state([]);
-  const bodySiteFilters = ['Stool', 'Oral', 'Skin', 'Other'];
+  let studyKeys = $state([]);
 
   // Circular filter state
-  let filterCircleSize = $state(160); // diameter (COLLAPSED_R * 2)
-  let filterCompact = $state(false);
-
-  const COLLAPSED_R = 80;
-  const IDEAL_EXPANDED_R = 420;
-  const VIEW_MARGIN = 28;
-
-  // Track timestamps to prevent immediate closure
-  let expandedTimestamp = $state(0);
-  let filterCircleEl = $state(null);
+  let openPanel = $state(null); // 'phylum' | 'geo' | 'status' | 'proxy' | 'study' | null
+  let filterRailEl = $state(null);
 
   // Load data on mount
   onMount(async () => {
@@ -59,6 +51,17 @@
         console.warn('Failed to load proxy samples', e);
       }
 
+      // Load study keys from study_index
+      try {
+        const studyRes = await fetch('/data/study_index.json');
+        if (studyRes.ok) {
+          const studyJson = await studyRes.json();
+          studyKeys = Object.keys(studyJson || {}).slice(0, 50);
+        }
+      } catch (e) {
+        console.warn('Failed to load study index', e);
+      }
+
       loading = false;
     } catch (err) {
       console.error('Failed to load biomes data:', err);
@@ -77,7 +80,6 @@
     selectedPhyla = [];
     unknownFilter = false;
     westernFilter = 'any';
-    selectedBodySites = new Set();
     selectedProxyKey = null;
   }
 
@@ -100,6 +102,10 @@
     selectedProxyKey = selectedProxyKey === key ? null : key;
   }
 
+  function selectStudyKey(key) {
+    selectedStudyKey = selectedStudyKey === key ? null : key;
+  }
+
   // Handle keyboard shortcuts
   function handleKeydown(e) {
     if (e.key === 'M' || e.key === 'm') {
@@ -107,71 +113,17 @@
     }
     if (e.key === 'Escape') {
       settingsOpen = false;
-      if (filterExpanded) {
-        collapseFilter();
-      }
+      openPanel = null;
     }
   }
 
-  // Circular filter expand/collapse
-  function maxRadiusForViewport() {
-    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
-    const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
-    return Math.floor(Math.min(vw, vh) / 2) - VIEW_MARGIN;
-  }
-
-  function setCircleRadius(r) {
-    filterCircleSize = r * 2; // diameter
-  }
-
-  function ensureCircleFits() {
-    if (!filterExpanded || !filterCircleEl) return;
-
-    const sections = filterCircleEl.querySelector('.sections');
-    if (!sections) return;
-
-    const rPx = filterCircleSize / 2;
-    const innerDiameter = filterCircleSize * 0.86;
-    const sRect = sections.getBoundingClientRect();
-    const tooWide = sRect.width > innerDiameter;
-    const tooHigh = sRect.height > innerDiameter;
-
-    if (tooWide || tooHigh) {
-      const cap = maxRadiusForViewport();
-      if (rPx + 30 <= cap) {
-        setCircleRadius(rPx + 30);
-        requestAnimationFrame(ensureCircleFits);
-        return;
-      }
-      filterCompact = true;
-    } else {
-      filterCompact = false;
-    }
-  }
-
-  function expandFilter() {
-    filterExpanded = true;
-    expandedTimestamp = Date.now();
-    const startR = Math.min(IDEAL_EXPANDED_R, maxRadiusForViewport());
-    setCircleRadius(startR);
-    requestAnimationFrame(ensureCircleFits);
-  }
-
-  function collapseFilter() {
-    filterExpanded = false;
-    filterCompact = false;
-    setCircleRadius(COLLAPSED_R);
-  }
-
-  // Handle click outside to collapse filter
+  // Handle click outside to close panel
   function handleWindowClick(e) {
     const target = e.target;
-    if (target.closest('.filter-circle') || target.closest('#settings') || target.closest('#menuToggle')) {
+    if (target.closest('.filter-rail') || target.closest('#settings') || target.closest('#menuToggle')) {
       return;
     }
-    if (filterExpanded && Date.now() - expandedTimestamp > 100) {
-      collapseFilter();
-    }
+    openPanel = null;
   }
 
   // Handle export
@@ -217,11 +169,7 @@
 
   // Resize handler
   function handleResize() {
-    if (!filterExpanded) return;
-    const rPx = filterCircleSize / 2;
-    const cap = maxRadiusForViewport();
-    if (rPx > cap) setCircleRadius(cap);
-    requestAnimationFrame(ensureCircleFits);
+    // no-op for now; reserved for responsive tweaks
   }
 
   // Mount effects
@@ -264,128 +212,171 @@
       {tension}
       bodySiteFilter={selectedBodySites}
       proxyKey={selectedProxyKey}
+      studyKey={selectedStudyKey}
     />
 
-    <!-- Circular Filter Widget -->
-    <div
-      bind:this={filterCircleEl}
-      class="filter-circle"
-      class:expanded={filterExpanded}
-      class:compact={filterCompact}
-      style="width: {filterCircleSize}px; height: {filterCircleSize}px;"
-      aria-live="polite"
-    >
-      <svg class="ring-svg" viewBox="-{filterCircleSize/2} -{filterCircleSize/2} {filterCircleSize} {filterCircleSize}" aria-hidden="true">
-        <circle class="filter-ring" cx="0" cy="0" r="{filterCircleSize/2 - 3}" />
-        <text class="filter-caption" style="opacity: {filterExpanded ? 1 : 0};">
-          <textPath href="#fc-arc-right" startOffset="50%" text-anchor="middle">
-            AN EXTENSIVE HUMAN MICROBIOME
-          </textPath>
-        </text>
-        <defs>
-          <path id="fc-arc-right" d="M 0 -{filterCircleSize/2 - 25} A {filterCircleSize/2 - 25} {filterCircleSize/2 - 25} 0 0 1 0 {filterCircleSize/2 - 25}" />
-        </defs>
-      </svg>
+    <!-- Filter Rail: five independent filter circles -->
+    <div class="filter-rail" bind:this={filterRailEl}>
+      <div class="filter-grid">
+        <button
+          class="mini-circle"
+          class:active={openPanel === 'phylum'}
+          onclick={() => openPanel = openPanel === 'phylum' ? null : 'phylum'}
+          aria-label="Phylum filters"
+        >
+          <span class="label">Phylum</span>
+        </button>
+        <button
+          class="mini-circle"
+          class:active={openPanel === 'geo'}
+          onclick={() => openPanel = openPanel === 'geo' ? null : 'geo'}
+          aria-label="Geography filters"
+        >
+          <span class="label">Geo</span>
+        </button>
+        <button
+          class="mini-circle"
+          class:active={openPanel === 'status'}
+          onclick={() => openPanel = openPanel === 'status' ? null : 'status'}
+          aria-label="Status filters"
+        >
+          <span class="label">Status</span>
+        </button>
+        <button
+          class="mini-circle"
+          class:active={openPanel === 'proxy'}
+          onclick={() => openPanel = openPanel === 'proxy' ? null : 'proxy'}
+          aria-label="Proxy filters"
+        >
+          <span class="label">Proxy</span>
+        </button>
+        <button
+          class="mini-circle"
+          class:active={openPanel === 'study'}
+          onclick={() => openPanel = openPanel === 'study' ? null : 'study'}
+          aria-label="Study filters"
+        >
+          <span class="label">Study</span>
+        </button>
+      </div>
 
-      <div class="content">
-        <!-- Collapsed -->
-        {#if !filterExpanded}
-          <div class="fc-collapsed">
-            <span class="label">FILTER</span>
-            <button class="chev" title="Expand" onclick={(e) => { e.stopPropagation(); expandFilter(); }}>▾</button>
+      {#if openPanel}
+        {@const overlayTitle =
+          openPanel === 'phylum' ? 'Phylum' :
+          openPanel === 'geo' ? 'Geography' :
+          openPanel === 'status' ? 'Status' :
+          openPanel === 'proxy' ? 'Proxies' :
+          openPanel === 'study' ? 'Studies' : ''}
+        <div class="filter-overlay" aria-live="polite">
+          <div class="overlay-head">
+            <div class="overlay-title">{overlayTitle}</div>
+            <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
           </div>
-        {/if}
+          {#if openPanel === 'phylum'}
+            <p class="overlay-desc">Filter the tree to only the selected phyla.</p>
+          {:else if openPanel === 'geo'}
+            <p class="overlay-desc">Limit to Western or Non-Western assignments from sample metadata.</p>
+          {:else if openPanel === 'status'}
+            <p class="overlay-desc">Show only uSGBs (Unknown species genome bins) when enabled.</p>
+          {:else if openPanel === 'proxy'}
+            <p class="overlay-desc">Filter by proxy sample groups defined in proxy_samples.json.</p>
+          {:else if openPanel === 'study'}
+            <p class="overlay-desc">Filter to SGBs observed within a specific study (study_index.json).</p>
+          {/if}
 
-        <!-- Expanded -->
-        {#if filterExpanded}
-          <div class="fc-expanded">
-            <div class="sections">
-              <div class="fc-head">
-                <div class="fc-title">Filters</div>
-                <div class="actions">
-                  <button class="btn" title="Select all phyla" onclick={handleSelectAll}>Select All</button>
-                  <button class="btn" title="Clear all filters" onclick={handleClear}>Clear</button>
-                  <button class="chevron" title="Collapse" onclick={(e) => { e.stopPropagation(); collapseFilter(); }}>▴</button>
-                </div>
+          {#if openPanel === 'phylum'}
+            <div class="overlay-actions">
+              <button class="btn" onclick={handleSelectAll} title="Select all phyla">Select all</button>
+              <button class="btn" onclick={() => selectedPhyla = []} title="Clear phyla">Clear</button>
+            </div>
+            <section class="section">
+              <div class="chips">
+                {#each allPhyla as phylum}
+                  {@const color = colorMapping[phylum] || colorMapping.Other}
+                  {@const textColor = pickTextColor(color)}
+                  <button
+                    class="chip"
+                    class:active={selectedPhyla.includes(phylum)}
+                    style="background: {color}; color: {textColor};"
+                    onclick={() => togglePhylum(phylum)}
+                  >
+                    {phylum.replace(/_/g, ' ')}
+                  </button>
+                {/each}
               </div>
-
-              <section class="section">
-                <h3>Phylum</h3>
-                <div class="chips">
-                  {#each allPhyla as phylum}
-                    {@const color = colorMapping[phylum] || colorMapping.Other}
-                    {@const textColor = pickTextColor(color)}
-                    <button
-                      class="chip"
-                      class:active={selectedPhyla.includes(phylum)}
-                      style="background: {color}; color: {textColor};"
-                      onclick={() => togglePhylum(phylum)}
-                    >
-                      {phylum.replace(/_/g, ' ')}
-                    </button>
-                  {/each}
-                </div>
-              </section>
-
-              <section class="section">
-              <h3>Geography</h3>
+            </section>
+          {:else if openPanel === 'geo'}
+            <div class="overlay-actions">
+              <button class="btn" onclick={() => westernFilter = 'any'}>All</button>
+              <button class="btn" onclick={() => westernFilter = 'western'}>Western</button>
+              <button class="btn" onclick={() => westernFilter = 'nonwestern'}>Non-West.</button>
+            </div>
+            <section class="section">
               <div class="pills">
                 <label class="pill">
                   <input type="radio" name="western" value="any" bind:group={westernFilter} />
                   Any
-                  </label>
-                  <label class="pill">
-                    <input type="radio" name="western" value="western" bind:group={westernFilter} />
-                    Western
-                  </label>
-                  <label class="pill">
-                    <input type="radio" name="western" value="nonwestern" bind:group={westernFilter} />
-                    Non-Western
-                  </label>
-                </div>
-              </section>
-
-              <section class="section">
-                <h3>Status</h3>
-                <label class="pill" title="Unknown SGBs only">
-                  <input type="checkbox" bind:checked={unknownFilter} />
-                  Unknown
                 </label>
-              </section>
-
-              <section class="section">
-                <h3>Body Site</h3>
-                <div class="chips">
-                  {#each bodySiteFilters as site}
-                    <button
-                      class="chip"
-                      class:active={selectedBodySites.has(site)}
-                      onclick={() => toggleBodySite(site)}
-                    >
-                      {site}
-                    </button>
-                  {/each}
-                </div>
-              </section>
-
-              <section class="section">
-                <h3>Samples / Studies</h3>
-                <div class="chips proxy-grid">
-                  {#each proxySampleKeys as key}
-                    <button
-                      class="chip"
-                      class:active={selectedProxyKey === key}
-                      onclick={() => selectProxyKey(key)}
-                    >
-                      {key}
-                    </button>
-                  {/each}
-                </div>
-              </section>
+                <label class="pill">
+                  <input type="radio" name="western" value="western" bind:group={westernFilter} />
+                  Western
+                </label>
+                <label class="pill">
+                  <input type="radio" name="western" value="nonwestern" bind:group={westernFilter} />
+                  Non-Western
+                </label>
+              </div>
+            </section>
+          {:else if openPanel === 'status'}
+            <div class="overlay-actions">
+              <button class="btn" onclick={() => unknownFilter = true}>Only unknown</button>
+              <button class="btn" onclick={() => unknownFilter = false}>Clear</button>
             </div>
-          </div>
-        {/if}
-      </div>
+            <section class="section">
+              <label class="pill" title="Unknown SGBs only">
+                <input type="checkbox" bind:checked={unknownFilter} />
+                Unknown
+              </label>
+            </section>
+          {:else if openPanel === 'proxy'}
+            <div class="overlay-actions">
+              <button class="btn" onclick={() => selectedProxyKey = null}>All</button>
+              <button class="btn" onclick={() => selectedProxyKey = null}>Clear</button>
+            </div>
+            <section class="section">
+              <div class="chips proxy-grid">
+                {#each proxySampleKeys as key}
+                  <button
+                    class="chip"
+                    class:active={selectedProxyKey === key}
+                    onclick={() => selectProxyKey(key)}
+                  >
+                    {key}
+                  </button>
+                {/each}
+              </div>
+            </section>
+          {:else if openPanel === 'study'}
+            <div class="overlay-actions">
+              <button class="btn" onclick={() => selectedStudyKey = null}>All</button>
+              <button class="btn" onclick={() => selectedStudyKey = null}>Clear</button>
+            </div>
+            <section class="section">
+              <div class="chips proxy-grid">
+                {#each studyKeys as key}
+                  <button
+                    class="chip"
+                    class:active={selectedStudyKey === key}
+                    onclick={() => selectStudyKey(key)}
+                  >
+                    {key}
+                  </button>
+                {/each}
+              </div>
+            </section>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
 {/if}
@@ -519,249 +510,179 @@
     line-height: 1.45;
   }
 
-  /* Circular Filter */
-  .filter-circle {
+  /* Filter rail */
+  .filter-rail {
     position: fixed;
-    right: 24px;
-    bottom: 24px;
-    z-index: 999;
-    transition: width 0.28s ease, height 0.28s ease, transform 0.28s ease, box-shadow 0.2s ease;
-    transform-origin: bottom right;
-    pointer-events: auto;
+    right: 14px;
+    bottom: 20px;
+    width: clamp(240px, 28vw, 340px);
+    z-index: 9;
+    display: grid;
+    gap: 10px;
   }
 
-  .ring-svg {
-    position: absolute;
-    inset: 0;
-    overflow: visible;
-    pointer-events: none;
-    z-index: 2;
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 10px;
   }
 
-  .filter-ring {
-    fill: none;
-    stroke: #fff;
-    stroke-width: 3px;
-  }
-
-  .filter-caption {
-    fill: #cfd3e0;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    dominant-baseline: middle;
-    transition: opacity 0.3s ease;
-  }
-
-  .content {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .mini-circle {
+    width: 82px;
+    height: 82px;
     border-radius: 50%;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    display: grid;
+    place-items: center;
+    color: var(--fg);
+    cursor: pointer;
     box-shadow: var(--shadow);
-    padding: 22px;
-    z-index: 1;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
   }
 
-  .filter-circle.expanded .content {
-    background: var(--panel);
-  }
-
-  /* Collapsed state */
-  .fc-collapsed {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .fc-collapsed .label {
+  .mini-circle .label {
     font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.03em;
     color: var(--muted);
   }
 
-  .fc-collapsed .chev {
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    width: 34px;
-    height: 28px;
-    border-radius: 10px;
-    cursor: pointer;
+  .mini-circle:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
   }
 
-  /* Expanded state */
-  .fc-expanded {
-    display: flex;
-    width: 100%;
-    height: 100%;
+  .mini-circle.active {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
   }
 
-  .sections {
-    margin: auto;
-    width: 86%;
-    height: 86%;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
+  .filter-overlay {
+    background: var(--bg);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 12px 14px;
+    box-shadow: var(--shadow);
+    max-height: 60vh;
+    overflow: auto;
   }
 
-  .fc-head {
-    width: 60%;
+  .overlay-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    margin-bottom: 10px;
   }
 
-  .fc-title {
-    font-size: 11px;
+  .overlay-title {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .overlay-desc {
+    margin: 4px 0 10px;
     color: var(--muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-size: 12px;
+    line-height: 1.4;
   }
 
-  .actions {
+  .overlay-actions {
     display: flex;
     gap: 8px;
+    align-items: center;
   }
 
   .btn {
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-    padding: 6px 9px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: var(--fg);
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
   }
 
   .chevron {
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: var(--fg);
-    width: 34px;
+    border-radius: 50%;
+    width: 28px;
     height: 28px;
-    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
     cursor: pointer;
   }
 
   .section {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-
-  .section h3 {
-    margin: 0;
-    font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    margin: 10px 0;
   }
 
   .chips {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    justify-content: center;
-  }
-
-  .proxy-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px;
-    width: 100%;
   }
 
   .chip {
-    white-space: nowrap;
-    cursor: pointer;
-    user-select: none;
-    font-size: 12px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    font-weight: 700;
-    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--fg);
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    transition: transform 0.15s ease, filter 0.2s ease, outline 0.2s ease, opacity 0.2s ease;
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
   }
 
   .chip:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.22);
     transform: translateY(-1px);
-    filter: brightness(1.06);
   }
 
   .chip.active {
-    outline: 2px solid rgba(255, 255, 255, 0.75);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
   }
 
   .pills {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     flex-wrap: wrap;
-    justify-content: center;
   }
 
   .pill {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    gap: 6px;
     background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    padding: 8px 12px;
     cursor: pointer;
+    font-size: 12px;
   }
 
   .pill input {
-    accent-color: var(--accent);
-    cursor: pointer;
+    accent-color: var(--accent, #8af);
   }
 
-  /* Compact mode */
-  .filter-circle.compact .sections {
-    width: 84%;
-    height: 84%;
-    gap: 10px;
+  .proxy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 6px;
+    margin-top: 4px;
   }
 
-  .filter-circle.compact .section h3 {
-    font-size: 10px;
-    letter-spacing: 0.12em;
-  }
-
-  .filter-circle.compact .chip {
-    font-size: 11px;
-    padding: 7px 10px;
-  }
-
-  .filter-circle.compact .pill {
-    font-size: 11px;
-    padding: 7px 10px;
-  }
-
-  .filter-circle.compact .btn {
-    font-size: 9px;
-    padding: 5px 8px;
+  .placeholder {
+    color: var(--muted);
+    font-size: 13px;
   }
 </style>

@@ -18,7 +18,9 @@
     size = 'full',
     debugMenuVisible = false,
     showBoundaries = false,
-    mapReady = $bindable(false)
+    mapReady = $bindable(false),
+    mapScale = 1,
+    mapRotation = 0
   } = $props();
 
   const fullSize = 7000;
@@ -59,9 +61,10 @@
     return true;
   }
 
+  // Limit zoom handling to the bar/ring layer; map zoom handled separately
   const zoomScale = d3.zoom()
     .filter(zoomFilter)
-    .scaleExtent([1, 15])
+    .scaleExtent([1, 3])
     .on('zoom', (event) => {
       zoomTransform = event.transform;
       d3.select(svgElement).select('g.zoom-container').attr('transform', event.transform);
@@ -105,9 +108,11 @@
 
     performance.mark('layout-start');
     const dim = size === 'full' ? fullSize : previewSize;
-    const outerMargin = 260;
+    const outerMargin = size === 'full' ? 200 : 150;
     const radius = dim / 2 - outerMargin;
-    const innerRadius = size === 'full' ? 2200 : Math.max(180, radius * 0.44);
+    // Target a thicker ring (~50% of radial span)
+    // Slightly thinner ring (about 1/3 thinner than previous)
+    const innerRadius = radius * 0.75;
 
     const angle = d3.scaleBand()
       .domain(years)
@@ -513,22 +518,20 @@
     }
   });
 
-  // Sync zoom transform to map so both layers move together (zoom transform already in screen px)
+  // Sync mapScale/rotation to MapCanvas (map only; bars stay static)
   $effect(() => {
-    zoomTransform.k;
-    zoomTransform.x;
-    zoomTransform.y;
+    mapScale;
+    mapRotation;
     containerWidth;
     containerHeight;
     layout;
 
     untrack(() => {
       if (!layout || !containerWidth || !containerHeight) return;
-      const unitToPx = Math.min(containerWidth, containerHeight) / layout.dim;
       mapZoom = {
-        k: zoomTransform.k,
-        x: zoomTransform.x * unitToPx,
-        y: zoomTransform.y * unitToPx
+        k: mapScale,
+        x: 0,
+        y: 0
       };
     });
   });
@@ -545,6 +548,7 @@
     yearDataLookup={yearDataLookup}
     selectedCodes={selectedAnthromes}
     zoom={mapZoom}
+    rotation={mapRotation}
     bind:points={mapPoints}
     bind:mapReady
     {clipAngle}

@@ -308,6 +308,15 @@
       console.warn('MapCanvas: skipping draw, circle radius non-positive', circle);
       return;
     }
+
+    // Clip all drawing to the inner circle
+    const clipCx = circle.cx * dpr;
+    const clipCy = circle.cy * dpr;
+    const clipR = circle.r * dpr;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(clipCx, clipCy, clipR, 0, Math.PI * 2);
+    ctx.clip();
     performance.mark('draw-setup-end');
     performance.measure('draw-setup', 'draw-setup-start', 'draw-setup-end');
 

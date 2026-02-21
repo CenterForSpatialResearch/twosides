@@ -25,6 +25,7 @@
     westernFilter = $bindable('any'),
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
+    studyKey = $bindable(null),
     size = 'full',
     tension = 0.95
   } = $props();
@@ -51,32 +52,29 @@
   let showBackButton = $state(false);
 
   // Constants
-  const fullSize = 7000;
+  const fullSize = 6400;        // match desired 6400x6400 canvas
   const previewSize = 1200;
-  const fullRadius = 3000;
+  const fullRadius = 2800;      // leave margin so disk never clips at default
   const previewRadius = 550;
   const zoomMin = 0.5;
-  const zoomMax = 3.0;           // allows one closer zoom level
+  const zoomMax = 7.0;           // allow deeper preset zooms
   const zoomStep = 1.25;
   const anchorFraction = -0.30;  // shift left on zoom, but keep disk within its 2/3 column
   const anchorPx = null;         // use fraction-based anchor; set number to override
   const rotateStepDeg = 10;
   const resetFraction = 0.5;     // center within the 2/3 viz area
-  const resetYOffset = -60;      // lift disk on reset/zoom to avoid low placement
+  const resetYOffset = -130;     // refined lift toward vertical center
   const resetPx = null;          // set to number to override resetFraction
-  const defaultScale = 0.85;     // slightly smaller default fit inside 2/3 viewport
+  const defaultScale = 0.8;      // fit without edge overlap on load
   const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
-  const bodySiteFilters = ['Stool', 'Oral', 'Skin', 'Other'];
   const proxyFilters = ['Proxy', 'Study', 'Site'];
+  const zoomPresets = [2, 7];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
   let currentTransform = d3.zoomIdentity;
   let zoomBehavior = null;
   let rotationDeg = 0;
-  // filter state
-  // filter state
-  let selectedGeo = $state(null); // 'Western' | 'Non-Western' | 'Unknown'
   let infoPanelEl = $state(null);
   let panelContent = $state('');
   let panelVisible = $state(false);
@@ -85,7 +83,9 @@
   let viewportW = $state(0);
   let viewportH = $state(0);
   let proxySgbMap = {};
+  let studySgbMap = {};
   let proxyLoaded = false;
+  let studyLoaded = false;
 
   function closePanel() {
     panelVisible = false;
@@ -461,7 +461,7 @@
       labels: d3.selectAll(labelsLayer.selectAll('text').nodes())
     };
 
-    applyFilters();
+    applyFiltersNow();
     applyTransforms();
   }
 
@@ -696,12 +696,6 @@
     } else if (westernFilter === 'nonwestern') {
       if (!isWesternNo(leaf.data.metadata)) return false;
     }
-    // Geography pills override westernFilter when selected
-    if (selectedGeo) {
-      if (selectedGeo === 'Western' && !isWesternYes(leaf.data.metadata)) return false;
-      if (selectedGeo === 'Non-Western' && !isWesternNo(leaf.data.metadata)) return false;
-      if (selectedGeo === 'Unknown' && parseUSGB(leaf.data.metadata) !== 'Yes') return false;
-    }
     // Body site filter (best-effort; expects metadata.body_site)
     if (bodySiteFilter.size > 0) {
       const bs = (leaf.data?.metadata?.body_site || '').toLowerCase();
@@ -713,6 +707,13 @@
       const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
       const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
       const allowed = proxySgbMap[proxyKey] || null;
+      if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
+    }
+    // Study filter
+    if (studyKey) {
+      const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
+      const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
+      const allowed = studySgbMap[studyKey] || null;
       if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
     }
     return true;
@@ -736,7 +737,9 @@
     return keep;
   }
 
-  function applyFilters() {
+  let filterRaf = null;
+
+  function applyFiltersNow() {
     const { root, selections } = handles;
     if (!root) return;
 
@@ -772,6 +775,19 @@
     styleDim(selections.west, d => keep.has(d));
     styleDim(selections.regions, d => keep.has(d));
     styleDim(selections.labels, d => keep.has(d), true);
+  }
+
+  function scheduleFilters() {
+    if (filterRaf) return;
+    const cb = () => {
+      filterRaf = null;
+      applyFiltersNow();
+    };
+    if (typeof requestIdleCallback === 'function') {
+      filterRaf = requestIdleCallback(cb, { timeout: 50 });
+    } else {
+      filterRaf = requestAnimationFrame(cb);
+    }
   }
 
   // Handle tooltip actions
@@ -821,7 +837,7 @@
       window.history.replaceState({}, '', url);
     }
 
-    applyFilters();
+    scheduleFilters();
   }
 
   // Handle escape key
@@ -832,7 +848,7 @@
       currentTooltipDatum = null;
       clearSelected();
       clearHighlight();
-      applyFilters();
+      scheduleFilters();
     }
   }
 
@@ -851,8 +867,26 @@
     westernFilter;
     bodySiteFilter.size;
     proxyKey;
+    studyKey;
 
-    applyFilters();
+    scheduleFilters();
+  });
+
+  // Lazy-load study SGB map only when a study filter is requested
+  $effect(() => {
+    if (!studyKey || studyLoaded) return;
+    fetch('/data/study_index.json')
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json) {
+          Object.entries(json).forEach(([key, val]) => {
+            studySgbMap[key] = new Set((val?.sgbs || []).map(Number));
+          });
+          studyLoaded = true;
+          applyFiltersNow();
+        }
+      })
+      .catch(() => {});
   });
 
   onMount(() => {
@@ -865,7 +899,7 @@
             proxySgbMap[key] = new Set((val?.sgbs || []).map(Number));
           });
           proxyLoaded = true;
-          applyFilters();
+          scheduleFilters();
         }
       })
       .catch(() => {});
@@ -980,13 +1014,32 @@
     </div>
   {/if}
 
-  <div class="zoom-controls" aria-label="Zoom controls">
-    <button onclick={zoomOut} title="Zoom out">−</button>
-    <button onclick={resetView} title="Reset view">◯</button>
-    <button onclick={zoomIn} title="Zoom in">＋</button>
-    <div class="divider"></div>
-    <button onclick={() => rotateBy(-rotateStepDeg)} title="Rotate left">↺</button>
-    <button onclick={() => rotateBy(rotateStepDeg)} title="Rotate right">↻</button>
+  <div class="rail">
+    <div class="control-circles">
+      <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
+      <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
+      <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
+      <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-rotateStepDeg)}>⟲</button>
+      <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(rotateStepDeg)}>⟳</button>
+    </div>
+    <div class="preset-row">
+      {#each zoomPresets as zp}
+        <button
+          class="chip"
+          onclick={() => {
+            const rect = svgElement?.getBoundingClientRect();
+            if (!rect) return;
+            const anchorY = rect.height / 2 + resetYOffset;
+            const anchorX = (zp <= 2)
+              ? 0                                        // 2x: center on left edge
+              : -rect.width * 1.5;                       // 7x: force farther left to expose rim
+            applyZoom(zp, anchorX, anchorY);
+            applyFiltersNow(); // ensure dimming updates immediately at this zoom
+          }}>
+          {zp}x
+        </button>
+      {/each}
+    </div>
   </div>
 
   <div class="viz-area">
@@ -1020,7 +1073,7 @@
     width: 100vw;
     height: 100vh;
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
     align-items: center;
     position: relative;
   }
@@ -1048,43 +1101,74 @@
     height: 100%;
   }
 
-  .zoom-controls {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    background: rgba(14, 11, 22, 0.8);
-    padding: 8px 10px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: var(--shadow);
-    z-index: 8;
+  .rail {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: flex-start;
+    justify-self: end;
+    width: 100%;
+    max-width: 360px;
+    padding: 14px 12px 18px;
+    box-sizing: border-box;
+    display: grid;
+    gap: 14px;
   }
 
-  .zoom-controls button {
+  .control-circles {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    justify-items: center;
+  }
+
+  .circle-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
     background: rgba(255, 255, 255, 0.08);
-    color: var(--fg);
     border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 8px;
-    padding: 6px 8px;
+    color: var(--fg);
     font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+
+  .circle-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .circle-btn.active {
+    background: var(--accent, rgba(255, 255, 255, 0.2));
+    border-color: var(--accent, rgba(255, 255, 255, 0.35));
+  }
+
+  .preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .chip {
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--fg);
+    padding: 6px 10px;
+    font-weight: 600;
     cursor: pointer;
     transition: background 0.2s ease, border-color 0.2s ease;
   }
 
-  .zoom-controls button:hover {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.3);
+  .chip:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
   }
 
-  .zoom-controls .divider {
-    width: 1px;
-    height: 18px;
-    background: rgba(255, 255, 255, 0.18);
-    margin: 0 4px;
-  }
 
   .connector-overlay {
     position: absolute;
