@@ -17,7 +17,10 @@
     selectedYear = $bindable(null),
     size = 'full',
     debugMenuVisible = false,
-    mapReady = $bindable(false)
+    showBoundaries = false,
+    mapReady = $bindable(false),
+    mapScale = 1,
+    mapRotation = 0
   } = $props();
 
   const fullSize = 7000;
@@ -43,13 +46,13 @@
   let yearPreview = $state(null);
   let draggingYear = $state(false);
   let mapPoints = $state([
-    [-75, 41],
-    [48, -15]
+    [-117, 33],
+    [36, 4]
   ]);
-  let clipAngle = $state(120);
+  let clipAngle = $state(180);
   const defaultPoints = [
-    [-75, 41],
-    [48, -15]
+    [-117, 33],
+    [36, 4]
   ];
 
   function zoomFilter(event) {
@@ -58,9 +61,10 @@
     return true;
   }
 
+  // Limit zoom handling to the bar/ring layer; map zoom handled separately
   const zoomScale = d3.zoom()
     .filter(zoomFilter)
-    .scaleExtent([1, 15])
+    .scaleExtent([1, 3])
     .on('zoom', (event) => {
       zoomTransform = event.transform;
       d3.select(svgElement).select('g.zoom-container').attr('transform', event.transform);
@@ -104,9 +108,11 @@
 
     performance.mark('layout-start');
     const dim = size === 'full' ? fullSize : previewSize;
-    const outerMargin = 260;
+    const outerMargin = size === 'full' ? 200 : 150;
     const radius = dim / 2 - outerMargin;
-    const innerRadius = size === 'full' ? 2200 : Math.max(180, radius * 0.44);
+    // Target a thicker ring (~50% of radial span)
+    // Slightly thinner ring (about 1/3 thinner than previous)
+    const innerRadius = radius * 0.75;
 
     const angle = d3.scaleBand()
       .domain(years)
@@ -190,7 +196,7 @@
       .outerRadius(d => rScale(d.seg[1]))
       .startAngle(d => angle(d.year))
       .endAngle(d => angle(d.year) + angle.bandwidth())
-      .padAngle(0.003)
+      .padAngle(0.006)
       .padRadius(innerRadius);
 
     const arcHit = d3.arc()
@@ -198,7 +204,7 @@
       .outerRadius(d => rScale(d.seg[1]) + 8)
       .startAngle(d => angle(d.year))
       .endAngle(d => angle(d.year) + angle.bandwidth())
-      .padAngle(0.006)
+      .padAngle(0.012)
       .padRadius(innerRadius);
 
     const layers = g.selectAll('g.layer')
@@ -512,22 +518,20 @@
     }
   });
 
-  // Sync zoom transform to map so both layers move together (zoom transform already in screen px)
+  // Sync mapScale/rotation to MapCanvas (map only; bars stay static)
   $effect(() => {
-    zoomTransform.k;
-    zoomTransform.x;
-    zoomTransform.y;
+    mapScale;
+    mapRotation;
     containerWidth;
     containerHeight;
     layout;
 
     untrack(() => {
       if (!layout || !containerWidth || !containerHeight) return;
-      const unitToPx = Math.min(containerWidth, containerHeight) / layout.dim;
       mapZoom = {
-        k: zoomTransform.k,
-        x: zoomTransform.x * unitToPx,
-        y: zoomTransform.y * unitToPx
+        k: mapScale,
+        x: 0,
+        y: 0
       };
     });
   });
@@ -544,9 +548,12 @@
     yearDataLookup={yearDataLookup}
     selectedCodes={selectedAnthromes}
     zoom={mapZoom}
+    rotation={mapRotation}
     bind:points={mapPoints}
     bind:mapReady
     {clipAngle}
+    {showBoundaries}
+    {debugMenuVisible}
   />
 
   {#if debugMenuVisible}
@@ -704,7 +711,7 @@
 
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 52px;
+    font-size: 26px;
     opacity: 0.95;
     font-weight: 800;
     letter-spacing: 0.08em;

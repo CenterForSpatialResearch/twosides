@@ -28,26 +28,50 @@ export async function loadData() {
 }
 
 /**
- * Filter years based on the rule:
- * - All years before 1950
- * - Every 5 years from 1950 onwards
+ * Explicit list of years to display in the visualization.
+ * Format: negative = BCE, 0 = 0AD, positive = CE/AD
  *
- * @param {string[]} allYears - Array of year strings (e.g., ["10000BC", "9000BC", ..., "2017AD"])
+ * Coverage:
+ * - Millennial: 10000BCE - 1000BCE (10 years)
+ * - Centennial: 0AD - 1700AD (18 years)
+ * - Decadal: 1710 - 1940 (24 years)
+ * - 5-year: 1950 - 2000 (11 years)
+ * - Annual: 2005 - 2025 (11 years, with 5-year gaps early)
+ *
+ * Total: 74 years displayed
+ */
+const DISPLAY_YEARS = [
+  -10000, -9000, -8000, -7000, -6000, -5000, -4000, -3000, -2000, -1000,
+  0,
+  100, 200, 300, 400, 500, 600, 700, 800, 900, 1000,
+  1100, 1200, 1300, 1400, 1500, 1600, 1700,
+  1710, 1720, 1730, 1740, 1750, 1760, 1770, 1780, 1790,
+  1800, 1810, 1820, 1830, 1840, 1850, 1860, 1870, 1880, 1890,
+  1900, 1910, 1920, 1930, 1940,
+  1950, 1955, 1960, 1965, 1970, 1975, 1980, 1985, 1990, 1995, 2000,
+  2005, 2010, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025
+];
+
+/**
+ * Convert numeric year to data format string (e.g., -10000 → "10000BC", 100 → "100AD")
+ */
+function yearToDataFormat(year) {
+  if (year < 0) return `${Math.abs(year)}BC`;
+  if (year === 0) return '0AD';
+  return `${year}AD`;
+}
+
+// Pre-compute the set of allowed year strings for fast lookup
+const ALLOWED_YEARS_SET = new Set(DISPLAY_YEARS.map(yearToDataFormat));
+
+/**
+ * Filter years to only include those in the DISPLAY_YEARS list.
+ *
+ * @param {string[]} allYears - Array of year strings (e.g., ["10000BC", "9000BC", ..., "2025AD"])
  * @returns {string[]} Filtered array of years
  */
 export function filterYears(allYears) {
-  return allYears.filter(yearStr => {
-    const { year, isBCE } = parseYearString(yearStr);
-
-    // Include all BCE years
-    if (isBCE) return true;
-
-    // Include all CE/AD years before 1950
-    if (year < 1950) return true;
-
-    // From 1950 onwards, include every 5 years
-    return year % 5 === 0;
-  });
+  return allYears.filter(yearStr => ALLOWED_YEARS_SET.has(yearStr));
 }
 
 /**

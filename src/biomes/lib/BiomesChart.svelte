@@ -23,6 +23,9 @@
     selectedPhyla = $bindable([]),
     unknownFilter = $bindable(false),
     westernFilter = $bindable('any'),
+    bodySiteFilter = $bindable(new Set()),
+    proxyKey = $bindable(null),
+    studyKey = $bindable(null),
     size = 'full',
     tension = 0.95
   } = $props();
@@ -43,14 +46,110 @@
   let maxGenomeCount = $state(1);
   let tickDenom = $state(1);
 
+  // Cross-highlighting state
+  let highlightedSGBs = $state(new Set());
+  let crossHighlightActive = $state(false);
+  let showBackButton = $state(false);
+
   // Constants
-  const fullSize = 7000;
+  const fullSize = 6400;        // match desired 6400x6400 canvas
   const previewSize = 1200;
-  const fullRadius = 3000;
+  const fullRadius = 2800;      // leave margin so disk never clips at default
   const previewRadius = 550;
+  const zoomMin = 0.5;
+  const zoomMax = 7.0;           // allow deeper preset zooms
+  const zoomStep = 1.25;
+  const anchorFraction = -0.30;  // shift left on zoom, but keep disk within its 2/3 column
+  const anchorPx = null;         // use fraction-based anchor; set number to override
+  const rotateStepDeg = 10;
+  const resetFraction = 0.5;     // center within the 2/3 viz area
+  const resetYOffset = -130;     // refined lift toward vertical center
+  const resetPx = null;          // set to number to override resetFraction
+  const defaultScale = 0.8;      // fit without edge overlap on load
+  const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
+  const proxyFilters = ['Proxy', 'Study', 'Site'];
+  const zoomPresets = [2, 7];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
+  let currentTransform = d3.zoomIdentity;
+  let zoomBehavior = null;
+  let rotationDeg = 0;
+  let infoPanelEl = $state(null);
+  let panelContent = $state('');
+  let panelVisible = $state(false);
+  let connectorStart = $state(null);
+  let connectorEnd = $state(null);
+  let viewportW = $state(0);
+  let viewportH = $state(0);
+  let proxySgbMap = {};
+  let studySgbMap = {};
+  let proxyLoaded = false;
+  let studyLoaded = false;
+
+  function closePanel() {
+    panelVisible = false;
+    panelContent = '';
+    connectorStart = null;
+    connectorEnd = null;
+    currentTooltipDatum = null;
+    tooltipPinned = false;
+  }
+
+  function applyTransforms() {
+    if (!svgElement) return;
+    const g = d3.select(svgElement).select('g.zoom-container');
+    g.attr('transform', `${currentTransform} rotate(${rotationDeg || 0})`);
+  }
+
+  function clampScale(k) {
+    return Math.max(zoomMin, Math.min(zoomMax, k));
+  }
+
+  function applyZoom(k, anchorX, anchorY) {
+    const rect = svgElement.getBoundingClientRect();
+    const dim = size === 'full' ? fullSize : previewSize;
+    const scale = dim / rect.width; // convert screen px -> user units
+    // Translate so disk center moves from screen center to anchor in user space
+    const tx = (anchorX - rect.width / 2) * scale;
+    const ty = (anchorY - rect.height / 2) * scale;
+    const target = d3.zoomIdentity.translate(tx, ty).scale(k);
+    currentTransform = target;
+    if (zoomBehavior && svgElement) {
+      d3.select(svgElement).call(zoomBehavior.transform, target);
+    } else {
+      applyTransforms();
+    }
+  }
+
+  function performZoomStep(dir = 1) {
+    if (!svgElement) return;
+    const rect = svgElement.getBoundingClientRect();
+    const anchorX = anchorPx ?? rect.width * anchorFraction;
+    const anchorY = rect.height / 2 + resetYOffset;
+    const nextK = clampScale(currentTransform.k * (dir > 0 ? zoomStep : 1 / zoomStep));
+    applyZoom(nextK, anchorX, anchorY);
+  }
+
+  const zoomIn = () => performZoomStep(1);
+  const zoomOut = () => performZoomStep(-1);
+
+  function resetView() {
+    if (!svgElement) return;
+    const rect = svgElement.getBoundingClientRect();
+    const anchorX = resetPx ?? rect.width * resetFraction;
+    applyZoom(defaultScale, anchorX, rect.height / 2 + resetYOffset);
+    rotationDeg = 0;
+    applyTransforms();
+  }
+
+  function rotateBy(deltaDeg) {
+    // snap to 5° increments for fewer repaints
+    const snap = 5;
+    const snapped = Math.round(deltaDeg / snap) * snap;
+    rotationDeg = (rotationDeg + snapped + 360) % 360;
+    applyTransforms();
+  }
 
   // Render the visualization
   function render() {
@@ -362,7 +461,17 @@
       labels: d3.selectAll(labelsLayer.selectAll('text').nodes())
     };
 
-    applyFilters();
+    applyFiltersNow();
+    applyTransforms();
+  }
+
+  function updateConnector() {
+    if (!panelVisible || !infoPanelEl || !connectorStart) return;
+    const rect = infoPanelEl.getBoundingClientRect();
+    const x2 = rect.left + 6; // slight inset from panel edge
+    const midY = rect.top + rect.height / 2;
+    const y2 = Math.max(rect.top + 6, Math.min(rect.bottom - 6, connectorStart.y || midY));
+    connectorEnd = { x: x2, y: y2 };
   }
 
   // Create tooltip HTML with mini-glyph and genome meter
@@ -434,6 +543,7 @@
 
       ${leaf ? `<div class="actions">
         <button data-act="highlight">Highlight this species</button>
+        ${meta?.SGB_ID ? `<button data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</button>` : ''}
       </div>` : ''}
     `;
   }
@@ -447,9 +557,11 @@
         const datum = accessor(d);
         tooltipX = event.clientX;
         tooltipY = event.clientY;
-        tooltipContent = createTooltipHTML(datum);
+        connectorStart = { x: event.clientX, y: event.clientY };
+        panelContent = createTooltipHTML(datum);
+        panelVisible = true;
         currentTooltipDatum = datum; // Track current datum
-        tooltipVisible = true;
+        updateConnector();
       })
       .on('mouseover', function (event, d) {
         d3.select(this).classed('is-hover', true);
@@ -457,9 +569,11 @@
         if (lid) toggleClassForLeaf(lid, 'is-hover', true);
         if (!tooltipPinned) {
           const datum = accessor(d);
-          tooltipContent = createTooltipHTML(datum);
+          panelContent = createTooltipHTML(datum);
+          panelVisible = true;
           currentTooltipDatum = datum; // Track current datum
-          tooltipVisible = true;
+          connectorStart = { x: event.clientX, y: event.clientY };
+          updateConnector();
         }
       })
       .on('mouseout', function () {
@@ -467,8 +581,10 @@
         const lid = this.getAttribute('data-leaf-id');
         if (lid) toggleClassForLeaf(lid, 'is-hover', false);
         if (!tooltipPinned) {
-          tooltipVisible = false;
+          panelVisible = false;
           currentTooltipDatum = null; // Clear datum when hiding
+          connectorStart = null;
+          connectorEnd = null;
         }
       })
       .on('click', function (event, d) {
@@ -485,9 +601,11 @@
         tooltipPinned = true;
         tooltipX = event.clientX;
         tooltipY = event.clientY;
-        tooltipContent = createTooltipHTML(datum);
+        panelContent = createTooltipHTML(datum);
         currentTooltipDatum = datum; // Track current datum
-        tooltipVisible = true;
+        panelVisible = true;
+        connectorStart = { x: event.clientX, y: event.clientY };
+        updateConnector();
 
         if (lid) {
           clearSelected();
@@ -514,6 +632,8 @@
 
   function clearHighlight() {
     highlightedLeaf = null;
+    highlightedSGBs = new Set();
+    crossHighlightActive = false;
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
     g.classed('isolated', false);
@@ -526,6 +646,27 @@
     highlightedLeaf = d;
     const keep = new Set(d.ancestors());
     keep.add(d);
+
+    const svg = d3.select(svgElement);
+    const g = svg.select('g.zoom-container');
+    g.classed('isolated', true);
+    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+      .attr('opacity', datum => {
+        const nd = datum?.target ? datum.target : datum;
+        return keep.has(nd) ? 1 : DIM_OPACITY;
+      })
+      .style('pointer-events', datum => {
+        const nd = datum?.target ? datum.target : datum;
+        return keep.has(nd) ? null : 'none';
+      });
+  }
+
+  function highlightMultipleLeaves(leaves) {
+    const keep = new Set();
+    leaves.forEach(leaf => {
+      leaf.ancestors().forEach(a => keep.add(a));
+      keep.add(leaf);
+    });
 
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
@@ -555,11 +696,36 @@
     } else if (westernFilter === 'nonwestern') {
       if (!isWesternNo(leaf.data.metadata)) return false;
     }
+    // Body site filter (best-effort; expects metadata.body_site)
+    if (bodySiteFilter.size > 0) {
+      const bs = (leaf.data?.metadata?.body_site || '').toLowerCase();
+      const matches = Array.from(bodySiteFilter).some(site => bs.includes(site.toLowerCase()));
+      if (!matches) return false;
+    }
+    // Proxy filter placeholder (no-op if no proxy selected)
+    if (proxyKey) {
+      const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
+      const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
+      const allowed = proxySgbMap[proxyKey] || null;
+      if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
+    }
+    // Study filter
+    if (studyKey) {
+      const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
+      const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
+      const allowed = studySgbMap[studyKey] || null;
+      if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
+    }
     return true;
   }
 
   function computeKeepSet(root) {
-    const anyActive = selectedPhyla.length > 0 || unknownFilter || westernFilter !== 'any';
+    const anyActive =
+      selectedPhyla.length > 0 ||
+      unknownFilter ||
+      westernFilter !== 'any' ||
+      bodySiteFilter.size > 0 ||
+      !!proxyKey;
     if (!anyActive) return null;
 
     const matchedLeaves = root.leaves().filter(leafMatchesFilters);
@@ -571,7 +737,9 @@
     return keep;
   }
 
-  function applyFilters() {
+  let filterRaf = null;
+
+  function applyFiltersNow() {
     const { root, selections } = handles;
     if (!root) return;
 
@@ -609,6 +777,19 @@
     styleDim(selections.labels, d => keep.has(d), true);
   }
 
+  function scheduleFilters() {
+    if (filterRaf) return;
+    const cb = () => {
+      filterRaf = null;
+      applyFiltersNow();
+    };
+    if (typeof requestIdleCallback === 'function') {
+      filterRaf = requestIdleCallback(cb, { timeout: 50 });
+    } else {
+      filterRaf = requestAnimationFrame(cb);
+    }
+  }
+
   // Handle tooltip actions
   function handleTooltipAction(event) {
     const btn = event.target.closest('button');
@@ -621,20 +802,42 @@
       setTimeout(() => {
         btn.textContent = 'Highlight this species';
       }, 1200);
+    } else if (act === 'highlight-countries') {
+      const sgbId = parseInt(btn.getAttribute('data-sgb'), 10);
+      if (sgbId) {
+        const base = import.meta.env.BASE_URL;
+        window.location.href = `${base}src/anthromes/index.html?highlightSGB=${sgbId}`;
+      }
     }
+  }
+
+  function handleBackButton() {
+    const sgbsParam = new URLSearchParams(window.location.search).get('highlightSGBs');
+    const base = import.meta.env.BASE_URL;
+    window.location.href = `${base}src/anthromes/index.html${sgbsParam ? `?highlightSGBs=${sgbsParam}` : ''}`;
   }
 
   // Handle window click (unpin, clear selection, clear highlight)
   function handleWindowClick(event) {
     const target = event.target;
-    if (target.closest('#tooltip') || target.closest('svg#chart')) return;
+    if (target.closest('.back-button')) return;
+    if (target.closest('#info-panel') || target.closest('svg#chart') || target.closest('.zoom-controls')) return;
 
-    tooltipPinned = false;
-    tooltipVisible = false;
-    currentTooltipDatum = null;
+    closePanel();
     clearSelected();
     clearHighlight();
-    applyFilters();
+
+    // Clear URL parameters and cross-highlighting state
+    if (crossHighlightActive || showBackButton) {
+      crossHighlightActive = false;
+      showBackButton = false;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('highlightSGBs');
+      url.searchParams.delete('highlightSGB');
+      window.history.replaceState({}, '', url);
+    }
+
+    scheduleFilters();
   }
 
   // Handle escape key
@@ -645,7 +848,7 @@
       currentTooltipDatum = null;
       clearSelected();
       clearHighlight();
-      applyFilters();
+      scheduleFilters();
     }
   }
 
@@ -662,12 +865,45 @@
     selectedPhyla.length;
     unknownFilter;
     westernFilter;
+    bodySiteFilter.size;
+    proxyKey;
+    studyKey;
 
-    applyFilters();
+    scheduleFilters();
+  });
+
+  // Lazy-load study SGB map only when a study filter is requested
+  $effect(() => {
+    if (!studyKey || studyLoaded) return;
+    fetch('/data/study_index.json')
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json) {
+          Object.entries(json).forEach(([key, val]) => {
+            studySgbMap[key] = new Set((val?.sgbs || []).map(Number));
+          });
+          studyLoaded = true;
+          applyFiltersNow();
+        }
+      })
+      .catch(() => {});
   });
 
   onMount(() => {
-    // Set up zoom behavior on zoom-container
+    // Lazy-load proxy SGB map from public JSON
+    fetch('/data/proxy_samples.json')
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json?.proxies) {
+          Object.entries(json.proxies).forEach(([key, val]) => {
+            proxySgbMap[key] = new Set((val?.sgbs || []).map(Number));
+          });
+          proxyLoaded = true;
+          scheduleFilters();
+        }
+      })
+      .catch(() => {});
+
     const svg = d3.select(svgElement);
 
     // Ensure zoom container exists
@@ -676,17 +912,87 @@
       zoomGroup = svg.append('g').attr('class', 'zoom-container');
     }
 
-    // Capture zoomGroup reference in closure for better performance
-    const zoom = d3.zoom()
-      .scaleExtent([1, 15])
+    zoomBehavior = d3.zoom()
+      .filter((event) => {
+        // Disable wheel/pinch; allow drag for pan
+        const t = event.type;
+        if (t === 'wheel' || t === 'touchstart' || t === 'touchmove') return false;
+        return true;
+      })
+      .scaleExtent([zoomMin, zoomMax])
       .on('zoom', (event) => {
-        // Use captured reference instead of re-querying DOM
-        zoomGroup.attr('transform', event.transform);
+        currentTransform = event.transform;
+        applyTransforms();
       });
 
-    svg.call(zoom);
+    svg.call(zoomBehavior);
+
+    // Initial transform: full view centered
+    resetView();
 
     // Don't render here - let $effect handle it when taxonomyTree is set
+
+    // Check for cross-highlighting from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const highlightSGBsParam = urlParams.get('highlightSGBs');
+    const highlightSGBParam = urlParams.get('highlightSGB');
+
+    if (highlightSGBsParam || highlightSGBParam) {
+      showBackButton = true;
+      crossHighlightActive = true;
+
+      // Wait for taxonomy tree to load using polling
+      const checkTreeInterval = setInterval(() => {
+        if (taxonomyTree && handles.root) {
+          clearInterval(checkTreeInterval);
+
+          // Parse comma-separated SGB IDs (or single SGB ID)
+          const sgbIds = highlightSGBsParam
+            ? highlightSGBsParam.split(',').map(id => parseInt(id.trim(), 10))
+            : [parseInt(highlightSGBParam, 10)];
+
+          // Find ALL matching leaves
+          const leaves = handles.root.leaves();
+          const matchedLeaves = leaves.filter(leaf => {
+            const sgbId = leaf?.data?.metadata?.SGB_ID;
+            return sgbId && sgbIds.includes(sgbId);
+          });
+
+          if (matchedLeaves.length > 0) {
+            // Collect all ancestors to keep visible
+            const keep = new Set();
+            matchedLeaves.forEach(leaf => {
+              keep.add(leaf);
+              leaf.ancestors().forEach(a => keep.add(a));
+            });
+
+            // Dim non-highlighted nodes
+            const g = svg.select('g.zoom-container');
+            g.classed('isolated', true);
+            g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
+              .attr('opacity', datum => {
+                const nd = datum?.target ? datum.target : datum;
+                return keep.has(nd) ? 1 : 0.02;
+              })
+              .style('pointer-events', datum => {
+                const nd = datum?.target ? datum.target : datum;
+                return keep.has(nd) ? null : 'none';
+              });
+
+            // Make matched leaves bold
+            matchedLeaves.forEach(leaf => {
+              if (leaf.leafId != null) {
+                svg.selectAll(`[data-leaf-id="${leaf.leafId}"]`)
+                   .classed('is-selected', true);
+              }
+            });
+          }
+        }
+      }, 100);
+
+      // Safety timeout
+      setTimeout(() => clearInterval(checkTreeInterval), 10000);
+    }
 
     // Add event listeners
     window.addEventListener('click', handleWindowClick);
@@ -700,38 +1006,336 @@
 </script>
 
 <div class="chart-container">
-  <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
-  </svg>
+  {#if crossHighlightActive}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="back-button" onclick={handleBackButton}>
+      ← Back to Anthromes
+    </div>
+  {/if}
 
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    id="tooltip"
-    class="biomes-tooltip"
-    class:hidden={!tooltipVisible}
-    style="left: {tooltipX}px; top: {tooltipY}px;"
-    onclick={handleTooltipAction}
-  >
-    {@html tooltipContent}
+  <div class="rail">
+    <div class="control-circles">
+      <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
+      <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
+      <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
+      <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-rotateStepDeg)}>⟲</button>
+      <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(rotateStepDeg)}>⟳</button>
+    </div>
+    <div class="preset-row">
+      {#each zoomPresets as zp}
+        <button
+          class="chip"
+          onclick={() => {
+            const rect = svgElement?.getBoundingClientRect();
+            if (!rect) return;
+            const anchorY = rect.height / 2 + resetYOffset;
+            const anchorX = (zp <= 2)
+              ? 0                                        // 2x: center on left edge
+              : -rect.width * 1.5;                       // 7x: force farther left to expose rim
+            applyZoom(zp, anchorX, anchorY);
+            applyFiltersNow(); // ensure dimming updates immediately at this zoom
+          }}>
+          {zp}x
+        </button>
+      {/each}
+    </div>
   </div>
+
+  <div class="viz-area">
+    <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
+    </svg>
+
+    <svg class="connector-overlay" width="100%" height="100%" aria-hidden="true">
+      {#if connectorStart && connectorEnd && panelVisible}
+        <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
+      {/if}
+    </svg>
+  </div>
+
+  {#if panelVisible && panelContent}
+    <aside class="info-panel" id="info-panel" bind:this={infoPanelEl} aria-live="polite">
+      <div class="info-header">
+        <div class="info-title">Details</div>
+        <button class="close-btn" onclick={closePanel} aria-label="Close">✕</button>
+      </div>
+      <div class="panel-content biomes-tooltip">
+        {@html panelContent}
+      </div>
+    </aside>
+  {/if}
+
+  <!-- Filters handled via circular menu in App; inline stack hidden -->
 </div>
 
 <style>
   .chart-container {
-    width: 100%;
+    width: 100vw;
     height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+    align-items: center;
+    position: relative;
+  }
+
+  .viz-area {
+    grid-column: 1;
+    grid-row: 1;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    background: var(--bg);
+    z-index: 1;
+    padding: 0 8px;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
-    position: relative;
   }
 
   svg {
     display: block;
-    margin: auto;
+    background: transparent;
+    width: 100%;
+    height: 100%;
+  }
+
+  .rail {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: flex-start;
+    justify-self: end;
+    width: 100%;
+    max-width: 360px;
+    padding: 14px 12px 18px;
+    box-sizing: border-box;
+    display: grid;
+    gap: 14px;
+  }
+
+  .control-circles {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    justify-items: center;
+  }
+
+  .circle-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--fg);
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+
+  .circle-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .circle-btn.active {
+    background: var(--accent, rgba(255, 255, 255, 0.2));
+    border-color: var(--accent, rgba(255, 255, 255, 0.35));
+  }
+
+  .preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .chip {
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--fg);
+    padding: 6px 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .chip:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+
+  .connector-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .connector-overlay line {
+    stroke: rgba(255, 255, 255, 0.5);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
+  .info-panel {
+    position: absolute;
+    top: 72px;
+    right: 16px;
+    width: 28vw;
+    max-width: 340px;
+    min-width: 220px;
+    max-height: 72vh;
     background: var(--bg);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 12px;
+    padding: 12px 14px;
+    overflow: auto;
+    color: var(--fg);
+    z-index: 12;
+    box-shadow: var(--shadow);
+  }
+
+  .panel-content.biomes-tooltip {
+    position: relative;
+    left: 0;
+    top: 0;
+    display: block;
     max-width: 100%;
-    max-height: 100%;
+    min-width: 0;
+  }
+
+  .info-panel .placeholder {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .info-panel .info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .info-panel .info-title {
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .info-panel .close-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--fg);
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+  }
+
+  .filter-stack {
+    position: absolute;
+    top: 72px;
+    right: 16px;
+    width: 28vw;
+    max-width: 340px;
+    min-width: 220px;
+    max-height: 72vh;
+    background: rgba(14, 11, 22, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 14px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    box-shadow: var(--shadow);
+    z-index: 11;
+    overflow: auto;
+  }
+
+  .panel-toggle {
+    position: absolute;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: rgba(14, 11, 22, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--fg);
+    font-weight: 700;
+    cursor: pointer;
+    z-index: 1001;
+    box-shadow: var(--shadow);
+  }
+
+  .panel-toggle.fab {
+    right: 24px;
+    bottom: 120px; /* stack above existing filter circle */
+  }
+
+  .filter-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 10px;
+  }
+
+  .card-title {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .pill-row.wrap {
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    padding: 10px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+  }
+
+  .pill:hover {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+    transform: translateY(-1px);
+  }
+
+  .pill.small {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .pill.active {
+    background: var(--accent, #8af);
+    color: var(--bg);
+    border-color: var(--accent, #8af);
+  }
+
+  .proxy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 6px;
+    margin-top: 8px;
   }
 
   :global(.region-path) {
@@ -977,5 +1581,25 @@
     font-size: 12px;
     color: var(--muted);
     white-space: nowrap;
+  }
+
+  .back-button {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: rgba(14, 11, 22, 0.85);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+  }
+
+  .back-button:hover {
+    background: rgba(14, 11, 22, 0.95);
+    border-color: rgba(255, 255, 255, 0.25);
   }
 </style>

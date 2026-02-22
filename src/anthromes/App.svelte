@@ -19,16 +19,15 @@
   let selectedYear = $state(null);
   let viewSize = $state('full'); // 'full' or 'preview'
   let settingsOpen = $state(false);
-  let debugMenuVisible = $state(true);
+  let debugMenuVisible = $state(false);
+  let showBoundaries = $state(true);
   let mapReady = $state(false);
   let initialLoad = $state(true);
+  let zoomLevel = $state(1);
+  let rotation = $state(0);
 
-  // Filter state
-  let filterExpanded = $state(false);
-  let filterCircleSize = $state(160); // diameter (COLLAPSED_R * 2)
-  let filterCompact = $state(false);
-  let expandedTimestamp = $state(0);
-  let filterCircleEl = $state(null);
+  // Filter rail state
+  let openPanel = $state(null); // 'anthromes' | 'year' | 'layers'
 
   // Load data on mount
   onMount(async () => {
@@ -75,6 +74,24 @@
     selectedAnthromes = [...orderedCodes];
   }
 
+  // Zoom controls (placeholder hooks; WaffleChart should react to size or transform if available)
+  function zoomIn() {
+    zoomLevel = Math.min(zoomLevel * 1.25, 7);
+  }
+
+  function zoomOut() {
+    zoomLevel = Math.max(zoomLevel / 1.25, 0.5);
+  }
+
+  function resetView() {
+    zoomLevel = 1;
+    rotation = 0;
+  }
+
+  function rotateBy(delta) {
+    rotation = (rotation + delta + 360) % 360;
+  }
+
   // Handle clear - in original, this also resets to show everything (same as Select All)
   function handleClear() {
     if (!orderedCodes.length || !allYears.length) return;
@@ -109,31 +126,11 @@
     URL.revokeObjectURL(url);
   }
 
-  // Filter circle expand/collapse
-  function expandFilter() {
-    filterExpanded = true;
-    expandedTimestamp = Date.now();
-
-    // Calculate expanded size
-    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
-    const vh = Math.max(document.documentElement.clientHeight, window.innerHeight || 0);
-    const maxR = Math.floor(Math.min(vw, vh) / 2) - 28;
-    const r = Math.min(440, maxR);
-    filterCircleSize = r * 2;
-  }
-
-  function collapseFilter() {
-    filterExpanded = false;
-    filterCircleSize = 160;
-  }
-
-  // Handle window click to collapse filter
+  // Handle window click to close overlays
   function handleWindowClick(e) {
     const target = e.target;
-    if (target.closest('.filter-circle') || target.closest('.settings-panel') || target.closest('.settings-toggle')) return;
-    if (filterExpanded && Date.now() - expandedTimestamp > 100) {
-      collapseFilter();
-    }
+    if (target.closest('.filter-rail') || target.closest('.settings-panel') || target.closest('.settings-toggle')) return;
+    openPanel = null;
   }
 
   // Drag selection state
@@ -191,6 +188,16 @@
     <!-- Side Title -->
     <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
 
+    <!-- Anthrome Zooms Link -->
+    <a
+      class="zooms-link"
+      href="/anthrome-change-year-test.html"
+      aria-label="Anthrome Zooms"
+      title="Anthrome Zooms"
+    >
+      Anthrome Zooms
+    </a>
+
     <!-- Settings Toggle -->
     <button
       class="settings-toggle"
@@ -216,6 +223,11 @@
         <span>Show Projection Debug Menu</span>
       </label>
 
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={showBoundaries} />
+        <span>Show Country Boundaries</span>
+      </label>
+
       <button class="export-btn" onclick={handleExport}>
         Export SVG
       </button>
@@ -225,86 +237,99 @@
       </div>
     </div>
 
-    <!-- Main Visualization -->
-    <WaffleChart
-      {data}
-      {years}
-      {colorMapping}
-      {labelMapping}
-      {legend}
-      {orderedCodes}
-      bind:selectedAnthromes
-      bind:selectedYear
-      bind:mapReady
-      size={viewSize}
-      {debugMenuVisible}
-    />
+    <div class="layout">
+      <div class="filter-rail">
+        <div class="control-circles">
+          <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
+          <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
+          <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
+          <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-10)}>⟲</button>
+          <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(10)}>⟳</button>
+        </div>
 
-    <!-- Circular Filter Widget -->
-    <div
-      bind:this={filterCircleEl}
-      class="filter-circle"
-      class:expanded={filterExpanded}
-      class:compact={filterCompact}
-      style="width: {filterCircleSize}px; height: {filterCircleSize}px; left: 24px; bottom: 24px;"
-      aria-live="polite"
-    >
-      <svg class="ring-svg" viewBox="-{filterCircleSize/2} -{filterCircleSize/2} {filterCircleSize} {filterCircleSize}" aria-hidden="true">
-        <circle class="filter-ring" cx="0" cy="0" r="{filterCircleSize/2 - 3}" />
-        <text class="filter-caption" style="opacity: {filterExpanded ? 1 : 0};">
-          <textPath href="#fc-arc-right" startOffset="50%" text-anchor="middle">
-              MODELING 12,025 YEARS OF LAND USE
-          </textPath>
-        </text>
-        <defs>
-          <path id="fc-arc-right" d="M 0 -{filterCircleSize/2 - 25} A {filterCircleSize/2 - 25} {filterCircleSize/2 - 25} 0 0 1 0 {filterCircleSize/2 - 25}" />
-        </defs>
-      </svg>
+      <div class="filter-grid">
+        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => openPanel = openPanel === 'anthromes' ? null : 'anthromes'}>
+          Anthromes
+        </button>
+        <button class="mini-circle" class:active={openPanel === 'year'} onclick={() => openPanel = openPanel === 'year' ? null : 'year'}>
+          Year
+        </button>
+        <button class="mini-circle" class:active={openPanel === 'layers'} onclick={() => openPanel = openPanel === 'layers' ? null : 'layers'}>
+          Layers
+        </button>
+      </div>
 
-      <div class="content">
-        <!-- Collapsed -->
-        {#if !filterExpanded}
-          <div class="fc-collapsed">
-            <span class="label">FILTER</span>
-            <button class="chev" title="Expand" onclick={(e) => { e.stopPropagation(); expandFilter(); }}>▾</button>
-          </div>
-        {/if}
-
-        <!-- Expanded -->
-        {#if filterExpanded}
-          <div class="fc-expanded">
-            <div class="sections">
-              <div class="fc-head">
-                <div class="fc-title">Filters & Legend</div>
-                <div class="actions">
-                  <button class="btn" title="Select all" onclick={handleSelectAll}>Select All</button>
-                  <button class="btn" title="Clear" onclick={handleClear}>Clear</button>
-                  <button class="chevron" title="Collapse" onclick={(e) => { e.stopPropagation(); collapseFilter(); }}>▴</button>
-                </div>
+        {#if openPanel}
+          <div class="filter-overlay" aria-live="polite">
+            <div class="overlay-head">
+              <div class="overlay-title">
+                {openPanel === 'anthromes' ? 'Anthromes' : openPanel === 'year' ? 'Year' : 'Layers'}
               </div>
-
-              <section class="section">
-                <h3>Anthrome Range</h3>
-                <div class="legend-grid">
-                  {#each orderedCodes as code, idx}
-                    <button
-                      class="legend-item"
-                      class:selected={selectedAnthromes.includes(code)}
-                      onmousedown={(e) => handleLegendMouseDown(e, idx)}
-                      onmouseenter={() => handleLegendMouseEnter(idx)}
-                      title="{labelMapping[code]} (Code: {code})"
-                    >
-                      <span class="sw" style="background: {colorMapping[code]};"></span>
-                      <span class="lbl">{labelMapping[code]}</span>
-                    </button>
-                  {/each}
-                </div>
-                <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
-              </section>
-
+              <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
             </div>
+
+          {#if openPanel === 'anthromes'}
+            <p class="overlay-desc">Select anthrome classes; click or drag to choose a range.</p>
+            <div class="overlay-actions">
+              <button class="btn" onclick={handleSelectAll}>Select All</button>
+              <button class="btn" onclick={handleClear}>Clear</button>
+            </div>
+              <div class="legend-grid">
+                {#each orderedCodes as code, idx}
+                  <button
+                    class="legend-item"
+                    class:selected={selectedAnthromes.includes(code)}
+                    onmousedown={(e) => handleLegendMouseDown(e, idx)}
+                    onmouseenter={() => handleLegendMouseEnter(idx)}
+                    title="{labelMapping[code]} (Code: {code})"
+                  >
+                    <span class="sw" style="background: {colorMapping[code]};"></span>
+                    <span class="lbl">{labelMapping[code]}</span>
+                  </button>
+                {/each}
+              </div>
+              <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
+            {:else if openPanel === 'year'}
+              <p class="overlay-desc">Choose a year to view anthrome distribution.</p>
+              <div class="year-grid">
+                {#each years as yr}
+                  <button
+                    class="chip"
+                    class:active={selectedYear === yr}
+                    onclick={() => selectedYear = yr}
+                  >
+                    {yr}
+                  </button>
+                {/each}
+              </div>
+            {:else if openPanel === 'layers'}
+              <p class="overlay-desc">Toggle map layers and boundaries.</p>
+              <label class="checkbox-label">
+                <input type="checkbox" bind:checked={showBoundaries} />
+                <span>Show Country Boundaries</span>
+              </label>
+            {/if}
           </div>
         {/if}
+      </div>
+
+      <div class="viz-area">
+        <WaffleChart
+          {data}
+          {years}
+          {colorMapping}
+          {labelMapping}
+          {legend}
+          {orderedCodes}
+          bind:selectedAnthromes
+          bind:selectedYear
+          bind:mapReady
+          size={viewSize}
+          {debugMenuVisible}
+          {showBoundaries}
+          mapScale={zoomLevel}
+          mapRotation={rotation}
+        />
       </div>
     </div>
   </div>
@@ -340,6 +365,18 @@
     overflow: hidden;
   }
 
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    cursor: pointer;
+  }
+
   .export-btn {
     width: 100%;
     margin-top: 10px;
@@ -355,18 +392,6 @@
 
   .export-btn:hover {
     opacity: 0.8;
-  }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    margin-top: 8px;
-  }
-
-  .checkbox-label input[type="checkbox"] {
-    cursor: pointer;
   }
 
   /* Filter Circle Styles */
@@ -403,143 +428,7 @@
     transition: opacity 0.3s ease;
   }
 
-  .content {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    background: transparent;
-    box-shadow: var(--shadow);
-    padding: 18px;
-    z-index: 1;
-  }
-
-  .filter-circle.expanded .content {
-    background: var(--panel);
-  }
-
-  .fc-collapsed {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .fc-collapsed .label {
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .fc-collapsed .chev {
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    width: 34px;
-    height: 28px;
-    border-radius: 10px;
-    cursor: pointer;
-  }
-
-  .fc-expanded {
-    display: flex;
-    width: 100%;
-    height: 100%;
-  }
-
-  .sections {
-    margin: auto;
-    width: 86%;
-    height: 86%;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .fc-head {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .fc-title {
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-
-  .actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn {
-    font-size: 10px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    cursor: pointer;
-    padding: 6px 9px;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-  }
-
-  .chevron {
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    width: 34px;
-    height: 28px;
-    border-radius: 10px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .section {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-
-  .section h3 {
-    margin: 0;
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-
-  .filter-circle.compact .sections {
-    width: 84%;
-    height: 84%;
-    gap: 8px;
-  }
-
-  .filter-circle.compact .section h3 {
-    font-size: 9px;
-    letter-spacing: 0.16em;
-  }
-
-  .filter-circle.compact .btn {
-    font-size: 9px;
-    padding: 5px 8px;
-  }
+  .content { display: none; }
 
   /* Legend Grid Styles */
   .legend-grid {
@@ -572,9 +461,9 @@
 
   .legend-item.selected {
     opacity: 1;
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.35);
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08) inset;
+    background: #fff;
+    border-color: #fff;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2) inset;
   }
 
   .legend-item .sw {
@@ -592,12 +481,187 @@
     font-weight: 500;
   }
 
+  .legend-item.selected .lbl {
+    color: var(--bg);
+  }
+
   .instruction-text {
     font-size: 10px;
     color: var(--muted);
     margin-top: 2px;
     line-height: 1.4;
     text-align: center;
+  }
+
+  /* New rail + overlay styles */
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) 1fr;
+    height: 100%;
+    align-items: stretch;
+  }
+
+  .filter-rail {
+    grid-column: 1;
+    padding: 18px 14px;
+    box-sizing: border-box;
+    display: grid;
+    gap: 12px;
+    align-content: start;
+  }
+
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 10px;
+  }
+
+  .control-circles {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    justify-items: center;
+  }
+
+  .circle-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--fg);
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+
+  .circle-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .mini-circle {
+    width: 86px;
+    height: 86px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    display: grid;
+    place-items: center;
+    color: var(--fg);
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, color 0.2s ease;
+    text-align: center;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .mini-circle:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .mini-circle.active {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
+  }
+
+  .filter-overlay {
+    background: var(--bg);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    padding: 12px 14px;
+    box-shadow: var(--shadow);
+    max-height: 70vh;
+    overflow: auto;
+  }
+
+  .overlay-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .overlay-title {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .overlay-desc {
+    margin: 6px 0 10px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .overlay-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .btn {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+  }
+
+  .chevron {
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--fg);
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+
+  .year-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 8px;
+  }
+
+  .chip {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--fg);
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .chip.active {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
+  }
+
+  .viz-area {
+    grid-column: 2;
+    position: relative;
+    overflow: hidden;
   }
 
 </style>

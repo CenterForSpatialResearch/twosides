@@ -3,9 +3,9 @@
   import * as d3 from 'd3';
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
-  import { TOPO_PROFILE } from './constants.js';
+  import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import Tooltip from '../../shared/Tooltip.svelte';
-  import { formatYearLabel } from './dataAdapter.js';
+  import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -21,11 +21,13 @@
     selectedCodes = [],
     zoom = { k: 1, x: 0, y: 0 },
     points = $bindable([
-      [-75, 41],
-      [48, -15]
+      [-117, 33],
+      [36, 4]
     ]),
-    clipAngle = 120,
-    mapReady = $bindable(false)
+    clipAngle = 180,
+    mapReady = $bindable(false),
+    showBoundaries = false,
+    debugMenuVisible = false
   } = $props();
 
   let canvasEl = $state(null);
@@ -34,6 +36,16 @@
   let currentMesh = $state(null);
   let loading = $state(false);
   let errorMsg = $state('');
+  let boundariesMesh = $state(null);
+  let boundariesGeo = $state(null);
+  let boundariesLoading = $state(false);
+  let cellHistory = $state(null);
+  let cellHistoryLoading = $state(false);
+  let countryData = $state(null);
+  let countryDataLoading = $state(false);
+  let timelineLabelsEl = $state(null);
+  let timelineHeightPx = $state(0);
+  let timelineResizeObserver = null;
   const cache = new Map();
   const inFlight = new Map();
   let draggingHandle = $state(false);
@@ -43,7 +55,6 @@
   let projectionCache = null;
   let initialDrawDone = $state(false);
   let isAnimating = $state(false);
-  const DEBUG_PROJECTION = false;
 
   // Tooltip state
   let tooltipVisible = $state(false);
@@ -51,6 +62,17 @@
   let tooltipY = $state(0);
   let tooltipContent = $state('');
   let tooltipPinned = $state(false);
+
+  // Cross-highlighting state
+  let highlightedCountries = $state(new Set());
+  let crossHighlightActive = $state(false);
+
+  // Isolate pixel state
+  let isolatedCellId = $state(null);
+
+  // Bar chart state
+  let showBarChart = $state(false);
+  let barChartData = $state(null);
 
   // Throttle pointer move for performance
   let lastPointerMoveTime = 0;
@@ -186,6 +208,73 @@
     }
   }
 
+  async function loadBoundaries() {
+    if (boundariesMesh || boundariesLoading) return;
+    boundariesLoading = true;
+    try {
+      const base = import.meta.env.BASE_URL;
+      // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
+      const url = USE_PIXEL_BOUNDARIES
+        ? `${base}topojson/admin-boundaries/${TOPO_PROFILE}/countries.topojson`
+        : `${base}topojson/admin-boundaries/countries-110m.topojson`;
+      const isDev = import.meta.env.DEV;
+      const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
+      if (!res.ok) {
+        throw new Error(`Failed to load boundaries (${res.status})`);
+      }
+      const topo = await res.json();
+      const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
+      if (!objKey) {
+        throw new Error('Boundaries TopoJSON missing objects');
+      }
+      boundariesMesh = topojson.mesh(topo, topo.objects[objKey]);
+      boundariesGeo = topojson.feature(topo, topo.objects[objKey]);
+    } catch (err) {
+      console.error('MapCanvas: Failed to load boundaries', err);
+    } finally{
+      boundariesLoading = false;
+    }
+  }
+
+  async function loadCellHistory() {
+    if (cellHistory || cellHistoryLoading) return;
+    cellHistoryLoading = true;
+    try {
+      const base = import.meta.env.BASE_URL;
+      const url = `${base}data/cell-history-${TOPO_PROFILE}.json`;
+      const isDev = import.meta.env.DEV;
+      const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
+      if (!res.ok) {
+        throw new Error(`Failed to load cell history (${res.status})`);
+      }
+      cellHistory = await res.json();
+    } catch (err) {
+      console.error('MapCanvas: Failed to load cell history', err);
+    } finally {
+      cellHistoryLoading = false;
+    }
+  }
+
+  async function loadCountryData() {
+    if (countryData || countryDataLoading) return;
+    countryDataLoading = true;
+    try {
+      const base = import.meta.env.BASE_URL;
+      const url = `${base}data/country_index.json`;
+      const isDev = import.meta.env.DEV;
+      const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
+      if (!res.ok) {
+        throw new Error(`Failed to load country data (${res.status})`);
+      }
+      const data = await res.json();
+      countryData = new Map(Object.entries(data));
+    } catch (err) {
+      console.error('MapCanvas: Failed to load country data', err);
+    } finally {
+      countryDataLoading = false;
+    }
+  }
+
   function updateHandles(currentPoints = points) {
     if (!projection || !currentPoints || currentPoints.length < 2) {
       handlePositions = handlePositions.map(h => ({ ...h, visible: false }));
@@ -219,6 +308,15 @@
       console.warn('MapCanvas: skipping draw, circle radius non-positive', circle);
       return;
     }
+
+    // Clip all drawing to the inner circle
+    const clipCx = circle.cx * dpr;
+    const clipCy = circle.cy * dpr;
+    const clipR = circle.r * dpr;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(clipCx, clipCy, clipR, 0, Math.PI * 2);
+    ctx.clip();
     performance.mark('draw-setup-end');
     performance.measure('draw-setup', 'draw-setup-start', 'draw-setup-end');
 
@@ -267,14 +365,14 @@
           };
         }
         projection = nextProj;
-        if (DEBUG_PROJECTION) {
+        if (debugMenuVisible) {
           console.debug('MapCanvas: refit projection', refitReason);
         }
       } catch (err) {
         console.error('Projection error', err);
         return;
       }
-    } else if (DEBUG_PROJECTION) {
+    } else if (debugMenuVisible) {
       console.debug('MapCanvas: reuse projection cache');
     }
 
@@ -305,13 +403,31 @@
     if (showAll) {
       for (let i = 0; i < currentGeo.features.length; i++) {
         const feature = currentGeo.features[i];
-        const code = feature.properties?.anthrome;
+        const code = feature.properties?.a;
+        const cellId = feature.properties?.i;
         const color = legend[code]?.color || '#ffffff';
+
+        // Determine opacity for isolate pixel feature
+        let opacity = 1.0;
+        if (isolatedCellId !== null && cellId !== isolatedCellId) {
+          opacity = 0.1; // 90% transparent
+        }
+
+        // Parse color and apply opacity
+        const rgb = d3.color(color);
+        if (rgb) {
+          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+          ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+        } else {
+          ctx.fillStyle = color;
+          ctx.strokeStyle = color;
+        }
 
         ctx.beginPath();
         path(feature);
-        ctx.fillStyle = color;
         ctx.fill();
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
       }
     } else {
       const selectedSet = new Set(selectedCodes);
@@ -320,16 +436,70 @@
         const code = feature.properties?.anthrome;
         if (!selectedSet.has(code)) continue;
 
+        const cellId = feature.properties?.cellId;
         const color = legend[code]?.color || '#ffffff';
+
+        // Determine opacity for isolate pixel feature
+        let opacity = 1.0;
+        if (isolatedCellId !== null && cellId !== isolatedCellId) {
+          opacity = 0.1; // 90% transparent
+        }
+
+        // Parse color and apply opacity
+        const rgb = d3.color(color);
+        if (rgb) {
+          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+          ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
+        } else {
+          ctx.fillStyle = color;
+          ctx.strokeStyle = color;
+        }
 
         ctx.beginPath();
         path(feature);
-        ctx.fillStyle = color;
         ctx.fill();
+        ctx.lineWidth = 0.5 * dpr;
+        ctx.stroke();
       }
     }
     performance.mark('feature-render-end');
     performance.measure('feature-render', 'feature-render-start', 'feature-render-end');
+
+    // Draw country boundaries overlay if enabled
+    if (showBoundaries && boundariesMesh) {
+      performance.mark('boundaries-render-start');
+
+      // If cross-highlighting is active, render individual features with custom styling
+      if (crossHighlightActive && highlightedCountries.size > 0 && boundariesGeo) {
+        for (let i = 0; i < boundariesGeo.features.length; i++) {
+          const feature = boundariesGeo.features[i];
+          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
+
+          ctx.beginPath();
+          path(feature);
+
+          if (highlightedCountries.has(iso3)) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
+            ctx.lineWidth = 3 * dpr;
+          } else {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.lineWidth = 1 * dpr;
+          }
+
+          ctx.stroke();
+        }
+      } else {
+        // Normal boundary rendering
+        ctx.beginPath();
+        path(boundariesMesh);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 1 * dpr;
+        ctx.stroke();
+      }
+
+      performance.mark('boundaries-render-end');
+      performance.measure('boundaries-render', 'boundaries-render-start', 'boundaries-render-end');
+    }
 
     performance.mark('draw-cleanup-start');
     ctx.restore();
@@ -443,14 +613,16 @@
   }
 
   function handlePointerMove(e) {
-    // Throttle pointer move events
-    const now = performance.now();
-    if (now - lastPointerMoveTime < POINTER_MOVE_THROTTLE) return;
-    lastPointerMoveTime = now;
+    // Throttle pointer move events (but not when manually triggered from click)
+    if (e.type === 'pointermove') {
+      const now = performance.now();
+      if (now - lastPointerMoveTime < POINTER_MOVE_THROTTLE) return;
+      lastPointerMoveTime = now;
+    }
 
-    if (tooltipPinned) return;
+    if (tooltipPinned && e.type === 'pointermove') return;
     if (!projection || !currentGeo) {
-      tooltipVisible = false;
+      if (!tooltipPinned) tooltipVisible = false;
       return;
     }
     const rect = canvasEl.getBoundingClientRect();
@@ -469,7 +641,7 @@
       return;
     }
 
-    const code = feature.properties?.anthrome;
+    const code = feature.properties?.a;
     if (selectedCodes?.length) {
       const selectedSet = new Set(selectedCodes);
       if (!selectedSet.has(code)) {
@@ -489,9 +661,26 @@
     const globalAreaKm2 = percent != null ? (percent / 100) * EARTH_SURFACE_KM2 : null;
     const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
     const yearLabel = formatYearLabel(year) || '';
+    const countryISO3 = feature.properties?.c || null;
 
-    tooltipX = e.clientX;
-    tooltipY = e.clientY;
+    // Lookup crosswalk data for this country
+    const crosswalk = countryData?.get(countryISO3);
+
+    // Calculate westernized percentage
+    let westPercent = 0;
+    if (crosswalk) {
+      const westYes = crosswalk.westernized_counts?.Yes || 0;
+      const westNo = crosswalk.westernized_counts?.No || 0;
+      const westTotal = westYes + westNo;
+      westPercent = westTotal > 0 ? ((westYes / westTotal) * 100).toFixed(1) : 0;
+    }
+
+    // Only update position if not pinned or if manually called from click
+    if (!tooltipPinned || e.type !== 'pointermove') {
+      tooltipX = e.clientX;
+      tooltipY = e.clientY;
+    }
+
     tooltipContent = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
@@ -500,12 +689,22 @@
           <div class="subtitle">Year ${yearLabel}</div>
         </div>
       </div>
-      <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth’s surface.</div>
+      <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
       <div class="kv">
         <div class="k">Area</div><div>${Math.round(areaKm2).toLocaleString()} km²</div>
         <div class="k">Total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
         <div class="k">Anthrome code</div><div>${code}</div>
+        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${crosswalk?.country || countryISO3}</div>` : ''}
+        ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
+        ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>
+      ${crosswalk && crosswalk.sgbs && crosswalk.sgbs.length > 0 ? `
+        <div class="actions">
+          <button data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">
+            Highlight gut microbes found in this country →
+          </button>
+        </div>
+      ` : ''}
     `;
     tooltipVisible = true;
   }
@@ -513,6 +712,267 @@
   function handlePointerLeave() {
     if (!tooltipPinned) {
       tooltipVisible = false;
+    }
+  }
+
+  // Process cell history into chronological periods with grouped consecutive years
+  function processHistoryData(history) {
+    // Convert to array and sort chronologically (BCE to CE/AD)
+    const sortedYears = sortYears(Object.keys(history || {}));
+    const entries = sortedYears.map(yearStr => [yearStr, history[yearStr]]);
+
+    if (entries.length === 0) return [];
+
+    const toSignedYear = (yearStr) => {
+      const { year, isBCE } = parseYearString(yearStr);
+      return isBCE ? -year : year;
+    };
+
+    const signedYears = sortedYears.map(toSignedYear);
+    const yearSteps = signedYears.map((value, idx) => {
+      if (idx < signedYears.length - 1) {
+        return signedYears[idx + 1] - value;
+      }
+      if (signedYears.length > 1) {
+        return value - signedYears[idx - 1];
+      }
+      return 1;
+    });
+    const positiveSteps = yearSteps.filter(step => step > 0);
+    const minStep = positiveSteps.length ? Math.min(...positiveSteps) : 1;
+
+    // Group consecutive years with same anthrome
+    const periods = [];
+    let currentPeriod = null;
+
+    for (const [yearStr, anthrome] of entries) {
+      const signedYear = toSignedYear(yearStr);
+      if (!currentPeriod || currentPeriod.anthrome !== anthrome) {
+        // Start new period
+        if (currentPeriod) {
+          periods.push(currentPeriod);
+        }
+        currentPeriod = {
+          startYear: signedYear,
+          endYear: signedYear,
+          startYearRaw: yearStr,
+          endYearRaw: yearStr,
+          anthrome,
+          color: legend[anthrome]?.color || '#ffffff',
+          label: legend[anthrome]?.label || 'Unknown'
+        };
+      } else {
+        // Extend current period
+        currentPeriod.endYear = signedYear;
+        currentPeriod.endYearRaw = yearStr;
+      }
+    }
+
+    // Add final period
+    if (currentPeriod) {
+      periods.push(currentPeriod);
+    }
+
+    // Calculate proportions based on actual TIME DURATION
+    periods.forEach(period => {
+      let duration = period.endYear - period.startYear;
+      if (duration <= 0) duration = minStep;
+      period.duration = duration;
+    });
+
+    const totalDuration = periods.reduce((sum, period) => sum + period.duration, 0);
+
+    // Add height percentage and year range to each period
+    periods.forEach(period => {
+      period.heightPercent = totalDuration > 0 ? (period.duration / totalDuration) * 100 : 0;
+      period.startYearLabel = formatYearLabel(period.startYearRaw);
+      period.endYearLabel = formatYearLabel(period.endYearRaw);
+    });
+
+    // Compute label positions with minimum spacing (labels are absolute-positioned)
+    const labelHeightPx = 30;
+    const labelHeightPercent = timelineHeightPx > 0
+      ? (labelHeightPx / timelineHeightPx) * 100
+      : 6;
+    const labelPaddingPercent = Math.max(2, labelHeightPercent / 2);
+    const minGapPercent = Math.max(3, labelHeightPercent + 1);
+    const desiredPositions = [];
+    let acc = 0;
+    periods.forEach(period => {
+      desiredPositions.push(acc + period.heightPercent / 2);
+      acc += period.heightPercent;
+    });
+    periods.forEach((period, idx) => {
+      period.segmentCenterPercent = desiredPositions[idx];
+    });
+
+    const minPos = labelPaddingPercent;
+    const maxPos = 100 - labelPaddingPercent;
+    const available = Math.max(0, maxPos - minPos);
+    const maxGap = available / Math.max(1, periods.length - 1);
+    const effectiveMinGap = Math.min(minGapPercent, maxGap || minGapPercent);
+
+    let positions = desiredPositions.slice();
+    const enforceForward = () => {
+      for (let i = 1; i < positions.length; i += 1) {
+        const minPosForIndex = positions[i - 1] + effectiveMinGap;
+        if (positions[i] < minPosForIndex) {
+          positions[i] = minPosForIndex;
+        }
+      }
+    };
+    const enforceBackward = () => {
+      for (let i = positions.length - 2; i >= 0; i -= 1) {
+        const maxPosForIndex = positions[i + 1] - effectiveMinGap;
+        if (positions[i] > maxPosForIndex) {
+          positions[i] = maxPosForIndex;
+        }
+      }
+    };
+
+    // Iteratively enforce bounds and spacing without shifting all labels uniformly.
+    for (let iter = 0; iter < 3; iter += 1) {
+      if (positions.length === 0) break;
+
+      if (positions[0] < minPos) {
+        positions[0] = minPos;
+      }
+      enforceForward();
+
+      const lastIdx = positions.length - 1;
+      if (positions[lastIdx] > maxPos) {
+        positions[lastIdx] = maxPos;
+      }
+      enforceBackward();
+    }
+
+    if (positions.length > 0) {
+      enforceForward();
+      const lastIdx = positions.length - 1;
+      if (positions[lastIdx] > maxPos) {
+        positions[lastIdx] = maxPos;
+        enforceBackward();
+      }
+      if (positions[0] < minPos) {
+        positions[0] = minPos;
+        enforceForward();
+      }
+    }
+
+    const leaderMinGapPercent = Math.max(0.75, labelHeightPercent * 0.2);
+    positions.forEach((pos, idx) => {
+      const period = periods[idx];
+      period.labelTopPercent = pos;
+      // Leader line connects segment center to label position
+      if (pos < period.segmentCenterPercent) {
+        // Label above segment: line extends from label down to segment
+        period.leaderTopPercent = pos;
+        period.leaderHeightPercent = period.segmentCenterPercent - pos;
+      } else {
+        // Label below segment: line extends from segment down to label
+        period.leaderTopPercent = period.segmentCenterPercent;
+        period.leaderHeightPercent = pos - period.segmentCenterPercent;
+      }
+      period.leaderVisible = period.leaderHeightPercent > leaderMinGapPercent;
+    });
+    // TODO: Further label/leader refinements needed to reduce overlaps in dense segments.
+
+    return periods;
+  }
+
+  function handleBackButton() {
+    const sgbId = new URLSearchParams(window.location.search).get('highlightSGB');
+    const base = import.meta.env.BASE_URL;
+    window.location.href = `${base}src/biomes/index.html${sgbId ? `?highlightSGB=${sgbId}` : ''}`;
+  }
+
+  function handleGlobalClick(e) {
+    if (e.target.closest('.back-button')) return;
+    if (e.target.closest('.map-layer') || e.target.closest('#tooltip') || e.target.closest('.bar-chart')) return;
+
+    // Clear cross-highlighting
+    if (crossHighlightActive) {
+      highlightedCountries = new Set();
+      crossHighlightActive = false;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('highlightSGB');
+      window.history.replaceState({}, '', url);
+    }
+
+    // Clear isolated pixel and bar chart
+    if (isolatedCellId !== null || showBarChart) {
+      isolatedCellId = null;
+      showBarChart = false;
+      barChartData = null;
+    }
+  }
+
+  function handleTooltipAction(event) {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+
+    const act = btn.getAttribute('data-act');
+    if (act === 'highlight-biomes') {
+      const sgbs = btn.getAttribute('data-sgbs');
+      if (sgbs) {
+        const base = import.meta.env.BASE_URL;
+        window.location.href = `${base}src/biomes/index.html?highlightSGBs=${sgbs}`;
+      }
+    }
+  }
+
+  function handleCanvasClick(e) {
+    if (!projection || !currentGeo) return;
+
+    const rect = canvasEl.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const x = (e.clientX - rect.left) * dpr;
+    const y = (e.clientY - rect.top) * dpr;
+    const lnglat = projection.invert([x, y]);
+    if (!lnglat) {
+      isolatedCellId = null;
+      tooltipPinned = false;
+      tooltipVisible = false;
+      return;
+    }
+
+    const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
+    if (!feature) {
+      isolatedCellId = null;
+      tooltipPinned = false;
+      tooltipVisible = false;
+      return;
+    }
+
+    const cellId = feature.properties?.i;
+
+    // If clicking the same cell that's already pinned, unpin it
+    if (tooltipPinned && isolatedCellId === cellId) {
+      tooltipPinned = false;
+      tooltipVisible = false;
+      isolatedCellId = null;
+      return;
+    }
+
+    // Otherwise, pin the tooltip and isolate this cell
+    if (cellId != null) {
+      isolatedCellId = cellId;
+      tooltipPinned = true;
+      // Tooltip position is set by handlePointerMove
+      tooltipX = e.clientX;
+      tooltipY = e.clientY;
+      // Manually trigger tooltip content update
+      handlePointerMove(e);
+
+      // Get historical data for this cell
+      if (cellHistory && cellHistory[cellId]) {
+        const history = cellHistory[cellId];
+        barChartData = processHistoryData(history);
+        showBarChart = true;
+      }
+    } else {
+      showBarChart = false;
+      barChartData = null;
     }
   }
 
@@ -556,6 +1016,13 @@
 
   onMount(() => {
     resizeCanvas();
+
+    // Add global click listener for clearing cross-highlight
+    window.addEventListener('click', handleGlobalClick);
+
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+    };
   });
 
   // Reload data when year or profile changes
@@ -595,33 +1062,127 @@
     zoom?.k;
     zoom?.x;
     zoom?.y;
+    showBoundaries;
+    boundariesMesh;
+    boundariesGeo;
+    crossHighlightActive;
+    highlightedCountries;
+    isolatedCellId;
 
     if (initialDrawDone) {
       scheduleDraw();
     }
   });
+
+  // Clear isolation when filtering changes
+  $effect(() => {
+    if (selectedCodes?.length) {
+      isolatedCellId = null;
+    }
+  });
+
+  // Load boundaries when toggled on
+  $effect(() => {
+    if (showBoundaries && !boundariesMesh && !boundariesLoading) {
+      loadBoundaries();
+    }
+  });
+
+  // Load cell history on mount (needed for historical bar chart)
+  $effect(() => {
+    if (!cellHistory && !cellHistoryLoading) {
+      loadCellHistory();
+    }
+  });
+
+  // Load country crosswalk data on mount
+  $effect(() => {
+    if (!countryData && !countryDataLoading) {
+      loadCountryData();
+    }
+  });
+
+  // Track timeline label container height for spacing calculations
+  $effect(() => {
+    if (!showBarChart || !timelineLabelsEl) return;
+
+    const updateHeight = () => {
+      timelineHeightPx = timelineLabelsEl?.clientHeight || 0;
+    };
+
+    updateHeight();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      if (timelineResizeObserver) {
+        timelineResizeObserver.disconnect();
+      }
+      timelineResizeObserver = new ResizeObserver(updateHeight);
+      timelineResizeObserver.observe(timelineLabelsEl);
+      return () => {
+        timelineResizeObserver.disconnect();
+      };
+    }
+
+    const onResize = () => updateHeight();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  });
+
+  // Handle cross-highlighting from URL parameter
+  $effect(() => {
+    if (!countryData) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const highlightSGB = urlParams.get('highlightSGB');
+
+    if (highlightSGB) {
+      const sgbId = parseInt(highlightSGB, 10);
+      const matchingCountries = [];
+
+      for (const [iso3, data] of countryData.entries()) {
+        if (data.sgbs && data.sgbs.includes(sgbId)) {
+          matchingCountries.push(iso3);
+        }
+      }
+
+      highlightedCountries = new Set(matchingCountries);
+      crossHighlightActive = matchingCountries.length > 0;
+    }
+  });
+
 </script>
 
 <div class="map-layer" style={`width:${width}px;height:${height}px;`}>
+  {#if crossHighlightActive}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="back-button" onclick={handleBackButton}>
+      ← Back to Biomes
+    </div>
+  {/if}
+
   <canvas
     bind:this={canvasEl}
     aria-label="Anthromes map"
     onpointermove={handlePointerMove}
     onpointerleave={handlePointerLeave}
+    onclick={handleCanvasClick}
   ></canvas>
 
-  <div class="handles">
-    {#each handlePositions as h, idx}
-      {#if h.visible}
-        <div
-          class="handle"
-          style={`left:${h.x}px; top:${h.y}px;`}
-          title={`Projection point ${idx === 0 ? 'A' : 'B'}`}
-          onpointerdown={(e) => startHandleDrag(idx, e)}
-        ></div>
-      {/if}
-    {/each}
-  </div>
+  {#if debugMenuVisible}
+    <div class="handles">
+      {#each handlePositions as h, idx}
+        {#if h.visible}
+          <div
+            class="handle"
+            style={`left:${h.x}px; top:${h.y}px;`}
+            title={`Projection point ${idx === 0 ? 'A' : 'B'}`}
+            onpointerdown={(e) => startHandleDrag(idx, e)}
+          ></div>
+        {/if}
+      {/each}
+    </div>
+  {/if}
 
   {#if loading}
     <div class="loading">Loading map…</div>
@@ -633,6 +1194,50 @@
   {/if}
 </div>
 
+{#if showBarChart && barChartData}
+  <div class="bar-chart">
+    <div class="bar-chart-header">
+      <h3>Anthrome History</h3>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <button class="close-btn" onclick={() => { showBarChart = false; isolatedCellId = null; }}>×</button>
+    </div>
+    <div class="timeline-container">
+      <div class="timeline-bar">
+        {#each barChartData as period}
+          <div
+            class="period-segment"
+            style="height: {period.heightPercent}%; background: {period.color}"
+            title="{period.label} ({period.startYearLabel} to {period.endYearLabel})"
+          ></div>
+        {/each}
+      </div>
+      <div class="timeline-labels" bind:this={timelineLabelsEl}>
+        {#each barChartData as period, idx}
+          {#if period.leaderVisible}
+            <span
+              class="leader-line-vertical"
+              style={`top: ${period.leaderTopPercent}%; height: ${period.leaderHeightPercent}%;`}
+            ></span>
+          {/if}
+          <div
+            class="period-label-wrapper"
+            style={`top: ${period.labelTopPercent}%;`}
+          >
+            <div class="label-callout">
+              <span class="callout-line"></span>
+              <div class="period-label">
+                <div class="label-name">{period.label}</div>
+                <div class="label-years">{period.startYearLabel} to {period.endYearLabel}</div>
+              </div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/if}
+
 <Tooltip
   bind:visible={tooltipVisible}
   bind:x={tooltipX}
@@ -640,6 +1245,7 @@
   bind:pinned={tooltipPinned}
   content={tooltipContent}
   onClose={() => (tooltipPinned = false)}
+  onAction={handleTooltipAction}
 />
 
 <style>
@@ -696,5 +1302,173 @@
   .loading.error {
     border-color: rgba(255, 107, 107, 0.4);
     color: #ff9ca1;
+  }
+
+  .back-button {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: rgba(0, 0, 0, 0.65);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #e5e7eb;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    cursor: pointer;
+    pointer-events: auto;
+    user-select: none;
+    z-index: 10;
+  }
+
+  .back-button:hover {
+    background: rgba(0, 0, 0, 0.85);
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .bar-chart {
+    position: absolute;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 200px;
+    height: 50vh;
+    background: rgba(14, 11, 22, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    pointer-events: auto;
+  }
+
+  .bar-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .bar-chart-header h3 {
+    margin: 0;
+    font-size: 14px;
+    color: #e5e7eb;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    color: #9ca3af;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .close-btn:hover {
+    color: #fff;
+  }
+
+  .timeline-container {
+    display: flex;
+    flex-direction: row;
+    flex: 1;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .timeline-bar {
+    display: flex;
+    flex-direction: column;
+    width: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .timeline-labels {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    position: relative;
+  }
+
+  .leader-line-vertical {
+    position: absolute;
+    left: 6px;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.25);
+    pointer-events: none;
+  }
+
+  .period-label-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 20px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%);
+  }
+
+  .period-segment {
+    position: relative;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+    transition: filter 0.2s ease;
+  }
+
+  .period-segment:last-child {
+    border-bottom: none;
+  }
+
+  .period-segment:hover {
+    filter: brightness(1.2);
+  }
+
+  .label-callout {
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  .callout-line {
+    flex-shrink: 0;
+    width: 14px;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  .period-label {
+    padding: 2px 4px;
+    line-height: 1.2;
+    display: inline-grid;
+    gap: 2px;
+    background: rgba(14, 11, 22, 0.75);
+    border-radius: 4px;
+  }
+
+  .label-name {
+    font-size: 11px;
+    color: #e5e7eb;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .label-years {
+    font-size: 9px;
+    color: #9ca3af;
+    font-weight: 400;
+    white-space: nowrap;
+    margin-top: 1px;
   }
 </style>

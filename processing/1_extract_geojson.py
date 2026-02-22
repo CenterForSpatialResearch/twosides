@@ -20,6 +20,8 @@ Options (real-world meaning):
     --skip-dissolve Keep individual cell polygons (no merging by anthrome code);
                     best if you need per-cell cartogram-style outputs; larger files.
     --profile      Folder name under processing/geojson for outputs.
+    --boundaries   Path to Natural Earth shapefile for country lookup (optional).
+                   When provided, adds 'country' (ISO3) and 'cellId' to each feature.
 """
 
 import os
@@ -34,13 +36,20 @@ from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.warp import reproject
 from rasterio.crs import CRS
-from shapely.geometry import shape, mapping
+from shapely.geometry import shape, mapping, Point, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
+from shapely import STRtree
+import shapefile  # pyshp
 import warnings
 
 # Suppress rasterio warnings
 warnings.filterwarnings('ignore', category=rasterio.errors.NotGeoreferencedWarning)
+
+# Global for country lookup (loaded once)
+_country_index = None
+_country_geoms = None
+_country_codes = None
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Extract/dissolve anthrome GeoJSON from GeoTIFFs')
@@ -58,7 +67,81 @@ def parse_args():
                         help='Minimum object size (in pixels) to retain during sieve (0 to skip)')
     parser.add_argument('--skip-dissolve', action='store_true',
                         help='Keep individual cell polygons (no dissolve by anthrome code)')
+    parser.add_argument('--boundaries', type=Path, default=None,
+                        help='Path to Natural Earth shapefile for country lookup (adds cellId and country)')
     return parser.parse_args()
+
+
+def load_country_boundaries(shp_path):
+    """
+    Load Natural Earth shapefile and build spatial index for country lookup.
+    Returns (STRtree index, list of geometries, list of ISO3 codes).
+    """
+    global _country_index, _country_geoms, _country_codes
+
+    if _country_index is not None:
+        return _country_index, _country_geoms, _country_codes
+
+    print(f"   Loading country boundaries from {shp_path}...")
+    sf = shapefile.Reader(str(shp_path))
+    fields = [f[0] for f in sf.fields[1:]]
+
+    # Find ISO_A3 field
+    iso_idx = fields.index('ISO_A3') if 'ISO_A3' in fields else None
+    if iso_idx is None:
+        print("   Warning: ISO_A3 field not found, country lookup disabled")
+        return None, None, None
+
+    geoms = []
+    codes = []
+
+    for rec in sf.shapeRecords():
+        geom = shape(rec.shape.__geo_interface__)
+        iso3 = rec.record[iso_idx] if iso_idx is not None else None
+        if geom.is_valid and iso3:
+            geoms.append(geom)
+            codes.append(iso3)
+
+    _country_geoms = geoms
+    _country_codes = codes
+    _country_index = STRtree(geoms)
+
+    print(f"   Loaded {len(geoms)} country polygons")
+    return _country_index, _country_geoms, _country_codes
+
+
+def compute_cell_id(centroid, transform, num_cols):
+    """
+    Compute deterministic cell ID from centroid coordinates and grid transform.
+    cellId = row * num_cols + col
+    """
+    origin_x = transform.c  # left edge
+    origin_y = transform.f  # top edge
+    pixel_width = transform.a
+    pixel_height = -transform.e  # negative because y decreases downward
+
+    col = int((centroid.x - origin_x) / pixel_width)
+    row = int((origin_y - centroid.y) / pixel_height)
+
+    return row * num_cols + col
+
+
+def lookup_country(centroid, index, geoms, codes):
+    """
+    Look up country ISO3 code for a point using spatial index.
+    Returns ISO3 code or None if not found.
+    """
+    if index is None:
+        return None
+
+    # Query spatial index for candidates
+    candidates = index.query(centroid)
+
+    for i in candidates:
+        if geoms[i].contains(centroid):
+            return codes[i]
+
+    return None
 
 def orient_geometry(geom, sign=-1.0):
     """
@@ -101,7 +184,8 @@ def resample_categorical(src, target_res):
 
     return destination, dst_transform
 
-def extract_geojson_from_tif(tif_path, output_path, target_res, simplify_tol, sieve_size, skip_dissolve):
+def extract_geojson_from_tif(tif_path, output_path, target_res, simplify_tol, sieve_size, skip_dissolve,
+                             country_index=None, country_geoms=None, country_codes=None):
     """
     Extract GeoJSON polygons from a single GeoTIFF file with optimization.
 
@@ -111,12 +195,18 @@ def extract_geojson_from_tif(tif_path, output_path, target_res, simplify_tol, si
     Args:
         tif_path: Path to input GeoTIFF file
         output_path: Path to output GeoJSON file
+        country_index: Optional STRtree for country lookup
+        country_geoms: Optional list of country geometries
+        country_codes: Optional list of ISO3 codes
     """
     from collections import defaultdict
 
     with rasterio.open(tif_path) as src:
         # Read raster data (optionally resample first)
         image, transform = resample_categorical(src, target_res)
+
+        # Compute grid dimensions for cellId calculation
+        num_rows, num_cols = image.shape
 
         # Drop very small slivers before polygonization (optional)
         if sieve_size and sieve_size > 0:
@@ -128,27 +218,50 @@ def extract_geojson_from_tif(tif_path, output_path, target_res, simplify_tol, si
         features = []
 
         if skip_dissolve:
-            # Keep individual cell polygons (optionally simplify each cell)
-            for geom, value in shapes(image, transform=transform):
-                anthrome_code = int(value)
+            # Create individual cell polygons by iterating through the grid
+            # This guarantees each cell is its own polygon (no merging of same-value neighbors)
+            origin_x = transform.c  # left edge
+            origin_y = transform.f  # top edge
+            pixel_width = transform.a
+            pixel_height = -transform.e  # positive value (y decreases downward)
 
-                if anthrome_code == nodata_value:
-                    continue
+            for row in range(num_rows):
+                for col in range(num_cols):
+                    anthrome_code = int(image[row, col])
 
-                geom_shape = shape(geom)
-                if simplify_tol and simplify_tol > 0:
-                    geom_shape = geom_shape.simplify(simplify_tol, preserve_topology=True)
+                    if anthrome_code == nodata_value:
+                        continue
 
-                # Normalize winding so D3 interprets polygons, not complements
-                geom_shape = orient_geometry(geom_shape, sign=-1.0)
+                    # Compute cell bounds
+                    min_x = origin_x + col * pixel_width
+                    max_x = min_x + pixel_width
+                    max_y = origin_y - row * pixel_height
+                    min_y = max_y - pixel_height
 
-                features.append({
-                    'type': 'Feature',
-                    'geometry': mapping(geom_shape),
-                    'properties': {
-                        'anthrome': anthrome_code
-                    }
-                })
+                    # Create box polygon for this cell
+                    geom_shape = box(min_x, min_y, max_x, max_y)
+
+                    # Normalize winding so D3 interprets polygons, not complements
+                    geom_shape = orient_geometry(geom_shape, sign=-1.0)
+
+                    # Compute cellId
+                    cell_id = row * num_cols + col
+
+                    # Build properties (shortened names for file size reduction)
+                    props = {'a': anthrome_code, 'i': cell_id}
+
+                    # Add country if boundary data available
+                    if country_index is not None:
+                        centroid_x = (min_x + max_x) / 2
+                        centroid_y = (min_y + max_y) / 2
+                        country = lookup_country(Point(centroid_x, centroid_y), country_index, country_geoms, country_codes)
+                        props['c'] = country  # may be None for ocean cells
+
+                    features.append({
+                        'type': 'Feature',
+                        'geometry': mapping(geom_shape),
+                        'properties': props
+                    })
         else:
             # Group geometries by anthrome value
             grouped = defaultdict(list)
@@ -180,7 +293,7 @@ def extract_geojson_from_tif(tif_path, output_path, target_res, simplify_tol, si
                     'type': 'Feature',
                     'geometry': mapping(simplified),
                     'properties': {
-                        'anthrome': anthrome_code
+                        'a': anthrome_code
                     }
                 })
 
@@ -224,6 +337,19 @@ def main():
         print("   Simplify: off")
     if args.sieve_size and args.sieve_size > 0:
         print(f"   Sieve: drop components smaller than {args.sieve_size} px")
+
+    # Load country boundaries if provided
+    country_index, country_geoms, country_codes = None, None, None
+    if args.boundaries:
+        if args.boundaries.exists():
+            country_index, country_geoms, country_codes = load_country_boundaries(args.boundaries)
+            if country_index:
+                print(f"   Country lookup: enabled")
+            else:
+                print(f"   Country lookup: failed to load")
+        else:
+            print(f"   ⚠️  Boundaries file not found: {args.boundaries}")
+
     print(f"   Output: {output_dir}\n")
 
     total_features = 0
@@ -241,6 +367,9 @@ def main():
                 simplify_tol=args.simplify,
                 sieve_size=args.sieve_size,
                 skip_dissolve=args.skip_dissolve,
+                country_index=country_index,
+                country_geoms=country_geoms,
+                country_codes=country_codes,
             )
             total_features += feature_count
 

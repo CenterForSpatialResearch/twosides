@@ -1,0 +1,1696 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          14.953149833502414,
+          47.9191815
+        ]
+      },
+      "properties": {
+        "ISO3": "AUT",
+        "Country": "Austria",
+        "samples_total": 147,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 783
+        },
+        "top_sgbs": [
+          {
+            "sgb": 5060,
+            "samples": 9
+          },
+          {
+            "sgb": 15121,
+            "samples": 9
+          },
+          {
+            "sgb": 713,
+            "samples": 8
+          },
+          {
+            "sgb": 4166,
+            "samples": 8
+          },
+          {
+            "sgb": 4780,
+            "samples": 8
+          },
+          {
+            "sgb": 4053,
+            "samples": 7
+          },
+          {
+            "sgb": 4575,
+            "samples": 7
+          },
+          {
+            "sgb": 14123,
+            "samples": 7
+          },
+          {
+            "sgb": 14397,
+            "samples": 7
+          },
+          {
+            "sgb": 15120,
+            "samples": 7
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          89.87623897797096,
+          23.563936499999997
+        ]
+      },
+      "properties": {
+        "ISO3": "BGD",
+        "Country": "Bangladesh",
+        "samples_total": 21,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 73
+        },
+        "top_sgbs": [
+          {
+            "sgb": 19429,
+            "samples": 5
+          },
+          {
+            "sgb": 9862,
+            "samples": 4
+          },
+          {
+            "sgb": 1974,
+            "samples": 3
+          },
+          {
+            "sgb": 1985,
+            "samples": 3
+          },
+          {
+            "sgb": 6701,
+            "samples": 3
+          },
+          {
+            "sgb": 6721,
+            "samples": 3
+          },
+          {
+            "sgb": 6726,
+            "samples": 3
+          },
+          {
+            "sgb": 19434,
+            "samples": 3
+          },
+          {
+            "sgb": 19436,
+            "samples": 3
+          },
+          {
+            "sgb": 1504,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          114.89279639320058,
+          4.7129425000000005
+        ]
+      },
+      "properties": {
+        "ISO3": "BRN",
+        "Country": "Brunei",
+        "samples_total": 2,
+        "studies_count": 1,
+        "body_sites": [
+          "Skin"
+        ],
+        "westernized_counts": {
+          "Yes": 4
+        },
+        "top_sgbs": [
+          {
+            "sgb": 17042,
+            "samples": 2
+          },
+          {
+            "sgb": 17100,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -110.24380777716146,
+          56.70192
+        ]
+      },
+      "properties": {
+        "ISO3": "CAN",
+        "Country": "Canada",
+        "samples_total": 194,
+        "studies_count": 3,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 746
+        },
+        "top_sgbs": [
+          {
+            "sgb": 2019,
+            "samples": 10
+          },
+          {
+            "sgb": 11337,
+            "samples": 10
+          },
+          {
+            "sgb": 11355,
+            "samples": 10
+          },
+          {
+            "sgb": 12451,
+            "samples": 10
+          },
+          {
+            "sgb": 12928,
+            "samples": 10
+          },
+          {
+            "sgb": 6716,
+            "samples": 9
+          },
+          {
+            "sgb": 15488,
+            "samples": 9
+          },
+          {
+            "sgb": 1502,
+            "samples": 8
+          },
+          {
+            "sgb": 1517,
+            "samples": 8
+          },
+          {
+            "sgb": 4026,
+            "samples": 8
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          98.76958324319138,
+          36.79871
+        ]
+      },
+      "properties": {
+        "ISO3": "CHN",
+        "Country": "China",
+        "samples_total": 720,
+        "studies_count": 9,
+        "body_sites": [
+          "Skin",
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 1562
+        },
+        "top_sgbs": [
+          {
+            "sgb": 5817,
+            "samples": 10
+          },
+          {
+            "sgb": 6038,
+            "samples": 10
+          },
+          {
+            "sgb": 9293,
+            "samples": 10
+          },
+          {
+            "sgb": 9670,
+            "samples": 10
+          },
+          {
+            "sgb": 14927,
+            "samples": 10
+          },
+          {
+            "sgb": 1890,
+            "samples": 9
+          },
+          {
+            "sgb": 4549,
+            "samples": 9
+          },
+          {
+            "sgb": 4834,
+            "samples": 9
+          },
+          {
+            "sgb": 5740,
+            "samples": 9
+          },
+          {
+            "sgb": 5746,
+            "samples": 9
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.432350876756606,
+          51.431228000000004
+        ]
+      },
+      "properties": {
+        "ISO3": "DEU",
+        "Country": "Germany",
+        "samples_total": 161,
+        "studies_count": 5,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 393
+        },
+        "top_sgbs": [
+          {
+            "sgb": 14594,
+            "samples": 9
+          },
+          {
+            "sgb": 14575,
+            "samples": 7
+          },
+          {
+            "sgb": 15093,
+            "samples": 7
+          },
+          {
+            "sgb": 1783,
+            "samples": 6
+          },
+          {
+            "sgb": 5790,
+            "samples": 6
+          },
+          {
+            "sgb": 9297,
+            "samples": 5
+          },
+          {
+            "sgb": 14441,
+            "samples": 5
+          },
+          {
+            "sgb": 14624,
+            "samples": 5
+          },
+          {
+            "sgb": 14906,
+            "samples": 5
+          },
+          {
+            "sgb": 1822,
+            "samples": 4
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          9.460777051985307,
+          56.324314
+        ]
+      },
+      "properties": {
+        "ISO3": "DNK",
+        "Country": "Denmark",
+        "samples_total": 303,
+        "studies_count": 4,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 1208
+        },
+        "top_sgbs": [
+          {
+            "sgb": 1824,
+            "samples": 9
+          },
+          {
+            "sgb": 1408,
+            "samples": 8
+          },
+          {
+            "sgb": 8625,
+            "samples": 8
+          },
+          {
+            "sgb": 2304,
+            "samples": 7
+          },
+          {
+            "sgb": 5743,
+            "samples": 7
+          },
+          {
+            "sgb": 1424,
+            "samples": 6
+          },
+          {
+            "sgb": 1481,
+            "samples": 6
+          },
+          {
+            "sgb": 1587,
+            "samples": 6
+          },
+          {
+            "sgb": 1592,
+            "samples": 6
+          },
+          {
+            "sgb": 1600,
+            "samples": 6
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -3.5199677746850035,
+          39.917913
+        ]
+      },
+      "properties": {
+        "ISO3": "ESP",
+        "Country": "Spain",
+        "samples_total": 237,
+        "studies_count": 2,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 631
+        },
+        "top_sgbs": [
+          {
+            "sgb": 4677,
+            "samples": 8
+          },
+          {
+            "sgb": 4628,
+            "samples": 7
+          },
+          {
+            "sgb": 1897,
+            "samples": 5
+          },
+          {
+            "sgb": 4746,
+            "samples": 5
+          },
+          {
+            "sgb": 5042,
+            "samples": 5
+          },
+          {
+            "sgb": 5857,
+            "samples": 5
+          },
+          {
+            "sgb": 14912,
+            "samples": 5
+          },
+          {
+            "sgb": 15149,
+            "samples": 5
+          },
+          {
+            "sgb": 746,
+            "samples": 4
+          },
+          {
+            "sgb": 1894,
+            "samples": 4
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          25.56174943503786,
+          58.498082999999994
+        ]
+      },
+      "properties": {
+        "ISO3": "EST",
+        "Country": "Estonia",
+        "samples_total": 24,
+        "studies_count": 3,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 28
+        },
+        "top_sgbs": [
+          {
+            "sgb": 6169,
+            "samples": 4
+          },
+          {
+            "sgb": 1859,
+            "samples": 2
+          },
+          {
+            "sgb": 10083,
+            "samples": 2
+          },
+          {
+            "sgb": 10256,
+            "samples": 2
+          },
+          {
+            "sgb": 1769,
+            "samples": 1
+          },
+          {
+            "sgb": 1871,
+            "samples": 1
+          },
+          {
+            "sgb": 1911,
+            "samples": 1
+          },
+          {
+            "sgb": 4512,
+            "samples": 1
+          },
+          {
+            "sgb": 4620,
+            "samples": 1
+          },
+          {
+            "sgb": 4995,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          27.373290514430508,
+          65.0300495
+        ]
+      },
+      "properties": {
+        "ISO3": "FIN",
+        "Country": "Finland",
+        "samples_total": 45,
+        "studies_count": 3,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 57
+        },
+        "top_sgbs": [
+          {
+            "sgb": 6169,
+            "samples": 4
+          },
+          {
+            "sgb": 1865,
+            "samples": 2
+          },
+          {
+            "sgb": 4989,
+            "samples": 2
+          },
+          {
+            "sgb": 9698,
+            "samples": 2
+          },
+          {
+            "sgb": 10116,
+            "samples": 2
+          },
+          {
+            "sgb": 10118,
+            "samples": 2
+          },
+          {
+            "sgb": 14862,
+            "samples": 2
+          },
+          {
+            "sgb": 17172,
+            "samples": 2
+          },
+          {
+            "sgb": 17194,
+            "samples": 2
+          },
+          {
+            "sgb": 19296,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          177.9759493013698,
+          -17.937620000000003
+        ]
+      },
+      "properties": {
+        "ISO3": "FJI",
+        "Country": "Fiji",
+        "samples_total": 238,
+        "studies_count": 1,
+        "body_sites": [
+          "Oral cavity",
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 1868
+        },
+        "top_sgbs": [
+          {
+            "sgb": 376,
+            "samples": 10
+          },
+          {
+            "sgb": 1016,
+            "samples": 10
+          },
+          {
+            "sgb": 1475,
+            "samples": 10
+          },
+          {
+            "sgb": 1554,
+            "samples": 10
+          },
+          {
+            "sgb": 1614,
+            "samples": 10
+          },
+          {
+            "sgb": 1657,
+            "samples": 10
+          },
+          {
+            "sgb": 1663,
+            "samples": 10
+          },
+          {
+            "sgb": 1668,
+            "samples": 10
+          },
+          {
+            "sgb": 1672,
+            "samples": 10
+          },
+          {
+            "sgb": 1676,
+            "samples": 10
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          2.099228368479555,
+          46.895071
+        ]
+      },
+      "properties": {
+        "ISO3": "FRA",
+        "Country": "France",
+        "samples_total": 95,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 226
+        },
+        "top_sgbs": [
+          {
+            "sgb": 10209,
+            "samples": 6
+          },
+          {
+            "sgb": 14328,
+            "samples": 6
+          },
+          {
+            "sgb": 15507,
+            "samples": 4
+          },
+          {
+            "sgb": 14367,
+            "samples": 3
+          },
+          {
+            "sgb": 14965,
+            "samples": 3
+          },
+          {
+            "sgb": 15204,
+            "samples": 3
+          },
+          {
+            "sgb": 372,
+            "samples": 2
+          },
+          {
+            "sgb": 380,
+            "samples": 2
+          },
+          {
+            "sgb": 2127,
+            "samples": 2
+          },
+          {
+            "sgb": 3937,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1.7533123060747915,
+          54.224688
+        ]
+      },
+      "properties": {
+        "ISO3": "GBR",
+        "Country": "United Kingdom",
+        "samples_total": 261,
+        "studies_count": 2,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 892
+        },
+        "top_sgbs": [
+          {
+            "sgb": 14953,
+            "samples": 9
+          },
+          {
+            "sgb": 2323,
+            "samples": 7
+          },
+          {
+            "sgb": 3964,
+            "samples": 7
+          },
+          {
+            "sgb": 15403,
+            "samples": 7
+          },
+          {
+            "sgb": 5050,
+            "samples": 6
+          },
+          {
+            "sgb": 6529,
+            "samples": 6
+          },
+          {
+            "sgb": 17347,
+            "samples": 6
+          },
+          {
+            "sgb": 6141,
+            "samples": 5
+          },
+          {
+            "sgb": 14138,
+            "samples": 5
+          },
+          {
+            "sgb": 14932,
+            "samples": 5
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          19.103248635963975,
+          47.2452045
+        ]
+      },
+      "properties": {
+        "ISO3": "HUN",
+        "Country": "Hungary",
+        "samples_total": 1,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 6
+        },
+        "top_sgbs": [
+          {
+            "sgb": 7041,
+            "samples": 1
+          },
+          {
+            "sgb": 7095,
+            "samples": 1
+          },
+          {
+            "sgb": 7202,
+            "samples": 1
+          },
+          {
+            "sgb": 14372,
+            "samples": 1
+          },
+          {
+            "sgb": 14398,
+            "samples": 1
+          },
+          {
+            "sgb": 14789,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          113.2694640275316,
+          -0.178516
+        ]
+      },
+      "properties": {
+        "ISO3": "IDN",
+        "Country": "Indonesia",
+        "samples_total": 1,
+        "studies_count": 1,
+        "body_sites": [
+          "Skin"
+        ],
+        "westernized_counts": {
+          "Yes": 1
+        },
+        "top_sgbs": [
+          {
+            "sgb": 16955,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          34.69111642632299,
+          31.421260500000002
+        ]
+      },
+      "properties": {
+        "ISO3": "ISR",
+        "Country": "Israel",
+        "samples_total": 372,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 625
+        },
+        "top_sgbs": [
+          {
+            "sgb": 4444,
+            "samples": 9
+          },
+          {
+            "sgb": 5849,
+            "samples": 6
+          },
+          {
+            "sgb": 6421,
+            "samples": 6
+          },
+          {
+            "sgb": 8589,
+            "samples": 6
+          },
+          {
+            "sgb": 14618,
+            "samples": 6
+          },
+          {
+            "sgb": 698,
+            "samples": 5
+          },
+          {
+            "sgb": 1638,
+            "samples": 5
+          },
+          {
+            "sgb": 4546,
+            "samples": 5
+          },
+          {
+            "sgb": 6291,
+            "samples": 5
+          },
+          {
+            "sgb": 9345,
+            "samples": 5
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          12.631183538666289,
+          42.5582165
+        ]
+      },
+      "properties": {
+        "ISO3": "ITA",
+        "Country": "Italy",
+        "samples_total": 315,
+        "studies_count": 5,
+        "body_sites": [
+          "Airways",
+          "Oral cavity",
+          "Skin",
+          "Stool",
+          "Vagina"
+        ],
+        "westernized_counts": {
+          "Yes": 1280
+        },
+        "top_sgbs": [
+          {
+            "sgb": 1525,
+            "samples": 10
+          },
+          {
+            "sgb": 1536,
+            "samples": 10
+          },
+          {
+            "sgb": 1561,
+            "samples": 10
+          },
+          {
+            "sgb": 2016,
+            "samples": 10
+          },
+          {
+            "sgb": 2053,
+            "samples": 10
+          },
+          {
+            "sgb": 2479,
+            "samples": 10
+          },
+          {
+            "sgb": 7298,
+            "samples": 10
+          },
+          {
+            "sgb": 8252,
+            "samples": 10
+          },
+          {
+            "sgb": 12320,
+            "samples": 10
+          },
+          {
+            "sgb": 12918,
+            "samples": 10
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          66.31159476987067,
+          48.068961
+        ]
+      },
+      "properties": {
+        "ISO3": "KAZ",
+        "Country": "Kazakhstan",
+        "samples_total": 151,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 740
+        },
+        "top_sgbs": [
+          {
+            "sgb": 1002,
+            "samples": 10
+          },
+          {
+            "sgb": 3983,
+            "samples": 8
+          },
+          {
+            "sgb": 3989,
+            "samples": 8
+          },
+          {
+            "sgb": 4243,
+            "samples": 8
+          },
+          {
+            "sgb": 14908,
+            "samples": 8
+          },
+          {
+            "sgb": 14909,
+            "samples": 8
+          },
+          {
+            "sgb": 1664,
+            "samples": 7
+          },
+          {
+            "sgb": 5820,
+            "samples": 7
+          },
+          {
+            "sgb": 5862,
+            "samples": 7
+          },
+          {
+            "sgb": 13947,
+            "samples": 7
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          46.669491179453075,
+          -18.646691
+        ]
+      },
+      "properties": {
+        "ISO3": "MDG",
+        "Country": "Madagascar",
+        "samples_total": 101,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 586
+        },
+        "top_sgbs": [
+          {
+            "sgb": 14321,
+            "samples": 10
+          },
+          {
+            "sgb": 14427,
+            "samples": 10
+          },
+          {
+            "sgb": 14492,
+            "samples": 10
+          },
+          {
+            "sgb": 14823,
+            "samples": 10
+          },
+          {
+            "sgb": 3926,
+            "samples": 9
+          },
+          {
+            "sgb": 7970,
+            "samples": 9
+          },
+          {
+            "sgb": 15285,
+            "samples": 9
+          },
+          {
+            "sgb": 1623,
+            "samples": 7
+          },
+          {
+            "sgb": 6836,
+            "samples": 7
+          },
+          {
+            "sgb": 14815,
+            "samples": 7
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          105.33397585460423,
+          46.846779
+        ]
+      },
+      "properties": {
+        "ISO3": "MNG",
+        "Country": "Mongolia",
+        "samples_total": 70,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 160,
+          "Yes": 102
+        },
+        "top_sgbs": [
+          {
+            "sgb": 14373,
+            "samples": 7
+          },
+          {
+            "sgb": 15016,
+            "samples": 7
+          },
+          {
+            "sgb": 1673,
+            "samples": 6
+          },
+          {
+            "sgb": 8773,
+            "samples": 5
+          },
+          {
+            "sgb": 13964,
+            "samples": 5
+          },
+          {
+            "sgb": 14372,
+            "samples": 5
+          },
+          {
+            "sgb": 17231,
+            "samples": 5
+          },
+          {
+            "sgb": 14826,
+            "samples": 4
+          },
+          {
+            "sgb": 15310,
+            "samples": 4
+          },
+          {
+            "sgb": 15353,
+            "samples": 4
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          102.07211185299448,
+          3.832919
+        ]
+      },
+      "properties": {
+        "ISO3": "MYS",
+        "Country": "Malaysia",
+        "samples_total": 6,
+        "studies_count": 1,
+        "body_sites": [
+          "Skin"
+        ],
+        "westernized_counts": {
+          "Yes": 11
+        },
+        "top_sgbs": [
+          {
+            "sgb": 16676,
+            "samples": 4
+          },
+          {
+            "sgb": 10438,
+            "samples": 3
+          },
+          {
+            "sgb": 16954,
+            "samples": 2
+          },
+          {
+            "sgb": 7863,
+            "samples": 1
+          },
+          {
+            "sgb": 10439,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          5.39811344311906,
+          52.0402345
+        ]
+      },
+      "properties": {
+        "ISO3": "NLD",
+        "Country": "Netherlands",
+        "samples_total": 163,
+        "studies_count": 2,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 224
+        },
+        "top_sgbs": [
+          {
+            "sgb": 14630,
+            "samples": 8
+          },
+          {
+            "sgb": 14767,
+            "samples": 5
+          },
+          {
+            "sgb": 1638,
+            "samples": 4
+          },
+          {
+            "sgb": 5729,
+            "samples": 4
+          },
+          {
+            "sgb": 7020,
+            "samples": 4
+          },
+          {
+            "sgb": 1697,
+            "samples": 3
+          },
+          {
+            "sgb": 4958,
+            "samples": 3
+          },
+          {
+            "sgb": 14629,
+            "samples": 3
+          },
+          {
+            "sgb": 14778,
+            "samples": 3
+          },
+          {
+            "sgb": 1586,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          22.682486147218057,
+          79.958143
+        ]
+      },
+      "properties": {
+        "ISO3": "NOR",
+        "Country": "Norway",
+        "samples_total": 1,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 1
+        },
+        "top_sgbs": [
+          {
+            "sgb": 4418,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -75.87473845667213,
+          -9.247523000000001
+        ]
+      },
+      "properties": {
+        "ISO3": "PER",
+        "Country": "Peru",
+        "samples_total": 36,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 167
+        },
+        "top_sgbs": [
+          {
+            "sgb": 5808,
+            "samples": 5
+          },
+          {
+            "sgb": 15321,
+            "samples": 4
+          },
+          {
+            "sgb": 19436,
+            "samples": 4
+          },
+          {
+            "sgb": 2075,
+            "samples": 3
+          },
+          {
+            "sgb": 4363,
+            "samples": 3
+          },
+          {
+            "sgb": 4558,
+            "samples": 3
+          },
+          {
+            "sgb": 4883,
+            "samples": 3
+          },
+          {
+            "sgb": 6488,
+            "samples": 3
+          },
+          {
+            "sgb": 15218,
+            "samples": 3
+          },
+          {
+            "sgb": 1612,
+            "samples": 2
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          88.59732843667405,
+          59.40587
+        ]
+      },
+      "properties": {
+        "ISO3": "RUS",
+        "Country": "Russia",
+        "samples_total": 43,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 53
+        },
+        "top_sgbs": [
+          {
+            "sgb": 7951,
+            "samples": 6
+          },
+          {
+            "sgb": 7966,
+            "samples": 6
+          },
+          {
+            "sgb": 7202,
+            "samples": 4
+          },
+          {
+            "sgb": 7931,
+            "samples": 4
+          },
+          {
+            "sgb": 7952,
+            "samples": 3
+          },
+          {
+            "sgb": 7217,
+            "samples": 2
+          },
+          {
+            "sgb": 14565,
+            "samples": 2
+          },
+          {
+            "sgb": 758,
+            "samples": 1
+          },
+          {
+            "sgb": 3829,
+            "samples": 1
+          },
+          {
+            "sgb": 4241,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          19.63011385405736,
+          48.7119365
+        ]
+      },
+      "properties": {
+        "ISO3": "SVK",
+        "Country": "Slovakia",
+        "samples_total": 1,
+        "studies_count": 1,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 1
+        },
+        "top_sgbs": [
+          {
+            "sgb": 15904,
+            "samples": 1
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          14.786243183258216,
+          62.274881
+        ]
+      },
+      "properties": {
+        "ISO3": "SWE",
+        "Country": "Sweden",
+        "samples_total": 522,
+        "studies_count": 3,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "Yes": 4232
+        },
+        "top_sgbs": [
+          {
+            "sgb": 1699,
+            "samples": 10
+          },
+          {
+            "sgb": 1784,
+            "samples": 10
+          },
+          {
+            "sgb": 1785,
+            "samples": 10
+          },
+          {
+            "sgb": 1790,
+            "samples": 10
+          },
+          {
+            "sgb": 1812,
+            "samples": 10
+          },
+          {
+            "sgb": 1815,
+            "samples": 10
+          },
+          {
+            "sgb": 1829,
+            "samples": 10
+          },
+          {
+            "sgb": 1830,
+            "samples": 10
+          },
+          {
+            "sgb": 1836,
+            "samples": 10
+          },
+          {
+            "sgb": 1844,
+            "samples": 10
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          34.14207067870728,
+          -6.207829500000001
+        ]
+      },
+      "properties": {
+        "ISO3": "TZA",
+        "Country": "Tanzania",
+        "samples_total": 42,
+        "studies_count": 2,
+        "body_sites": [
+          "Stool"
+        ],
+        "westernized_counts": {
+          "No": 161
+        },
+        "top_sgbs": [
+          {
+            "sgb": 4931,
+            "samples": 8
+          },
+          {
+            "sgb": 17317,
+            "samples": 8
+          },
+          {
+            "sgb": 1333,
+            "samples": 5
+          },
+          {
+            "sgb": 4559,
+            "samples": 5
+          },
+          {
+            "sgb": 1370,
+            "samples": 4
+          },
+          {
+            "sgb": 1606,
+            "samples": 4
+          },
+          {
+            "sgb": 1625,
+            "samples": 4
+          },
+          {
+            "sgb": 4168,
+            "samples": 4
+          },
+          {
+            "sgb": 5806,
+            "samples": 4
+          },
+          {
+            "sgb": 6971,
+            "samples": 4
+          }
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -99.31483211377508,
+          37.236745
+        ]
+      },
+      "properties": {
+        "ISO3": "USA",
+        "Country": "United States of America",
+        "samples_total": 900,
+        "studies_count": 9,
+        "body_sites": [
+          "Nasal cavity",
+          "Oral cavity",
+          "Skin",
+          "Stool",
+          "Vagina"
+        ],
+        "westernized_counts": {
+          "Yes": 3673
+        },
+        "top_sgbs": [
+          {
+            "sgb": 1343,
+            "samples": 10
+          },
+          {
+            "sgb": 1459,
+            "samples": 10
+          },
+          {
+            "sgb": 1464,
+            "samples": 10
+          },
+          {
+            "sgb": 1563,
+            "samples": 10
+          },
+          {
+            "sgb": 2036,
+            "samples": 10
+          },
+          {
+            "sgb": 2037,
+            "samples": 10
+          },
+          {
+            "sgb": 2480,
+            "samples": 10
+          },
+          {
+            "sgb": 2516,
+            "samples": 10
+          },
+          {
+            "sgb": 2517,
+            "samples": 10
+          },
+          {
+            "sgb": 3585,
+            "samples": 10
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -34,7 +34,7 @@ twosides/
 
 ## Commands
 
-```bash
+```powershell
 # Install dependencies
 npm install
 

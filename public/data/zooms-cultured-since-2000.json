@@ -1,0 +1,242 @@
+[
+  {
+    "title": "Macdonnell Region, Australia",
+    "lat": -25.0,
+    "lon": 135.0,
+    "description": "Avg shift: -7.212 (99 cells)",
+    "shift": -7.2121,
+    "cell_count": 99
+  },
+  {
+    "title": "Chile Chico, Chile",
+    "lat": -47.0,
+    "lon": -73.0,
+    "description": "Avg shift: -4.207 (121 cells)",
+    "shift": -4.2066,
+    "cell_count": 121
+  },
+  {
+    "title": "Arta Regional Unit, Greece",
+    "lat": 39.0,
+    "lon": 21.0,
+    "description": "Avg shift: -3.490 (100 cells)",
+    "shift": -3.49,
+    "cell_count": 100
+  },
+  {
+    "title": "Agghju/Aggius, Italy",
+    "lat": 41.0,
+    "lon": 9.0,
+    "description": "Avg shift: -3.456 (57 cells)",
+    "shift": -3.4561,
+    "cell_count": 57
+  },
+  {
+    "title": "\u0413\u0430\u0440\u0431\u0430\u0446\u044d\u0432\u0456\u0446\u043a\u0456 \u0441\u0435\u043b\u044c\u0441\u043a\u0456 \u0421\u0430\u0432\u0435\u0442, Belarus",
+    "lat": 53.0,
+    "lon": 29.0,
+    "description": "Avg shift: -3.318 (107 cells)",
+    "shift": -3.3178,
+    "cell_count": 107
+  },
+  {
+    "title": "Linyou, China",
+    "lat": 25.0,
+    "lon": 107.0,
+    "description": "Avg shift: -2.967 (121 cells)",
+    "shift": -2.9669,
+    "cell_count": 121
+  },
+  {
+    "title": "Wakhan District, Afghanistan",
+    "lat": 37.0,
+    "lon": 73.0,
+    "description": "Avg shift: -2.148 (88 cells)",
+    "shift": -2.1477,
+    "cell_count": 88
+  },
+  {
+    "title": "Sanka, China",
+    "lat": 51.0,
+    "lon": 127.0,
+    "description": "Avg shift: -2.132 (121 cells)",
+    "shift": -2.1322,
+    "cell_count": 121
+  },
+  {
+    "title": "Victoria County, United States",
+    "lat": 29.0,
+    "lon": -97.0,
+    "description": "Avg shift: -1.860 (86 cells)",
+    "shift": -1.8605,
+    "cell_count": 86
+  },
+  {
+    "title": "Sinkat District, Sudan",
+    "lat": 19.0,
+    "lon": 37.0,
+    "description": "Avg shift: -1.804 (102 cells)",
+    "shift": -1.8039,
+    "cell_count": 102
+  },
+  {
+    "title": "Atbarah, Sudan",
+    "lat": 17.0,
+    "lon": 35.0,
+    "description": "Avg shift: -1.322 (121 cells)",
+    "shift": -1.3223,
+    "cell_count": 121
+  },
+  {
+    "title": "Carbon County, United States",
+    "lat": 45.0,
+    "lon": -109.0,
+    "description": "Avg shift: -1.281 (121 cells)",
+    "shift": -1.281,
+    "cell_count": 121
+  },
+  {
+    "title": "British Columbia, Canada",
+    "lat": 59.0,
+    "lon": -131.0,
+    "description": "Avg shift: -1.038 (105 cells)",
+    "shift": -1.0381,
+    "cell_count": 105
+  },
+  {
+    "title": "\u041c\u0430\u043b\u043e\u043a\u0438\u043b\u044c\u043c\u0435\u0437\u0441\u043a\u043e\u0435 \u0441\u0435\u043b\u044c\u0441\u043a\u043e\u0435 \u043f\u043e\u0441\u0435\u043b\u0435\u043d\u0438\u0435, Russia",
+    "lat": 57.0,
+    "lon": 51.0,
+    "description": "Avg shift: -0.983 (121 cells)",
+    "shift": -0.9835,
+    "cell_count": 121
+  },
+  {
+    "title": "Inchiri, Mauritania",
+    "lat": 21.0,
+    "lon": -15.0,
+    "description": "Avg shift: -0.934 (121 cells)",
+    "shift": -0.9339,
+    "cell_count": 121
+  },
+  {
+    "title": "Zuogaimanma, China",
+    "lat": 35.0,
+    "lon": 103.0,
+    "description": "Avg shift: -0.864 (66 cells)",
+    "shift": -0.8636,
+    "cell_count": 66
+  },
+  {
+    "title": "In\u00edrida, Colombia",
+    "lat": 3.0,
+    "lon": -69.0,
+    "description": "Avg shift: -0.863 (80 cells)",
+    "shift": -0.8625,
+    "cell_count": 80
+  },
+  {
+    "title": "Fraiburgo, Brazil",
+    "lat": -27.0,
+    "lon": -51.0,
+    "description": "Avg shift: -0.810 (121 cells)",
+    "shift": -0.8099,
+    "cell_count": 121
+  },
+  {
+    "title": "Mart\u00ed, Cuba",
+    "lat": 23.0,
+    "lon": -81.0,
+    "description": "Avg shift: -0.736 (53 cells)",
+    "shift": -0.7358,
+    "cell_count": 53
+  },
+  {
+    "title": "(-3.00, 41.00)",
+    "lat": -3.0,
+    "lon": 41.0,
+    "description": "Avg shift: -0.732 (56 cells)",
+    "shift": -0.7321,
+    "cell_count": 56
+  },
+  {
+    "title": "(47.00, -57.00)",
+    "lat": 47.0,
+    "lon": -57.0,
+    "description": "Avg shift: -0.722 (54 cells)",
+    "shift": -0.7222,
+    "cell_count": 54
+  },
+  {
+    "title": "Tsagaan-Uur, Mongolia",
+    "lat": 51.0,
+    "lon": 101.0,
+    "description": "Avg shift: -0.595 (111 cells)",
+    "shift": -0.5946,
+    "cell_count": 111
+  },
+  {
+    "title": "Oshikoto, Namibia",
+    "lat": -19.0,
+    "lon": 17.0,
+    "description": "Avg shift: -0.529 (121 cells)",
+    "shift": -0.5289,
+    "cell_count": 121
+  },
+  {
+    "title": "Jaisalmer, India",
+    "lat": 27.0,
+    "lon": 71.0,
+    "description": "Avg shift: -0.438 (121 cells)",
+    "shift": -0.438,
+    "cell_count": 121
+  },
+  {
+    "title": "Skagafj\u00f6r\u00f0ur, Iceland",
+    "lat": 65.0,
+    "lon": -19.0,
+    "description": "Avg shift: -0.221 (77 cells)",
+    "shift": -0.2208,
+    "cell_count": 77
+  },
+  {
+    "title": "(59.00, 159.00)",
+    "lat": 59.0,
+    "lon": 159.0,
+    "description": "Avg shift: -0.220 (59 cells)",
+    "shift": -0.2203,
+    "cell_count": 59
+  },
+  {
+    "title": "Unorganized Division No. 23, Canada",
+    "lat": 57.0,
+    "lon": -93.0,
+    "description": "Avg shift: -0.176 (102 cells)",
+    "shift": -0.1765,
+    "cell_count": 102
+  },
+  {
+    "title": "\u0433\u043e\u0440\u043e\u0434\u0441\u043a\u043e\u0435 \u043f\u043e\u0441\u0435\u043b\u0435\u043d\u0438\u0435 \u0427\u0435\u0440\u043d\u044b\u0448\u0435\u0432\u0441\u043a\u0438\u0439, Russia",
+    "lat": 63.0,
+    "lon": 113.0,
+    "description": "Avg shift: -0.036 (110 cells)",
+    "shift": -0.0364,
+    "cell_count": 110
+  },
+  {
+    "title": "Ouaka, Central African Republic",
+    "lat": 7.0,
+    "lon": 21.0,
+    "description": "Avg shift: 0.000 (121 cells)",
+    "shift": 0.0,
+    "cell_count": 121
+  },
+  {
+    "title": "Thailand",
+    "lat": 7.0,
+    "lon": 101.0,
+    "description": "Avg shift: 0.120 (75 cells)",
+    "shift": 0.12,
+    "cell_count": 75
+  }
+]

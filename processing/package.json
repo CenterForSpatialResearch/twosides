@@ -7,8 +7,8 @@
     "generate": "node 2_generate_topojson.js"
   },
   "dependencies": {
+    "numpy": "^0.0.1",
     "topojson-server": "^3.0.1",
     "topojson-simplify": "^3.0.3"
-  },
-  "devDependencies": {}
+  }
 }

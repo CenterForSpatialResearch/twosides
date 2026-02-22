@@ -8,7 +8,8 @@
     y = $bindable(0),
     content = '',
     pinned = $bindable(false),
-    onClose = () => {}
+    onClose = () => {},
+    onAction = null
   } = $props();
 
   // Refs
@@ -90,6 +91,8 @@
 </script>
 
 {#if visible}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={tooltipEl}
     class="tooltip"
@@ -97,6 +100,7 @@
     style="left: {finalX}px; top: {finalY}px;"
     role="dialog"
     aria-live="polite"
+    onclick={onAction}
   >
     {@html content}
   </div>
@@ -183,5 +187,32 @@
     font-size: 11px;
     color: #cbd5e1;
     margin-bottom: 6px;
+  }
+
+  :global(.tooltip .actions) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  }
+
+  :global(.tooltip .actions button) {
+    pointer-events: auto;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #f9fafb;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  :global(.tooltip .actions button:hover) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
   }
 </style>
