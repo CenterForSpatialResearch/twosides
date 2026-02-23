@@ -69,6 +69,11 @@
   // Isolate pixel state
   let isolatedCellId = $state(null);
 
+  // Hover/isolate cell border overlay
+  let overlayCanvasEl = $state(null);
+  let hoveredFeature = $state(null);
+  let isolatedFeature = $state(null);
+
   // Bar chart state
   let showBarChart = $state(false);
   let barChartData = $state(null);
@@ -98,6 +103,44 @@
     const cy = height / 2 + (zoom?.y || 0);
     const r = Math.max(0, innerRadiusPx);
     return { cx, cy, r };
+  }
+
+  function drawOverlay() {
+    if (!overlayCanvasEl || !projection) return;
+    const dpr = window.devicePixelRatio || 1;
+    overlayCanvasEl.width = Math.max(1, width * dpr);
+    overlayCanvasEl.height = Math.max(1, height * dpr);
+    const ctx = overlayCanvasEl.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvasEl.width, overlayCanvasEl.height);
+
+    if (!hoveredFeature && !isolatedFeature) return;
+
+    const circle = getCircle();
+    const path = d3.geoPath(projection, ctx);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(circle.cx * dpr, circle.cy * dpr, Math.max(0, circle.r * dpr), 0, Math.PI * 2);
+    ctx.clip();
+    ctx.translate((mapPanX || 0) * dpr, (mapPanY || 0) * dpr);
+
+    if (isolatedFeature) {
+      ctx.beginPath();
+      path(isolatedFeature);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
+      ctx.lineWidth = 2 * dpr;
+      ctx.stroke();
+    }
+
+    if (hoveredFeature && hoveredFeature !== isolatedFeature) {
+      ctx.beginPath();
+      path(hoveredFeature);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   const POINT_EPS = 1e-6;
@@ -437,10 +480,10 @@
       const selectedSet = new Set(selectedCodes);
       for (let i = 0; i < currentGeo.features.length; i++) {
         const feature = currentGeo.features[i];
-        const code = feature.properties?.anthrome;
+        const code = feature.properties?.a;
         if (!selectedSet.has(code)) continue;
 
-        const cellId = feature.properties?.cellId;
+        const cellId = feature.properties?.i;
         const color = legend[code]?.color || '#ffffff';
 
         // Determine opacity for isolate pixel feature
@@ -510,6 +553,7 @@
     updateHandles(currentPoints);
     initialDrawDone = true;
     mapReady = true;
+    drawOverlay();
     performance.mark('draw-cleanup-end');
     performance.measure('draw-cleanup', 'draw-cleanup-start', 'draw-cleanup-end');
   }
@@ -642,6 +686,8 @@
 
     const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
     if (!feature) {
+      hoveredFeature = null;
+      drawOverlay();
       tooltipVisible = false;
       return;
     }
@@ -650,10 +696,15 @@
     if (selectedCodes?.length) {
       const selectedSet = new Set(selectedCodes);
       if (!selectedSet.has(code)) {
+        hoveredFeature = null;
+        drawOverlay();
         tooltipVisible = false;
         return;
       }
     }
+
+    hoveredFeature = feature;
+    drawOverlay();
 
     const legendEntry = legend[code];
     const label = legendEntry?.label || 'Unknown';
@@ -717,6 +768,8 @@
   function handlePointerLeave() {
     if (!tooltipPinned) {
       tooltipVisible = false;
+      hoveredFeature = null;
+      drawOverlay();
     }
   }
 
@@ -907,6 +960,8 @@
     // Clear isolated pixel and bar chart
     if (isolatedCellId !== null || showBarChart) {
       isolatedCellId = null;
+      isolatedFeature = null;
+      drawOverlay();
       showBarChart = false;
       barChartData = null;
     }
@@ -930,6 +985,8 @@
     const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
     if (!feature) {
       isolatedCellId = null;
+      isolatedFeature = null;
+      drawOverlay();
       tooltipPinned = false;
       tooltipVisible = false;
       return;
@@ -942,12 +999,16 @@
       tooltipPinned = false;
       tooltipVisible = false;
       isolatedCellId = null;
+      isolatedFeature = null;
+      drawOverlay();
       return;
     }
 
     // Otherwise, pin the tooltip and isolate this cell
     if (cellId != null) {
       isolatedCellId = cellId;
+      isolatedFeature = feature;
+      drawOverlay();
       tooltipPinned = true;
       // Tooltip position is set by handlePointerMove
       tooltipX = e.clientX;
@@ -1071,6 +1132,8 @@
   $effect(() => {
     if (selectedCodes?.length) {
       isolatedCellId = null;
+      isolatedFeature = null;
+      drawOverlay();
     }
   });
 
@@ -1162,6 +1225,12 @@
     onclick={handleCanvasClick}
   ></canvas>
 
+  <canvas
+    bind:this={overlayCanvasEl}
+    class="overlay-canvas"
+    aria-hidden="true"
+  ></canvas>
+
   {#if debugMenuVisible}
     <div class="handles">
       {#each handlePositions as h, idx}
@@ -1246,6 +1315,12 @@
     height: 100%;
     display: block;
     pointer-events: auto;
+  }
+
+  .overlay-canvas {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
   }
 
   .handles {

@@ -19,7 +19,9 @@
     showBoundaries = false,
     mapReady = $bindable(false),
     mapScale = 1,
-    mapRotation = 0
+    mapRotation = 0,
+    mapPanX = $bindable(0),
+    mapPanY = $bindable(0)
   } = $props();
 
   const fullSize = 7000;
@@ -48,9 +50,7 @@
   let containerHeight = $state(0);
   let innerRadiusPx = $state(0);
 
-  // Map pan state (pixels, applied as canvas ctx.translate in MapCanvas)
-  let panX = $state(0);
-  let panY = $state(0);
+  // Map pan state — backed by bindable props so parent can reset via bind:mapPanX/Y
   let panning = $state(false);
   let panStart = { x: 0, y: 0, px: 0, py: 0 };
 
@@ -64,15 +64,15 @@
     const dy = event.clientY - (rect.top + rect.height / 2);
     if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
     panning = true;
-    panStart = { x: event.clientX, y: event.clientY, px: panX, py: panY };
+    panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY };
     event.preventDefault();
     window.addEventListener('pointermove', handlePanMove);
     window.addEventListener('pointerup', handlePanEnd, { once: true });
   }
 
   function handlePanMove(event) {
-    panX = panStart.px + (event.clientX - panStart.x);
-    panY = panStart.py + (event.clientY - panStart.y);
+    mapPanX = panStart.px + (event.clientX - panStart.x);
+    mapPanY = panStart.py + (event.clientY - panStart.y);
   }
 
   function handlePanEnd() {
@@ -228,7 +228,7 @@
   function renderChart() {
     if (!svgElement || !stackedData || !layout) return;
 
-    const { dim, innerRadius, angle, rScale } = layout;
+    const { dim, radius, innerRadius, angle, rScale } = layout;
     const svg = d3.select(svgElement);
 
     svg.attr('viewBox', `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
@@ -317,16 +317,8 @@
           panelVisible = false;
         }
       })
-      .on('click', function(event, d) {
-        panelPinned = !panelPinned;
-        if (panelPinned) {
-          connectorStart = { x: event.clientX, y: event.clientY };
-          panelContent = createTooltipHTML(d);
-          panelVisible = true;
-          updateConnector();
-        } else {
-          panelVisible = false;
-        }
+      .on('click', function(_event, d) {
+        commitYear(d.year);
       });
 
     // Radial grid
@@ -340,7 +332,7 @@
       .attr('r', rScale);
 
     // Year axis + labels
-    const labelRadius = innerRadius - 30;
+    const labelRadius = radius + 50;
     yearAngles = new Map();
     const yearAxis = g.append('g').attr('class', 'year-axis');
 
@@ -362,10 +354,10 @@
     yearNodes.each(function(yr) {
       const a = angle(yr) + angle.bandwidth() / 2 - Math.PI / 2;
       yearAngles.set(yr, a);
-      const x1 = Math.cos(a) * (innerRadius - 6);
-      const y1 = Math.sin(a) * (innerRadius - 6);
-      const x2 = Math.cos(a) * innerRadius;
-      const y2 = Math.sin(a) * innerRadius;
+      const x1 = Math.cos(a) * radius;
+      const y1 = Math.sin(a) * radius;
+      const x2 = Math.cos(a) * (radius + 10);
+      const y2 = Math.sin(a) * (radius + 10);
       const lx = Math.cos(a) * labelRadius;
       const ly = Math.sin(a) * labelRadius;
       const rot = (a * 180) / Math.PI + 90;
@@ -383,14 +375,19 @@
         .text(formatYearLabel(yr));
     });
 
-    const handle = yearAxis.selectAll('circle.year-handle')
+    yearAxis.selectAll('path.year-bracket')
+      .data(['inner', 'outer'])
+      .join('path')
+      .attr('class', d => `year-bracket year-bracket-${d}`)
+      .attr('pointer-events', 'none');
+
+    yearAxis.selectAll('circle.year-drag-handle')
       .data([null])
       .join('circle')
-      .attr('class', 'year-handle')
-      .attr('r', 40)
+      .attr('class', 'year-drag-handle')
+      .attr('r', 32)
       .on('pointerdown', startYearDrag);
 
-    handle.raise();
     updateYearHighlight();
   }
 
@@ -434,25 +431,6 @@
     });
   }
 
-  function updateYearHighlight() {
-    if (!svgElement || !layout || !yearAngles || yearAngles.size === 0) return;
-    const displayYear = draggingYear ? yearPreview : selectedYear;
-    if (!displayYear || !yearAngles.has(displayYear)) return;
-
-    const a = yearAngles.get(displayYear);
-    const handleRadius = layout.innerRadius - 100;
-    const hx = Math.cos(a) * handleRadius;
-    const hy = Math.sin(a) * handleRadius;
-
-    const svg = d3.select(svgElement);
-    svg.selectAll('.year-label')
-      .classed('selected', d => d === displayYear);
-
-    svg.selectAll('.year-handle')
-      .attr('cx', hx)
-      .attr('cy', hy);
-  }
-
   function angularDistance(a, b) {
     const diff = Math.abs(a - b) % (2 * Math.PI);
     return diff > Math.PI ? 2 * Math.PI - diff : diff;
@@ -477,12 +455,68 @@
     let bestDiff = Infinity;
     yearAngles.forEach((ang, yr) => {
       const diff = angularDistance(theta, ang);
-      if (diff < bestDiff) {
-        bestDiff = diff;
-        bestYear = yr;
-      }
+      if (diff < bestDiff) { bestDiff = diff; bestYear = yr; }
     });
     return bestYear;
+  }
+
+  function updateYearHighlight() {
+    if (!svgElement || !layout || !yearAngles || yearAngles.size === 0) return;
+    const displayYear = draggingYear ? yearPreview : selectedYear;
+    if (!displayYear || !yearAngles.has(displayYear)) return;
+
+    const { angle, innerRadius, radius } = layout;
+    const startAngle = angle(displayYear);
+    const endAngle = startAngle + angle.bandwidth();
+
+    const innerBracket = d3.arc()
+      .innerRadius(innerRadius - 22)
+      .outerRadius(innerRadius - 4)
+      .startAngle(startAngle)
+      .endAngle(endAngle);
+
+    const outerBracket = d3.arc()
+      .innerRadius(radius + 4)
+      .outerRadius(radius + 22)
+      .startAngle(startAngle)
+      .endAngle(endAngle);
+
+    const a = yearAngles.get(displayYear);
+    const hx = Math.cos(a) * (radius + 120);
+    const hy = Math.sin(a) * (radius + 120);
+
+    const svg = d3.select(svgElement);
+    svg.selectAll('.year-label')
+      .classed('selected', d => d === displayYear);
+
+    svg.select('.year-bracket-inner').attr('d', innerBracket());
+    svg.select('.year-bracket-outer').attr('d', outerBracket());
+
+    svg.select('.year-drag-handle')
+      .attr('cx', hx)
+      .attr('cy', hy);
+  }
+
+  function startYearDrag(event) {
+    event.stopPropagation();
+    event.preventDefault();
+    draggingYear = true;
+    yearPreview = nearestYearFromPointer(event) || selectedYear;
+    updateYearHighlight();
+    window.addEventListener('pointermove', onYearDragMove);
+    window.addEventListener('pointerup', onYearDragEnd, { once: true });
+  }
+
+  function onYearDragMove(event) {
+    const yr = nearestYearFromPointer(event);
+    if (yr) { yearPreview = yr; updateYearHighlight(); }
+  }
+
+  function onYearDragEnd(event) {
+    const yr = nearestYearFromPointer(event) || yearPreview || selectedYear;
+    draggingYear = false;
+    commitYear(yr);
+    window.removeEventListener('pointermove', onYearDragMove);
   }
 
   function commitYear(year) {
@@ -490,35 +524,9 @@
     selectedYear = year;
     mapYear = year;
     yearPreview = year;
-    draggingYear = false;
     updateYearHighlight();
   }
 
-  function startYearDrag(event) {
-    event.stopPropagation();
-    event.preventDefault();
-    draggingYear = true;
-    const yr = nearestYearFromPointer(event) || selectedYear;
-    if (yr) yearPreview = yr;
-    updateYearHighlight();
-
-    window.addEventListener('pointermove', onYearDragMove);
-    window.addEventListener('pointerup', onYearDragEnd, { once: true });
-  }
-
-  function onYearDragMove(event) {
-    const yr = nearestYearFromPointer(event);
-    if (yr) {
-      yearPreview = yr;
-      updateYearHighlight();
-    }
-  }
-
-  function onYearDragEnd(event) {
-    const yr = nearestYearFromPointer(event) || yearPreview || selectedYear;
-    commitYear(yr);
-    window.removeEventListener('pointermove', onYearDragMove);
-  }
 
   onMount(() => {
     if (!selectedYear && years.length) {
@@ -563,14 +571,11 @@
     applyFilters();
   });
 
-  // Keep map year in sync when not dragging
+  // Keep map year in sync with selected year
   $effect(() => {
-    if (!draggingYear && selectedYear) {
+    if (selectedYear) {
       untrack(() => {
         mapYear = selectedYear;
-        if (!yearPreview) {
-          yearPreview = selectedYear;
-        }
         updateYearHighlight();
       });
     }
@@ -642,8 +647,8 @@
     {clipAngle}
     {showBoundaries}
     {debugMenuVisible}
-    mapPanX={panX}
-    mapPanY={panY}
+    mapPanX={mapPanX}
+    mapPanY={mapPanY}
     bind:tooltipVisible={mapTooltipVisible}
     bind:tooltipX={mapTooltipX}
     bind:tooltipY={mapTooltipY}
@@ -838,16 +843,20 @@
     fill: var(--accent);
   }
 
-  :global(.year-handle) {
+  :global(.year-bracket) {
+    fill: #ffffff;
+    opacity: 0.9;
+  }
+
+  :global(.year-drag-handle) {
     fill: #ffffff;
     stroke: #0e0b16;
-    stroke-width: 2px;
-    filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.45));
+    stroke-width: 3px;
     cursor: grab;
     pointer-events: all;
   }
 
-  :global(.year-handle:active) {
+  :global(.year-drag-handle:active) {
     cursor: grabbing;
   }
 
@@ -960,10 +969,10 @@
   /* Info panel — fixed, half viewport width, screen-centered */
   .info-panel {
     position: fixed;
-    left: 50%;
+    left: 16.67vw;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 50vw;
+    width: 16.67vw;
     z-index: 49;
     background: var(--bg, #0e0b16);
     border: 1px solid rgba(255, 255, 255, 0.35);

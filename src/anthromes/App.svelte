@@ -25,9 +25,11 @@
   let initialLoad = $state(true);
   let zoomLevel = $state(1);
   let rotation = $state(0);
+  let mapPanX = $state(0);
+  let mapPanY = $state(0);
 
   // Filter rail state
-  let openPanel = $state(null); // 'anthromes' | 'year' | 'layers'
+  let openPanel = $state(null); // 'anthromes' | 'zooms'
 
   // Load data on mount
   onMount(async () => {
@@ -89,6 +91,8 @@
   function resetView() {
     zoomLevel = 1;
     rotation = 0;
+    mapPanX = 0;
+    mapPanY = 0;
   }
 
   // Handle clear - in original, this also resets to show everything (same as Select All)
@@ -248,11 +252,8 @@
         <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => openPanel = openPanel === 'anthromes' ? null : 'anthromes'}>
           <span class="label">Anthromes</span>
         </button>
-        <button class="mini-circle" class:active={openPanel === 'year'} onclick={() => openPanel = openPanel === 'year' ? null : 'year'}>
-          <span class="label">Year</span>
-        </button>
-        <button class="mini-circle" class:active={openPanel === 'layers'} onclick={() => openPanel = openPanel === 'layers' ? null : 'layers'}>
-          <span class="label">Layers</span>
+        <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => openPanel = openPanel === 'zooms' ? null : 'zooms'}>
+          <span class="label">Zooms</span>
         </button>
       </div>
 
@@ -260,7 +261,7 @@
           <div class="filter-overlay" aria-live="polite">
             <div class="overlay-head">
               <div class="overlay-title">
-                {openPanel === 'anthromes' ? 'Anthromes' : openPanel === 'year' ? 'Year' : 'Layers'}
+                {openPanel === 'anthromes' ? 'Anthromes' : 'Zooms'}
               </div>
               <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
             </div>
@@ -286,25 +287,8 @@
                 {/each}
               </div>
               <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
-            {:else if openPanel === 'year'}
-              <p class="overlay-desc">Choose a year to view anthrome distribution.</p>
-              <div class="year-grid">
-                {#each years as yr}
-                  <button
-                    class="chip"
-                    class:active={selectedYear === yr}
-                    onclick={() => selectedYear = yr}
-                  >
-                    {yr}
-                  </button>
-                {/each}
-              </div>
-            {:else if openPanel === 'layers'}
-              <p class="overlay-desc">Toggle map layers and boundaries.</p>
-              <label class="checkbox-label">
-                <input type="checkbox" bind:checked={showBoundaries} />
-                <span>Show Country Boundaries</span>
-              </label>
+            {:else if openPanel === 'zooms'}
+              <p class="overlay-desc">Zoom presets — coming soon.</p>
             {/if}
           </div>
         {/if}
@@ -326,6 +310,8 @@
           {showBoundaries}
           mapScale={zoomLevel}
           mapRotation={rotation}
+          bind:mapPanX
+          bind:mapPanY
         />
       </div>
     </div>
