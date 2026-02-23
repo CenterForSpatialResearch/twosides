@@ -2,7 +2,6 @@
   import { onMount, untrack } from 'svelte';
   import * as d3 from 'd3';
   import MapCanvas from './MapCanvas.svelte';
-  import Tooltip from '../../shared/Tooltip.svelte';
   import { TOPO_PROFILE } from './constants.js';
   import { formatYearLabel } from './dataAdapter.js';
 
@@ -29,17 +28,97 @@
   let svgElement = $state(null);
   let chartContainer = $state(null);
 
-  let tooltipVisible = $state(false);
-  let tooltipX = $state(0);
-  let tooltipY = $state(0);
-  let tooltipContent = $state('');
-  let tooltipPinned = $state(false);
+  // Map tooltip state (bound to MapCanvas via bind:)
+  let mapTooltipVisible = $state(false);
+  let mapTooltipX = $state(0);
+  let mapTooltipY = $state(0);
+  let mapTooltipContent = $state('');
+  let mapTooltipPinned = $state(false);
 
-  let zoomTransform = $state(d3.zoomIdentity);
+  // Unified info panel
+  let panelVisible = $state(false);
+  let panelContent = $state('');
+  let panelPinned = $state(false);
+  let infoPanelEl = $state(null);
+  let connectorStart = $state(null);
+  let connectorEnd = $state(null);
+
   let mapZoom = $state({ k: 1, x: 0, y: 0 });
   let containerWidth = $state(0);
   let containerHeight = $state(0);
   let innerRadiusPx = $state(0);
+
+  // Map pan state (pixels, applied as canvas ctx.translate in MapCanvas)
+  let panX = $state(0);
+  let panY = $state(0);
+  let panning = $state(false);
+  let panStart = { x: 0, y: 0, px: 0, py: 0 };
+
+  // Cursor state — grab only inside inner circle
+  let hoverInCircle = $state(false);
+
+  function handlePanStart(event) {
+    if (panning || !chartContainer || !innerRadiusPx) return;
+    const rect = chartContainer.getBoundingClientRect();
+    const dx = event.clientX - (rect.left + rect.width / 2);
+    const dy = event.clientY - (rect.top + rect.height / 2);
+    if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
+    panning = true;
+    panStart = { x: event.clientX, y: event.clientY, px: panX, py: panY };
+    event.preventDefault();
+    window.addEventListener('pointermove', handlePanMove);
+    window.addEventListener('pointerup', handlePanEnd, { once: true });
+  }
+
+  function handlePanMove(event) {
+    panX = panStart.px + (event.clientX - panStart.x);
+    panY = panStart.py + (event.clientY - panStart.y);
+  }
+
+  function handlePanEnd() {
+    panning = false;
+    window.removeEventListener('pointermove', handlePanMove);
+  }
+
+  function handleContainerMove(event) {
+    if (panning || !chartContainer || !innerRadiusPx) return;
+    const rect = chartContainer.getBoundingClientRect();
+    const dx = event.clientX - (rect.left + rect.width / 2);
+    const dy = event.clientY - (rect.top + rect.height / 2);
+    hoverInCircle = dx * dx + dy * dy <= innerRadiusPx * innerRadiusPx;
+  }
+
+  function updateConnector() {
+    if (!infoPanelEl || !connectorStart) return;
+    const rect = infoPanelEl.getBoundingClientRect();
+    connectorEnd = {
+      x: rect.right - 6,
+      y: Math.max(rect.top + 10, Math.min(rect.bottom - 10, connectorStart.y))
+    };
+  }
+
+  function closePanel() {
+    panelVisible = false;
+    panelPinned = false;
+    connectorStart = null;
+    connectorEnd = null;
+    mapTooltipPinned = false;
+    mapTooltipVisible = false;
+  }
+
+  function handlePanelAction(event) {
+    const btn = event.target.closest('button[data-act]');
+    if (!btn) return;
+    const act = btn.getAttribute('data-act');
+    if (act === 'highlight-biomes') {
+      const sgbs = btn.getAttribute('data-sgbs');
+      if (sgbs) {
+        const base = import.meta.env.BASE_URL;
+        window.location.href = `${base}src/biomes/index.html?highlightSGBs=${sgbs}`;
+      }
+    }
+  }
+
   let yearAngles = $state(new Map());
 
   let mapYear = $state(null);
@@ -54,21 +133,6 @@
     [-117, 33],
     [36, 4]
   ];
-
-  function zoomFilter(event) {
-    if (draggingYear) return false;
-    if (event.ctrlKey) return false;
-    return true;
-  }
-
-  // Limit zoom handling to the bar/ring layer; map zoom handled separately
-  const zoomScale = d3.zoom()
-    .filter(zoomFilter)
-    .scaleExtent([1, 3])
-    .on('zoom', (event) => {
-      zoomTransform = event.transform;
-      d3.select(svgElement).select('g.zoom-container').attr('transform', event.transform);
-    });
 
   // Memoized computed values using $derived
   const stackedData = $derived.by(() => {
@@ -164,7 +228,7 @@
   function renderChart() {
     if (!svgElement || !stackedData || !layout) return;
 
-    const { dim, innerRadius, radius, angle, rScale } = layout;
+    const { dim, innerRadius, angle, rScale } = layout;
     const svg = d3.select(svgElement);
 
     svg.attr('viewBox', `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
@@ -175,6 +239,8 @@
       zoomGroup = svg.append('g').attr('class', 'zoom-container');
     }
     zoomGroup.selectAll('*').remove();
+
+    zoomGroup.attr('transform', 'rotate(-90)');
 
     let defs = svg.select('defs');
     if (defs.empty()) {
@@ -230,36 +296,36 @@
       .attr('d', arcHit)
       .attr('data-key', d => `${d.year}__${d.label}`)
       .on('mousemove', function(event, d) {
-        if (tooltipPinned) return;
-        tooltipX = event.clientX;
-        tooltipY = event.clientY;
-        tooltipContent = createTooltipHTML(d);
-        tooltipVisible = true;
+        if (panelPinned) return;
+        connectorStart = { x: event.clientX, y: event.clientY };
+        panelContent = createTooltipHTML(d);
+        panelVisible = true;
+        updateConnector();
       })
       .on('mouseover', function(event, d) {
         const key = `${d.year}__${d.label}`;
         d3.selectAll(`[data-key="${key}"]`).classed('is-hover', true);
-        if (!tooltipPinned) {
-          tooltipContent = createTooltipHTML(d);
-          tooltipVisible = true;
+        if (!panelPinned) {
+          panelContent = createTooltipHTML(d);
+          panelVisible = true;
         }
       })
       .on('mouseout', function(event, d) {
         const key = `${d.year}__${d.label}`;
         d3.selectAll(`[data-key="${key}"]`).classed('is-hover', false);
-        if (!tooltipPinned) {
-          tooltipVisible = false;
+        if (!panelPinned) {
+          panelVisible = false;
         }
       })
       .on('click', function(event, d) {
-        tooltipPinned = !tooltipPinned;
-        if (tooltipPinned) {
-          tooltipX = event.clientX;
-          tooltipY = event.clientY;
-          tooltipContent = createTooltipHTML(d);
-          tooltipVisible = true;
+        panelPinned = !panelPinned;
+        if (panelPinned) {
+          connectorStart = { x: event.clientX, y: event.clientY };
+          panelContent = createTooltipHTML(d);
+          panelVisible = true;
+          updateConnector();
         } else {
-          tooltipVisible = false;
+          panelVisible = false;
         }
       });
 
@@ -303,9 +369,8 @@
       const lx = Math.cos(a) * labelRadius;
       const ly = Math.sin(a) * labelRadius;
       const rot = (a * 180) / Math.PI + 90;
-      const isTop = Math.sin(a) < 0;
-      let flipY = Math.sin(a) > 0 ? -1 : 1; // bottom half flipped horizontally
-      if (yr === '100AD') flipY = -flipY; // Special case: flip 100AD
+      const isTop = Math.cos(a) > 0;
+      let flipY = Math.cos(a) > 0 ? 1 : -1;
       const node = d3.select(this);
       node.select('line')
         .attr('x1', x1).attr('y1', y1)
@@ -399,10 +464,8 @@
     const scale = layout.dim / rect.width;
     const localX = (event.clientX - rect.left - rect.width / 2) * scale;
     const localY = (event.clientY - rect.top - rect.height / 2) * scale;
-    const t = zoomTransform || d3.zoomIdentity;
-    const x = (localX - t.x) / t.k;
-    const y = (localY - t.y) / t.k;
-    return { x, y };
+    // Inverse of rotate(-90): (localX, localY) -> (-localY, localX)
+    return { x: -localY, y: localX };
   }
 
   function nearestYearFromPointer(event) {
@@ -478,12 +541,7 @@
     }
 
     const svg = d3.select(svgElement);
-    // Base group for zoom target
     svg.append('g').attr('class', 'zoom-container');
-
-    if (chartContainer) {
-      d3.select(chartContainer).call(zoomScale);
-    }
   });
 
   // Render chart when stackedData or layout change
@@ -535,9 +593,39 @@
       };
     });
   });
+
+  // Route map tooltip changes to the unified info panel
+  $effect(() => {
+    const vis = mapTooltipVisible;
+    const content = mapTooltipContent;
+    const x = mapTooltipX;
+    const y = mapTooltipY;
+    const pinned = mapTooltipPinned;
+
+    untrack(() => {
+      if (panelPinned && !pinned) return; // waffle has pinned panel, don't override
+      if (vis || pinned) {
+        panelContent = content;
+        panelVisible = true;
+        connectorStart = { x, y };
+        if (pinned) panelPinned = true;
+        updateConnector();
+      } else {
+        if (!panelPinned) panelVisible = false;
+      }
+    });
+  });
+
+  // Recompute connector endpoint when panel renders or connector start changes
+  $effect(() => {
+    panelVisible;
+    infoPanelEl;
+    connectorStart;
+    untrack(updateConnector);
+  });
 </script>
 
-<div class="chart-container" bind:this={chartContainer}>
+<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} class:panning class:in-circle={hoverInCircle}>
   <MapCanvas
     width={containerWidth}
     height={containerHeight}
@@ -554,6 +642,13 @@
     {clipAngle}
     {showBoundaries}
     {debugMenuVisible}
+    mapPanX={panX}
+    mapPanY={panY}
+    bind:tooltipVisible={mapTooltipVisible}
+    bind:tooltipX={mapTooltipX}
+    bind:tooltipY={mapTooltipY}
+    bind:tooltipContent={mapTooltipContent}
+    bind:tooltipPinned={mapTooltipPinned}
   />
 
   {#if debugMenuVisible}
@@ -640,15 +735,28 @@
 
   <svg bind:this={svgElement} id="chart"></svg>
 
-  <Tooltip
-    bind:visible={tooltipVisible}
-    bind:x={tooltipX}
-    bind:y={tooltipY}
-    bind:pinned={tooltipPinned}
-    content={tooltipContent}
-    onClose={() => (tooltipPinned = false)}
-  />
+  {#if panelVisible && connectorStart && connectorEnd}
+    <svg class="connector-overlay" aria-hidden="true">
+      <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
+    </svg>
+  {/if}
 </div>
+
+{#if panelVisible && panelContent}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <aside class="info-panel" id="info-panel" bind:this={infoPanelEl} aria-live="polite">
+    <div class="info-header">
+      <div class="info-title">Details</div>
+      <button class="close-btn" onclick={closePanel} aria-label="Close">✕</button>
+    </div>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <div class="panel-content" onclick={handlePanelAction}>
+      {@html panelContent}
+    </div>
+  </aside>
+{/if}
 
 <style>
   .chart-container {
@@ -658,8 +766,16 @@
     align-items: center;
     justify-content: center;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     touch-action: none;
+  }
+
+  .chart-container.in-circle {
+    cursor: grab;
+  }
+
+  .chart-container.panning {
+    cursor: grabbing;
   }
 
   svg {
@@ -711,7 +827,7 @@
 
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 26px;
+    font-size: 52px;
     opacity: 0.95;
     font-weight: 800;
     letter-spacing: 0.08em;
@@ -822,5 +938,141 @@
   .reset-btn:hover {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Connector SVG overlay — fixed so it spans full viewport */
+  .connector-overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 50;
+    overflow: visible;
+  }
+
+  :global(.connector-overlay line) {
+    stroke: rgba(255, 255, 255, 0.5);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
+  /* Info panel — fixed, half viewport width, screen-centered */
+  .info-panel {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 50vw;
+    z-index: 49;
+    background: var(--bg, #0e0b16);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 12px;
+    padding: 12px 14px;
+    overflow: auto;
+    color: var(--fg, #ffffff);
+    box-shadow: var(--shadow, 0 10px 30px rgba(0,0,0,0.35));
+  }
+
+  .info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .info-title {
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .close-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--fg, #ffffff);
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Panel content styles (mirror Tooltip.svelte :global rules) */
+  :global(.info-panel .title) {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  :global(.info-panel .subtitle) {
+    font-size: 12px;
+    color: #cbd5e1;
+    margin-bottom: 8px;
+  }
+
+  :global(.info-panel .summary b) {
+    font-weight: 700;
+  }
+
+  :global(.info-panel .kv) {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.14);
+    padding-top: 8px;
+  }
+
+  :global(.info-panel .kv .k) {
+    color: #94a3b8;
+  }
+
+  :global(.info-panel .tip-head) {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  :global(.info-panel .chip) {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    flex: 0 0 auto;
+  }
+
+  :global(.info-panel .summary) {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  :global(.info-panel .actions) {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.14);
+  }
+
+  :global(.info-panel .actions button) {
+    pointer-events: auto;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #f9fafb;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  :global(.info-panel .actions button:hover) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.25);
   }
 </style>

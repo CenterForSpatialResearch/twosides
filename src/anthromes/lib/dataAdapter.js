@@ -97,10 +97,8 @@ export function parseYearString(yearStr) {
  */
 export function formatYearLabel(yearStr) {
   if (!yearStr) return '';
-  if (yearStr.endsWith('BCE') || yearStr.endsWith('CE')) return yearStr;
-  if (yearStr.endsWith('BC')) return yearStr.replace(/BC$/, 'BCE');
-  if (yearStr.endsWith('AD')) return yearStr.replace(/AD$/, 'CE');
-  return yearStr;
+  const { year, isBCE } = parseYearString(yearStr);
+  return isBCE ? `-${year}` : `${year}`;
 }
 
 /**

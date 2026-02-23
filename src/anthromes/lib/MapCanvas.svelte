@@ -4,7 +4,6 @@
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
-  import Tooltip from '../../shared/Tooltip.svelte';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
@@ -27,7 +26,14 @@
     clipAngle = 180,
     mapReady = $bindable(false),
     showBoundaries = false,
-    debugMenuVisible = false
+    debugMenuVisible = false,
+    mapPanX = 0,
+    mapPanY = 0,
+    tooltipVisible = $bindable(false),
+    tooltipX = $bindable(0),
+    tooltipY = $bindable(0),
+    tooltipContent = $bindable(''),
+    tooltipPinned = $bindable(false)
   } = $props();
 
   let canvasEl = $state(null);
@@ -55,13 +61,6 @@
   let projectionCache = null;
   let initialDrawDone = $state(false);
   let isAnimating = $state(false);
-
-  // Tooltip state
-  let tooltipVisible = $state(false);
-  let tooltipX = $state(0);
-  let tooltipY = $state(0);
-  let tooltipContent = $state('');
-  let tooltipPinned = $state(false);
 
   // Cross-highlighting state
   let highlightedCountries = $state(new Set());
@@ -97,7 +96,7 @@
   function getCircle() {
     const cx = width / 2 + (zoom?.x || 0);
     const cy = height / 2 + (zoom?.y || 0);
-    const r = Math.max(0, innerRadiusPx * (zoom?.k || 1));
+    const r = Math.max(0, innerRadiusPx);
     return { cx, cy, r };
   }
 
@@ -284,7 +283,7 @@
     const next = currentPoints.map(pt => {
       const proj = projection(pt);
       if (!proj) return { x: 0, y: 0, visible: false };
-      return { x: proj[0] / dpr, y: proj[1] / dpr, visible: true };
+      return { x: proj[0] / dpr + mapPanX, y: proj[1] / dpr + mapPanY, visible: true };
     });
     handlePositions = next;
   }
@@ -330,6 +329,7 @@
       !pointsMatch(projectionCache.points[0], currentPoints[0]) ? 'point-a' :
       !pointsMatch(projectionCache.points[1], currentPoints[1]) ? 'point-b' :
       !circlesMatch(projectionCache.circle, circle) ? 'circle' :
+      (projectionCache.zoomK || 1) !== (zoom?.k || 1) ? 'zoom-k' :
       null;
 
     let shouldRefit = !!refitReason;
@@ -353,13 +353,14 @@
         nextProj.fitExtent(extent, currentMesh);
         performance.mark('projection-fit-end');
         performance.measure('projection-fit', 'projection-fit-start', 'projection-fit-end');
-        nextProj.scale(nextProj.scale() * 0.98);
+        nextProj.scale(nextProj.scale() * 0.98 * (zoom?.k || 1));
         if (!skipCache) {
           projectionCache = {
             geo: currentGeo,
             points: currentPoints.map(p => [...p]),
             clipAngle,
             circle: { ...circle },
+            zoomK: zoom?.k || 1,
             dpr,
             projection: nextProj
           };
@@ -377,7 +378,9 @@
     }
 
     projection = projectionOverride || projection || projectionCache?.projection;
-    projection.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
+    const panAbsX = Math.abs((mapPanX || 0) * dpr);
+    const panAbsY = Math.abs((mapPanY || 0) * dpr);
+    projection.clipExtent([[-panAbsX, -panAbsY], [canvasEl.width + panAbsX, canvasEl.height + panAbsY]]);
     performance.mark('projection-create-end');
     performance.measure('projection-create', 'projection-create-start', 'projection-create-end');
 
@@ -387,9 +390,10 @@
     ctx.beginPath();
     ctx.arc(circle.cx * dpr, circle.cy * dpr, Math.max(0, circle.r * dpr), 0, Math.PI * 2);
     ctx.clip();
+    ctx.translate((mapPanX || 0) * dpr, (mapPanY || 0) * dpr);
 
     ctx.fillStyle = '#0e0b16';
-    ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+    ctx.fillRect(-canvasEl.width, -canvasEl.height, 3 * canvasEl.width, 3 * canvasEl.height);
 
     const allSelected = !selectedCodes || selectedCodes.length === 0;
     const totalLegend = Object.keys(legend || {}).length;
@@ -543,7 +547,7 @@
       try {
         startProj = geoTwoPointEquidistant(fromPts[0], fromPts[1]).clipAngle(clipAngle);
         startProj.fitExtent(extent, currentMesh || currentGeo);
-        startProj.scale(startProj.scale() * 0.98);
+        startProj.scale(startProj.scale() * 0.98 * (zoom?.k || 1));
         startProj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
       } catch (err) {
         console.error('Projection error (start)', err);
@@ -559,7 +563,7 @@
     try {
       const proj = geoTwoPointEquidistant(toPts[0], toPts[1]).clipAngle(clipAngle);
       proj.fitExtent(extent, currentMesh || currentGeo);
-      proj.scale(proj.scale() * 0.98);
+      proj.scale(proj.scale() * 0.98 * (zoom?.k || 1));
       proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
       finalProjection = proj;
       endScale = proj.scale();
@@ -597,6 +601,7 @@
             points: toPts.map(p => [...p]),
             clipAngle,
             circle: { ...circle },
+            zoomK: zoom?.k || 1,
             dpr,
             projection: finalProjection
           };
@@ -627,8 +632,8 @@
     }
     const rect = canvasEl.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr;
-    const y = (e.clientY - rect.top) * dpr;
+    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
+    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
       tooltipVisible = false;
@@ -888,7 +893,7 @@
 
   function handleGlobalClick(e) {
     if (e.target.closest('.back-button')) return;
-    if (e.target.closest('.map-layer') || e.target.closest('#tooltip') || e.target.closest('.bar-chart')) return;
+    if (e.target.closest('.map-layer') || e.target.closest('#info-panel') || e.target.closest('.bar-chart')) return;
 
     // Clear cross-highlighting
     if (crossHighlightActive) {
@@ -907,27 +912,13 @@
     }
   }
 
-  function handleTooltipAction(event) {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-
-    const act = btn.getAttribute('data-act');
-    if (act === 'highlight-biomes') {
-      const sgbs = btn.getAttribute('data-sgbs');
-      if (sgbs) {
-        const base = import.meta.env.BASE_URL;
-        window.location.href = `${base}src/biomes/index.html?highlightSGBs=${sgbs}`;
-      }
-    }
-  }
-
   function handleCanvasClick(e) {
     if (!projection || !currentGeo) return;
 
     const rect = canvasEl.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr;
-    const y = (e.clientY - rect.top) * dpr;
+    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
+    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
       isolatedCellId = null;
@@ -986,8 +977,8 @@
     const startPoints = points.map(p => [...p]);
 
     function onMove(ev) {
-      const x = (ev.clientX - rect.left) * dpr;
-      const y = (ev.clientY - rect.top) * dpr;
+      const x = (ev.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
+      const y = (ev.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
       const inv = projection.invert([x, y]);
       if (!inv) return;
       const next = [...points];
@@ -1062,6 +1053,8 @@
     zoom?.k;
     zoom?.x;
     zoom?.y;
+    mapPanX;
+    mapPanY;
     showBoundaries;
     boundariesMesh;
     boundariesGeo;
@@ -1238,15 +1231,6 @@
   </div>
 {/if}
 
-<Tooltip
-  bind:visible={tooltipVisible}
-  bind:x={tooltipX}
-  bind:y={tooltipY}
-  bind:pinned={tooltipPinned}
-  content={tooltipContent}
-  onClose={() => (tooltipPinned = false)}
-  onAction={handleTooltipAction}
-/>
 
 <style>
   .map-layer {

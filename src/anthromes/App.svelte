@@ -74,22 +74,21 @@
     selectedAnthromes = [...orderedCodes];
   }
 
-  // Zoom controls (placeholder hooks; WaffleChart should react to size or transform if available)
+  const ZOOM_LEVELS = [1, 2, 7];
+
   function zoomIn() {
-    zoomLevel = Math.min(zoomLevel * 1.25, 7);
+    const idx = ZOOM_LEVELS.indexOf(zoomLevel);
+    if (idx < ZOOM_LEVELS.length - 1) zoomLevel = ZOOM_LEVELS[idx + 1];
   }
 
   function zoomOut() {
-    zoomLevel = Math.max(zoomLevel / 1.25, 0.5);
+    const idx = ZOOM_LEVELS.indexOf(zoomLevel);
+    if (idx > 0) zoomLevel = ZOOM_LEVELS[idx - 1];
   }
 
   function resetView() {
     zoomLevel = 1;
     rotation = 0;
-  }
-
-  function rotateBy(delta) {
-    rotation = (rotation + delta + 360) % 360;
   }
 
   // Handle clear - in original, this also resets to show everything (same as Select All)
@@ -243,19 +242,17 @@
           <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
           <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
           <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
-          <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-10)}>⟲</button>
-          <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(10)}>⟳</button>
         </div>
 
       <div class="filter-grid">
         <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => openPanel = openPanel === 'anthromes' ? null : 'anthromes'}>
-          Anthromes
+          <span class="label">Anthromes</span>
         </button>
         <button class="mini-circle" class:active={openPanel === 'year'} onclick={() => openPanel = openPanel === 'year' ? null : 'year'}>
-          Year
+          <span class="label">Year</span>
         </button>
         <button class="mini-circle" class:active={openPanel === 'layers'} onclick={() => openPanel = openPanel === 'layers' ? null : 'layers'}>
-          Layers
+          <span class="label">Layers</span>
         </button>
       </div>
 
@@ -496,14 +493,14 @@
   /* New rail + overlay styles */
   .layout {
     display: grid;
-    grid-template-columns: minmax(260px, 340px) 1fr;
+    grid-template-columns: 1fr 2fr;
     height: 100%;
     align-items: stretch;
   }
 
   .filter-rail {
     grid-column: 1;
-    padding: 18px 14px;
+    padding: 18px 28px;
     box-sizing: border-box;
     display: grid;
     gap: 12px;
@@ -512,8 +509,9 @@
 
   .filter-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
     gap: 10px;
+    max-width: 50%;
   }
 
   .control-circles {
@@ -521,6 +519,7 @@
     grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     justify-items: center;
+    max-width: 50%;
   }
 
   .circle-btn {
@@ -544,8 +543,8 @@
   }
 
   .mini-circle {
-    width: 86px;
-    height: 86px;
+    width: 82px;
+    height: 82px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -554,10 +553,14 @@
     color: var(--fg);
     cursor: pointer;
     box-shadow: var(--shadow);
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, color 0.2s ease;
-    text-align: center;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+  }
+
+  .mini-circle .label {
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.03em;
+    color: var(--muted);
   }
 
   .mini-circle:hover {
@@ -661,7 +664,7 @@
   .viz-area {
     grid-column: 2;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
   }
 
 </style>
