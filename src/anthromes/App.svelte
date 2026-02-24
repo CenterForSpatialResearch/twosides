@@ -3,6 +3,7 @@
   import WaffleChart from './lib/WaffleChart.svelte';
   import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
   import ZoomsPanel from './lib/ZoomsPanel.svelte';
+  import AnnotationBubbles from './lib/AnnotationBubbles.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
   // State
@@ -232,16 +233,6 @@
     <!-- Side Title -->
     <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
 
-    <!-- Anthrome Zooms Link -->
-    <a
-      class="zooms-link"
-      href="/anthrome-change-year-test.html"
-      aria-label="Anthrome Zooms"
-      title="Anthrome Zooms"
-    >
-      Anthrome Zooms
-    </a>
-
     <!-- Settings Toggle -->
     <button
       class="settings-toggle"
@@ -356,6 +347,7 @@
       </div>
 
       <div class="viz-area">
+        <AnnotationBubbles size={viewSize} />
         <WaffleChart
           {data}
           {years}
