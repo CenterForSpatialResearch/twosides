@@ -654,9 +654,9 @@
   .chart-container {
     width: 100%;
     height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
     position: relative;
     overflow: hidden;
     touch-action: none;
@@ -664,10 +664,10 @@
 
   svg {
     display: block;
-    margin: auto;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
     background: transparent;
-    max-width: 100%;
-    max-height: 100%;
     position: absolute;
     inset: 0;
     z-index: 2;

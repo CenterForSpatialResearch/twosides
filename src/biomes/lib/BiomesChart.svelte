@@ -52,28 +52,26 @@
   let showBackButton = $state(false);
 
   // Constants
-  const fullSize = 6400;        // match desired 6400x6400 canvas
-  const previewSize = 1200;
-  const fullRadius = 2800;      // leave margin so disk never clips at default
-  const previewRadius = 550;
+  const fullSize = 6400;        // base SVG dimension for full view
+  const previewSize = 1200;     // smaller preview mode
+  const fullMargin = 500;       // padding to keep outer rings/labels inside viewBox
+  const previewMargin = 100;
   const zoomMin = 0.5;
   const zoomMax = 7.0;           // allow deeper preset zooms
   const zoomStep = 1.25;
-  const anchorFraction = -0.30;  // shift left on zoom, but keep disk within its 2/3 column
-  const anchorPx = null;         // use fraction-based anchor; set number to override
+  const anchorPx = null;         // optional explicit anchor
   const rotateStepDeg = 10;
-  const resetFraction = 0.5;     // center within the 2/3 viz area
-  const resetYOffset = -130;     // refined lift toward vertical center
-  const resetPx = null;          // set to number to override resetFraction
-  const defaultScale = 0.8;      // fit without edge overlap on load
+  const resetPx = null;          // override anchor if set
+  const zoomLevels = [1, 2, 7];
+  const edgeMarginPx = 12;
   const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
   const proxyFilters = ['Proxy', 'Study', 'Site'];
-  const zoomPresets = [2, 7];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
   let currentTransform = d3.zoomIdentity;
   let zoomBehavior = null;
+  let zoomIdx = $state(0);
   let rotationDeg = 0;
   let infoPanelEl = $state(null);
   let panelContent = $state('');
@@ -106,6 +104,53 @@
     return Math.max(zoomMin, Math.min(zoomMax, k));
   }
 
+  function computeDefaultScale(rect) {
+    // ViewBox already scales to viewport; start at natural size
+    return 1;
+  }
+
+  function radiusForSize() {
+    const dim = size === 'full' ? fullSize : previewSize;
+    const margin = size === 'full' ? fullMargin : previewMargin;
+    return dim / 2 - margin;
+  }
+
+  function outerRadiusForSize() {
+    // Add space for bars and outer adornments: radius + 110 + 5% of radius
+    const r = radiusForSize();
+    return r * 1.05 + 110;
+  }
+
+  function anchorPoint(rect, k) {
+    const base = {
+      x: anchorPx ?? rect.width / 2,
+      y: rect.height / 2
+    };
+    const dim = size === 'full' ? fullSize : previewSize;
+    const radius = radiusForSize();
+    const outerRadius = outerRadiusForSize();
+    const baseScale = rect.width / dim;
+    const rScreen = radius * baseScale * k;
+    const outerScreen = outerRadius * baseScale * k;
+
+    if (k === 1) {
+      return base;
+    }
+
+    if (k === 2) {
+      // Keep center on left edge, vertically centered
+      return { x: 0, y: base.y };
+    }
+
+    if (k === 7) {
+      // Position so the rightmost content (bars) is visible with a small margin
+      const targetX = rect.width - outerScreen - edgeMarginPx;
+      return { x: targetX, y: base.y };
+    }
+
+    return base;
+  }
+
   function applyZoom(k, anchorX, anchorY) {
     const rect = svgElement.getBoundingClientRect();
     const dim = size === 'full' ? fullSize : previewSize;
@@ -124,21 +169,29 @@
 
   function performZoomStep(dir = 1) {
     if (!svgElement) return;
-    const rect = svgElement.getBoundingClientRect();
-    const anchorX = anchorPx ?? rect.width * anchorFraction;
-    const anchorY = rect.height / 2 + resetYOffset;
-    const nextK = clampScale(currentTransform.k * (dir > 0 ? zoomStep : 1 / zoomStep));
-    applyZoom(nextK, anchorX, anchorY);
+    const nextIdx = clampScaleIndex(zoomIdx + (dir > 0 ? 1 : -1));
+    setZoomByIndex(nextIdx);
   }
 
   const zoomIn = () => performZoomStep(1);
   const zoomOut = () => performZoomStep(-1);
 
-  function resetView() {
+  function clampScaleIndex(idx) {
+    return Math.max(0, Math.min(zoomLevels.length - 1, idx));
+  }
+
+  function setZoomByIndex(idx) {
     if (!svgElement) return;
     const rect = svgElement.getBoundingClientRect();
-    const anchorX = resetPx ?? rect.width * resetFraction;
-    applyZoom(defaultScale, anchorX, rect.height / 2 + resetYOffset);
+    zoomIdx = clampScaleIndex(idx);
+    const k = zoomLevels[zoomIdx];
+    const { x: anchorX, y: anchorY } = anchorPoint(rect, k);
+    applyZoom(k, anchorX, anchorY);
+  }
+
+  function resetView() {
+    if (!svgElement) return;
+    setZoomByIndex(0);
     rotationDeg = 0;
     applyTransforms();
   }
@@ -158,7 +211,8 @@
     }
 
     const dim = size === 'full' ? fullSize : previewSize;
-    const radius = size === 'full' ? fullRadius : previewRadius;
+    const margin = size === 'full' ? fullMargin : previewMargin;
+    const radius = dim / 2 - margin;
 
     const svg = d3.select(svgElement);
     svg.attr('viewBox', `${-dim / 2} ${-dim / 2} ${dim} ${dim}`);
@@ -1016,29 +1070,11 @@
 
   <div class="rail">
     <div class="control-circles">
-      <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
+      <button class="circle-btn" title="Zoom out" onclick={zoomOut} disabled={zoomIdx === 0}>−</button>
       <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
-      <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
+      <button class="circle-btn" title="Zoom in" onclick={zoomIn} disabled={zoomIdx === zoomLevels.length - 1}>＋</button>
       <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-rotateStepDeg)}>⟲</button>
       <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(rotateStepDeg)}>⟳</button>
-    </div>
-    <div class="preset-row">
-      {#each zoomPresets as zp}
-        <button
-          class="chip"
-          onclick={() => {
-            const rect = svgElement?.getBoundingClientRect();
-            if (!rect) return;
-            const anchorY = rect.height / 2 + resetYOffset;
-            const anchorX = (zp <= 2)
-              ? 0                                        // 2x: center on left edge
-              : -rect.width * 1.5;                       // 7x: force farther left to expose rim
-            applyZoom(zp, anchorX, anchorY);
-            applyFiltersNow(); // ensure dimming updates immediately at this zoom
-          }}>
-          {zp}x
-        </button>
-      {/each}
     </div>
   </div>
 
@@ -1072,6 +1108,7 @@
   .chart-container {
     width: 100vw;
     height: 100vh;
+    min-height: 100dvh;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
     align-items: center;
@@ -1098,7 +1135,10 @@
     display: block;
     background: transparent;
     width: 100%;
-    height: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    object-fit: contain;
+    margin: 0 auto;
   }
 
   .rail {
@@ -1139,6 +1179,12 @@
     transform: translateY(-1px);
     background: rgba(255, 255, 255, 0.16);
     border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .circle-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    transform: none;
   }
 
   .circle-btn.active {
