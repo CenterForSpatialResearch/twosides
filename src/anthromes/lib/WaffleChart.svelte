@@ -57,6 +57,10 @@
   // Map pan state — backed by bindable props so parent can reset via bind:mapPanX/Y
   let panning = $state(false);
   let panStart = { x: 0, y: 0, px: 0, py: 0 };
+  // Track whether this pointerdown has produced actual movement yet.
+  // closePanel/isolationReset fire only on first real movement, not on simple clicks,
+  // to avoid a race where the reset effect fires after handleCanvasClick isolates a cell.
+  let panHasMoved = false;
 
   // Cursor state — grab only inside inner circle
   let hoverInCircle = $state(false);
@@ -67,9 +71,8 @@
     const dx = event.clientX - (rect.left + rect.width / 2);
     const dy = event.clientY - (rect.top + rect.height / 2);
     if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
-    closePanel();
-    isolationReset++;
     panning = true;
+    panHasMoved = false;
     panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY };
     event.preventDefault();
     window.addEventListener('pointermove', handlePanMove);
@@ -77,6 +80,12 @@
   }
 
   function handlePanMove(event) {
+    if (!panHasMoved) {
+      // First actual movement — clear isolation state now (not on pointerdown)
+      closePanel();
+      isolationReset++;
+      panHasMoved = true;
+    }
     mapPanX = panStart.px + (event.clientX - panStart.x);
     mapPanY = panStart.py + (event.clientY - panStart.y);
   }
@@ -610,7 +619,7 @@
     const pinned = mapTooltipPinned;
 
     untrack(() => {
-      if (panelPinned && !pinned) return; // waffle has pinned panel, don't override
+      if (panelPinned && !pinned) { closePanel(); return; } // map tooltip cleared — close panel
       if (vis || pinned) {
         panelContent = content;
         panelVisible = true;

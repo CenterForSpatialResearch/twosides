@@ -934,6 +934,18 @@
     return periods;
   }
 
+  // Single function that clears all isolation state — tooltip, chart, and cell highlight.
+  // Nothing closes unless everything closes.
+  function clearAll() {
+    isolatedCellId = null;
+    isolatedFeature = null;
+    showBarChart = false;
+    barChartData = null;
+    tooltipPinned = false;
+    tooltipVisible = false;
+    drawOverlay();
+  }
+
   function handleBackButton() {
     const sgbId = new URLSearchParams(window.location.search).get('highlightSGB');
     const base = import.meta.env.BASE_URL;
@@ -948,22 +960,14 @@
       e.target.closest('.filter-rail')
     ) return;
 
-    // Clear cross-highlighting
+    // Clear cross-highlighting only — isolation/tooltip/chart are closed via
+    // isolationReset signal from App so the full state clears together.
     if (crossHighlightActive) {
       highlightedCountries = new Set();
       crossHighlightActive = false;
       const url = new URL(window.location.href);
       url.searchParams.delete('highlightSGB');
       window.history.replaceState({}, '', url);
-    }
-
-    // Clear isolated pixel and bar chart
-    if (isolatedCellId !== null || showBarChart) {
-      isolatedCellId = null;
-      isolatedFeature = null;
-      drawOverlay();
-      showBarChart = false;
-      barChartData = null;
     }
   }
 
@@ -976,31 +980,21 @@
     const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
-      isolatedCellId = null;
-      tooltipPinned = false;
-      tooltipVisible = false;
+      clearAll();
       return;
     }
 
     const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
     if (!feature) {
-      isolatedCellId = null;
-      isolatedFeature = null;
-      drawOverlay();
-      tooltipPinned = false;
-      tooltipVisible = false;
+      clearAll();
       return;
     }
 
     const cellId = feature.properties?.i;
 
-    // If clicking the same cell that's already pinned, unpin it
-    if (tooltipPinned && isolatedCellId === cellId) {
-      tooltipPinned = false;
-      tooltipVisible = false;
-      isolatedCellId = null;
-      isolatedFeature = null;
-      drawOverlay();
+    // If clicking the same cell that's already isolated, clear everything
+    if (isolatedCellId === cellId) {
+      clearAll();
       return;
     }
 
@@ -1133,7 +1127,7 @@
     if (selectedCodes?.length) {
       isolatedCellId = null;
       isolatedFeature = null;
-      drawOverlay();
+      untrack(() => drawOverlay());
     }
   });
 
@@ -1151,19 +1145,11 @@
     }
   });
 
-  // Clear isolation when isolationReset signal increments
+  // Clear all isolation state when isolationReset signal increments
   $effect(() => {
     const reset = isolationReset;
     if (reset > 0) {
-      untrack(() => {
-        isolatedCellId = null;
-        isolatedFeature = null;
-        showBarChart = false;
-        barChartData = null;
-        tooltipPinned = false;
-        tooltipVisible = false;
-        drawOverlay();
-      });
+      untrack(() => clearAll());
     }
   });
 

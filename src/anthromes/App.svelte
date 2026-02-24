@@ -168,9 +168,11 @@
     const target = e.target;
     if (target.closest('.filter-rail') || target.closest('.settings-panel') || target.closest('.settings-toggle')) return;
     openPanel = null;
-    // Close info panel and clear isolation when clicking outside chart/filter-rail
+    // Close info panel and clear isolation when clicking outside chart/filter-rail.
+    // Tooltip, history chart, and cell isolation always close together.
     if (!target.closest('#info-panel') && !target.closest('.viz-area')) {
       panelCloseSignal++;
+      isolationReset++;
     }
   }
 
