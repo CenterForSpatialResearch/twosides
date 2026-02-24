@@ -4,7 +4,6 @@
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
-  import Tooltip from '../../shared/Tooltip.svelte';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
@@ -27,7 +26,17 @@
     clipAngle = 180,
     mapReady = $bindable(false),
     showBoundaries = false,
-    debugMenuVisible = false
+    debugMenuVisible = false,
+    mapPanX = 0,
+    mapPanY = 0,
+    tooltipVisible = $bindable(false),
+    tooltipX = $bindable(0),
+    tooltipY = $bindable(0),
+    tooltipContent = $bindable(''),
+    tooltipPinned = $bindable(false),
+    showBarChart = $bindable(false),
+    barChartData = $bindable(null),
+    isolationReset = 0,
   } = $props();
 
   let canvasEl = $state(null);
@@ -43,9 +52,6 @@
   let cellHistoryLoading = $state(false);
   let countryData = $state(null);
   let countryDataLoading = $state(false);
-  let timelineLabelsEl = $state(null);
-  let timelineHeightPx = $state(0);
-  let timelineResizeObserver = null;
   const cache = new Map();
   const inFlight = new Map();
   let draggingHandle = $state(false);
@@ -56,13 +62,6 @@
   let initialDrawDone = $state(false);
   let isAnimating = $state(false);
 
-  // Tooltip state
-  let tooltipVisible = $state(false);
-  let tooltipX = $state(0);
-  let tooltipY = $state(0);
-  let tooltipContent = $state('');
-  let tooltipPinned = $state(false);
-
   // Cross-highlighting state
   let highlightedCountries = $state(new Set());
   let crossHighlightActive = $state(false);
@@ -70,9 +69,10 @@
   // Isolate pixel state
   let isolatedCellId = $state(null);
 
-  // Bar chart state
-  let showBarChart = $state(false);
-  let barChartData = $state(null);
+  // Hover/isolate cell border overlay
+  let overlayCanvasEl = $state(null);
+  let hoveredFeature = $state(null);
+  let isolatedFeature = $state(null);
 
   // Throttle pointer move for performance
   let lastPointerMoveTime = 0;
@@ -97,8 +97,46 @@
   function getCircle() {
     const cx = width / 2 + (zoom?.x || 0);
     const cy = height / 2 + (zoom?.y || 0);
-    const r = Math.max(0, innerRadiusPx * (zoom?.k || 1));
+    const r = Math.max(0, innerRadiusPx);
     return { cx, cy, r };
+  }
+
+  function drawOverlay() {
+    if (!overlayCanvasEl || !projection) return;
+    const dpr = window.devicePixelRatio || 1;
+    overlayCanvasEl.width = Math.max(1, width * dpr);
+    overlayCanvasEl.height = Math.max(1, height * dpr);
+    const ctx = overlayCanvasEl.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvasEl.width, overlayCanvasEl.height);
+
+    if (!hoveredFeature && !isolatedFeature) return;
+
+    const circle = getCircle();
+    const path = d3.geoPath(projection, ctx);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(circle.cx * dpr, circle.cy * dpr, Math.max(0, circle.r * dpr), 0, Math.PI * 2);
+    ctx.clip();
+    ctx.translate((mapPanX || 0) * dpr, (mapPanY || 0) * dpr);
+
+    if (isolatedFeature) {
+      ctx.beginPath();
+      path(isolatedFeature);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
+      ctx.lineWidth = 2 * dpr;
+      ctx.stroke();
+    }
+
+    if (hoveredFeature && hoveredFeature !== isolatedFeature) {
+      ctx.beginPath();
+      path(hoveredFeature);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   const POINT_EPS = 1e-6;
@@ -284,7 +322,7 @@
     const next = currentPoints.map(pt => {
       const proj = projection(pt);
       if (!proj) return { x: 0, y: 0, visible: false };
-      return { x: proj[0] / dpr, y: proj[1] / dpr, visible: true };
+      return { x: proj[0] / dpr + mapPanX, y: proj[1] / dpr + mapPanY, visible: true };
     });
     handlePositions = next;
   }
@@ -330,6 +368,7 @@
       !pointsMatch(projectionCache.points[0], currentPoints[0]) ? 'point-a' :
       !pointsMatch(projectionCache.points[1], currentPoints[1]) ? 'point-b' :
       !circlesMatch(projectionCache.circle, circle) ? 'circle' :
+      (projectionCache.zoomK || 1) !== (zoom?.k || 1) ? 'zoom-k' :
       null;
 
     let shouldRefit = !!refitReason;
@@ -353,13 +392,14 @@
         nextProj.fitExtent(extent, currentMesh);
         performance.mark('projection-fit-end');
         performance.measure('projection-fit', 'projection-fit-start', 'projection-fit-end');
-        nextProj.scale(nextProj.scale() * 0.98);
+        nextProj.scale(nextProj.scale() * 0.98 * (zoom?.k || 1));
         if (!skipCache) {
           projectionCache = {
             geo: currentGeo,
             points: currentPoints.map(p => [...p]),
             clipAngle,
             circle: { ...circle },
+            zoomK: zoom?.k || 1,
             dpr,
             projection: nextProj
           };
@@ -377,7 +417,9 @@
     }
 
     projection = projectionOverride || projection || projectionCache?.projection;
-    projection.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
+    const panAbsX = Math.abs((mapPanX || 0) * dpr);
+    const panAbsY = Math.abs((mapPanY || 0) * dpr);
+    projection.clipExtent([[-panAbsX, -panAbsY], [canvasEl.width + panAbsX, canvasEl.height + panAbsY]]);
     performance.mark('projection-create-end');
     performance.measure('projection-create', 'projection-create-start', 'projection-create-end');
 
@@ -387,9 +429,10 @@
     ctx.beginPath();
     ctx.arc(circle.cx * dpr, circle.cy * dpr, Math.max(0, circle.r * dpr), 0, Math.PI * 2);
     ctx.clip();
+    ctx.translate((mapPanX || 0) * dpr, (mapPanY || 0) * dpr);
 
     ctx.fillStyle = '#0e0b16';
-    ctx.fillRect(0, 0, canvasEl.width, canvasEl.height);
+    ctx.fillRect(-canvasEl.width, -canvasEl.height, 3 * canvasEl.width, 3 * canvasEl.height);
 
     const allSelected = !selectedCodes || selectedCodes.length === 0;
     const totalLegend = Object.keys(legend || {}).length;
@@ -433,10 +476,10 @@
       const selectedSet = new Set(selectedCodes);
       for (let i = 0; i < currentGeo.features.length; i++) {
         const feature = currentGeo.features[i];
-        const code = feature.properties?.anthrome;
+        const code = feature.properties?.a;
         if (!selectedSet.has(code)) continue;
 
-        const cellId = feature.properties?.cellId;
+        const cellId = feature.properties?.i;
         const color = legend[code]?.color || '#ffffff';
 
         // Determine opacity for isolate pixel feature
@@ -506,6 +549,7 @@
     updateHandles(currentPoints);
     initialDrawDone = true;
     mapReady = true;
+    drawOverlay();
     performance.mark('draw-cleanup-end');
     performance.measure('draw-cleanup', 'draw-cleanup-start', 'draw-cleanup-end');
   }
@@ -543,7 +587,7 @@
       try {
         startProj = geoTwoPointEquidistant(fromPts[0], fromPts[1]).clipAngle(clipAngle);
         startProj.fitExtent(extent, currentMesh || currentGeo);
-        startProj.scale(startProj.scale() * 0.98);
+        startProj.scale(startProj.scale() * 0.98 * (zoom?.k || 1));
         startProj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
       } catch (err) {
         console.error('Projection error (start)', err);
@@ -559,7 +603,7 @@
     try {
       const proj = geoTwoPointEquidistant(toPts[0], toPts[1]).clipAngle(clipAngle);
       proj.fitExtent(extent, currentMesh || currentGeo);
-      proj.scale(proj.scale() * 0.98);
+      proj.scale(proj.scale() * 0.98 * (zoom?.k || 1));
       proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
       finalProjection = proj;
       endScale = proj.scale();
@@ -597,6 +641,7 @@
             points: toPts.map(p => [...p]),
             clipAngle,
             circle: { ...circle },
+            zoomK: zoom?.k || 1,
             dpr,
             projection: finalProjection
           };
@@ -627,8 +672,8 @@
     }
     const rect = canvasEl.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr;
-    const y = (e.clientY - rect.top) * dpr;
+    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
+    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
       tooltipVisible = false;
@@ -637,6 +682,8 @@
 
     const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
     if (!feature) {
+      hoveredFeature = null;
+      drawOverlay();
       tooltipVisible = false;
       return;
     }
@@ -645,10 +692,15 @@
     if (selectedCodes?.length) {
       const selectedSet = new Set(selectedCodes);
       if (!selectedSet.has(code)) {
+        hoveredFeature = null;
+        drawOverlay();
         tooltipVisible = false;
         return;
       }
     }
+
+    hoveredFeature = feature;
+    drawOverlay();
 
     const legendEntry = legend[code];
     const label = legendEntry?.label || 'Unknown';
@@ -712,6 +764,8 @@
   function handlePointerLeave() {
     if (!tooltipPinned) {
       tooltipVisible = false;
+      hoveredFeature = null;
+      drawOverlay();
     }
   }
 
@@ -880,6 +934,18 @@
     return periods;
   }
 
+  // Single function that clears all isolation state — tooltip, chart, and cell highlight.
+  // Nothing closes unless everything closes.
+  function clearAll() {
+    isolatedCellId = null;
+    isolatedFeature = null;
+    showBarChart = false;
+    barChartData = null;
+    tooltipPinned = false;
+    tooltipVisible = false;
+    drawOverlay();
+  }
+
   function handleBackButton() {
     const sgbId = new URLSearchParams(window.location.search).get('highlightSGB');
     const base = import.meta.env.BASE_URL;
@@ -888,36 +954,20 @@
 
   function handleGlobalClick(e) {
     if (e.target.closest('.back-button')) return;
-    if (e.target.closest('.map-layer') || e.target.closest('#tooltip') || e.target.closest('.bar-chart')) return;
+    if (
+      e.target.closest('.map-layer') ||
+      e.target.closest('#info-panel') ||
+      e.target.closest('.filter-rail')
+    ) return;
 
-    // Clear cross-highlighting
+    // Clear cross-highlighting only — isolation/tooltip/chart are closed via
+    // isolationReset signal from App so the full state clears together.
     if (crossHighlightActive) {
       highlightedCountries = new Set();
       crossHighlightActive = false;
       const url = new URL(window.location.href);
       url.searchParams.delete('highlightSGB');
       window.history.replaceState({}, '', url);
-    }
-
-    // Clear isolated pixel and bar chart
-    if (isolatedCellId !== null || showBarChart) {
-      isolatedCellId = null;
-      showBarChart = false;
-      barChartData = null;
-    }
-  }
-
-  function handleTooltipAction(event) {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-
-    const act = btn.getAttribute('data-act');
-    if (act === 'highlight-biomes') {
-      const sgbs = btn.getAttribute('data-sgbs');
-      if (sgbs) {
-        const base = import.meta.env.BASE_URL;
-        window.location.href = `${base}src/biomes/index.html?highlightSGBs=${sgbs}`;
-      }
     }
   }
 
@@ -926,37 +976,33 @@
 
     const rect = canvasEl.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr;
-    const y = (e.clientY - rect.top) * dpr;
+    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
+    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
-      isolatedCellId = null;
-      tooltipPinned = false;
-      tooltipVisible = false;
+      clearAll();
       return;
     }
 
     const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
     if (!feature) {
-      isolatedCellId = null;
-      tooltipPinned = false;
-      tooltipVisible = false;
+      clearAll();
       return;
     }
 
     const cellId = feature.properties?.i;
 
-    // If clicking the same cell that's already pinned, unpin it
-    if (tooltipPinned && isolatedCellId === cellId) {
-      tooltipPinned = false;
-      tooltipVisible = false;
-      isolatedCellId = null;
+    // If clicking the same cell that's already isolated, clear everything
+    if (isolatedCellId === cellId) {
+      clearAll();
       return;
     }
 
     // Otherwise, pin the tooltip and isolate this cell
     if (cellId != null) {
       isolatedCellId = cellId;
+      isolatedFeature = feature;
+      drawOverlay();
       tooltipPinned = true;
       // Tooltip position is set by handlePointerMove
       tooltipX = e.clientX;
@@ -986,8 +1032,8 @@
     const startPoints = points.map(p => [...p]);
 
     function onMove(ev) {
-      const x = (ev.clientX - rect.left) * dpr;
-      const y = (ev.clientY - rect.top) * dpr;
+      const x = (ev.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
+      const y = (ev.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
       const inv = projection.invert([x, y]);
       if (!inv) return;
       const next = [...points];
@@ -1062,6 +1108,8 @@
     zoom?.k;
     zoom?.x;
     zoom?.y;
+    mapPanX;
+    mapPanY;
     showBoundaries;
     boundariesMesh;
     boundariesGeo;
@@ -1078,6 +1126,8 @@
   $effect(() => {
     if (selectedCodes?.length) {
       isolatedCellId = null;
+      isolatedFeature = null;
+      untrack(() => drawOverlay());
     }
   });
 
@@ -1095,6 +1145,14 @@
     }
   });
 
+  // Clear all isolation state when isolationReset signal increments
+  $effect(() => {
+    const reset = isolationReset;
+    if (reset > 0) {
+      untrack(() => clearAll());
+    }
+  });
+
   // Load country crosswalk data on mount
   $effect(() => {
     if (!countryData && !countryDataLoading) {
@@ -1102,31 +1160,9 @@
     }
   });
 
-  // Track timeline label container height for spacing calculations
-  $effect(() => {
-    if (!showBarChart || !timelineLabelsEl) return;
-
-    const updateHeight = () => {
-      timelineHeightPx = timelineLabelsEl?.clientHeight || 0;
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver !== 'undefined') {
-      if (timelineResizeObserver) {
-        timelineResizeObserver.disconnect();
-      }
-      timelineResizeObserver = new ResizeObserver(updateHeight);
-      timelineResizeObserver.observe(timelineLabelsEl);
-      return () => {
-        timelineResizeObserver.disconnect();
-      };
-    }
-
-    const onResize = () => updateHeight();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  });
+  // timelineHeightPx kept as constant 0 since vertical bar chart is removed;
+  // processHistoryData still uses it with a safe fallback when 0.
+  const timelineHeightPx = 0;
 
   // Handle cross-highlighting from URL parameter
   $effect(() => {
@@ -1169,6 +1205,12 @@
     onclick={handleCanvasClick}
   ></canvas>
 
+  <canvas
+    bind:this={overlayCanvasEl}
+    class="overlay-canvas"
+    aria-hidden="true"
+  ></canvas>
+
   {#if debugMenuVisible}
     <div class="handles">
       {#each handlePositions as h, idx}
@@ -1194,59 +1236,7 @@
   {/if}
 </div>
 
-{#if showBarChart && barChartData}
-  <div class="bar-chart">
-    <div class="bar-chart-header">
-      <h3>Anthrome History</h3>
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <button class="close-btn" onclick={() => { showBarChart = false; isolatedCellId = null; }}>×</button>
-    </div>
-    <div class="timeline-container">
-      <div class="timeline-bar">
-        {#each barChartData as period}
-          <div
-            class="period-segment"
-            style="height: {period.heightPercent}%; background: {period.color}"
-            title="{period.label} ({period.startYearLabel} to {period.endYearLabel})"
-          ></div>
-        {/each}
-      </div>
-      <div class="timeline-labels" bind:this={timelineLabelsEl}>
-        {#each barChartData as period, idx}
-          {#if period.leaderVisible}
-            <span
-              class="leader-line-vertical"
-              style={`top: ${period.leaderTopPercent}%; height: ${period.leaderHeightPercent}%;`}
-            ></span>
-          {/if}
-          <div
-            class="period-label-wrapper"
-            style={`top: ${period.labelTopPercent}%;`}
-          >
-            <div class="label-callout">
-              <span class="callout-line"></span>
-              <div class="period-label">
-                <div class="label-name">{period.label}</div>
-                <div class="label-years">{period.startYearLabel} to {period.endYearLabel}</div>
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    </div>
-  </div>
-{/if}
 
-<Tooltip
-  bind:visible={tooltipVisible}
-  bind:x={tooltipX}
-  bind:y={tooltipY}
-  bind:pinned={tooltipPinned}
-  content={tooltipContent}
-  onClose={() => (tooltipPinned = false)}
-  onAction={handleTooltipAction}
-/>
 
 <style>
   .map-layer {
@@ -1262,6 +1252,12 @@
     height: 100%;
     display: block;
     pointer-events: auto;
+  }
+
+  .overlay-canvas {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
   }
 
   .handles {
@@ -1325,150 +1321,4 @@
     border-color: rgba(255, 255, 255, 0.25);
   }
 
-  .bar-chart {
-    position: absolute;
-    left: 20px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 200px;
-    height: 50vh;
-    background: rgba(14, 11, 22, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    pointer-events: auto;
-  }
-
-  .bar-chart-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .bar-chart-header h3 {
-    margin: 0;
-    font-size: 14px;
-    color: #e5e7eb;
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: #9ca3af;
-    font-size: 20px;
-    cursor: pointer;
-    padding: 0;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .close-btn:hover {
-    color: #fff;
-  }
-
-  .timeline-container {
-    display: flex;
-    flex-direction: row;
-    flex: 1;
-    gap: 10px;
-    align-items: stretch;
-  }
-
-  .timeline-bar {
-    display: flex;
-    flex-direction: column;
-    width: 40px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-
-  .timeline-labels {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    position: relative;
-  }
-
-  .leader-line-vertical {
-    position: absolute;
-    left: 6px;
-    width: 1px;
-    background: rgba(255, 255, 255, 0.25);
-    pointer-events: none;
-  }
-
-  .period-label-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    min-height: 20px;
-    position: absolute;
-    left: 0;
-    right: 0;
-    transform: translateY(-50%);
-  }
-
-  .period-segment {
-    position: relative;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-    transition: filter 0.2s ease;
-  }
-
-  .period-segment:last-child {
-    border-bottom: none;
-  }
-
-  .period-segment:hover {
-    filter: brightness(1.2);
-  }
-
-  .label-callout {
-    display: flex;
-    align-items: center;
-    width: 100%;
-  }
-
-  .callout-line {
-    flex-shrink: 0;
-    width: 14px;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .period-label {
-    padding: 2px 4px;
-    line-height: 1.2;
-    display: inline-grid;
-    gap: 2px;
-    background: rgba(14, 11, 22, 0.75);
-    border-radius: 4px;
-  }
-
-  .label-name {
-    font-size: 11px;
-    color: #e5e7eb;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .label-years {
-    font-size: 9px;
-    color: #9ca3af;
-    font-weight: 400;
-    white-space: nowrap;
-    margin-top: 1px;
-  }
 </style>

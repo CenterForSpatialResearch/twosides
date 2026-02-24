@@ -1,6 +1,9 @@
 <script>
   import { onMount } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
+  import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
+  import ZoomsPanel from './lib/ZoomsPanel.svelte';
+  import AnnotationBubbles from './lib/AnnotationBubbles.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
   // State
@@ -25,9 +28,37 @@
   let initialLoad = $state(true);
   let zoomLevel = $state(1);
   let rotation = $state(0);
+  let mapPanX = $state(0);
+  let mapPanY = $state(0);
 
   // Filter rail state
-  let openPanel = $state(null); // 'anthromes' | 'year' | 'layers'
+  let openPanel = $state(null); // 'anthromes' | 'zooms'
+
+  // Cell history chart state (lifted from MapCanvas via WaffleChart bindings)
+  let showBarChart = $state(false);
+  let barChartData = $state(null);
+
+  // Reset signals (incrementing triggers reset in WaffleChart / MapCanvas)
+  let isolationReset = $state(0);
+  let panelCloseSignal = $state(0);
+
+  // History chart section sizing
+  let historyChartEl = $state(null);
+  let historyChartSize = $state(220);
+
+  $effect(() => {
+    if (!historyChartEl) return;
+    const update = () => {
+      const h = historyChartEl.clientHeight;
+      const w = historyChartEl.clientWidth;
+      // Square chart — fit the smaller dimension with a small gutter
+      historyChartSize = Math.max(60, Math.min(h - 24, w - 24));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(historyChartEl);
+    return () => ro.disconnect();
+  });
 
   // Load data on mount
   onMount(async () => {
@@ -74,22 +105,30 @@
     selectedAnthromes = [...orderedCodes];
   }
 
-  // Zoom controls (placeholder hooks; WaffleChart should react to size or transform if available)
+  const ZOOM_LEVELS = [1, 2, 7];
+
   function zoomIn() {
-    zoomLevel = Math.min(zoomLevel * 1.25, 7);
+    const idx = ZOOM_LEVELS.indexOf(zoomLevel);
+    if (idx < ZOOM_LEVELS.length - 1) zoomLevel = ZOOM_LEVELS[idx + 1];
   }
 
   function zoomOut() {
-    zoomLevel = Math.max(zoomLevel / 1.25, 0.5);
+    const idx = ZOOM_LEVELS.indexOf(zoomLevel);
+    if (idx > 0) zoomLevel = ZOOM_LEVELS[idx - 1];
   }
 
   function resetView() {
     zoomLevel = 1;
     rotation = 0;
-  }
-
-  function rotateBy(delta) {
-    rotation = (rotation + delta + 360) % 360;
+    mapPanX = 0;
+    mapPanY = 0;
+    if (years.length > 0) selectedYear = years[years.length - 1];
+    selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
+    showBarChart = false;
+    barChartData = null;
+    isolationReset++;
+    panelCloseSignal++;
+    openPanel = null;
   }
 
   // Handle clear - in original, this also resets to show everything (same as Select All)
@@ -131,6 +170,12 @@
     const target = e.target;
     if (target.closest('.filter-rail') || target.closest('.settings-panel') || target.closest('.settings-toggle')) return;
     openPanel = null;
+    // Close info panel and clear isolation when clicking outside chart/filter-rail.
+    // Tooltip, history chart, and cell isolation always close together.
+    if (!target.closest('#info-panel') && !target.closest('.viz-area')) {
+      panelCloseSignal++;
+      isolationReset++;
+    }
   }
 
   // Drag selection state
@@ -188,16 +233,6 @@
     <!-- Side Title -->
     <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
 
-    <!-- Anthrome Zooms Link -->
-    <a
-      class="zooms-link"
-      href="/anthrome-change-year-test.html"
-      aria-label="Anthrome Zooms"
-      title="Anthrome Zooms"
-    >
-      Anthrome Zooms
-    </a>
-
     <!-- Settings Toggle -->
     <button
       class="settings-toggle"
@@ -243,27 +278,35 @@
           <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
           <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
           <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
-          <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-10)}>⟲</button>
-          <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(10)}>⟳</button>
         </div>
 
       <div class="filter-grid">
-        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => openPanel = openPanel === 'anthromes' ? null : 'anthromes'}>
-          Anthromes
+        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => {
+          openPanel = openPanel === 'anthromes' ? null : 'anthromes';
+          selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
+          showBarChart = false;
+          barChartData = null;
+          isolationReset++;
+          panelCloseSignal++;
+        }}>
+          <span class="label">Anthromes</span>
         </button>
-        <button class="mini-circle" class:active={openPanel === 'year'} onclick={() => openPanel = openPanel === 'year' ? null : 'year'}>
-          Year
-        </button>
-        <button class="mini-circle" class:active={openPanel === 'layers'} onclick={() => openPanel = openPanel === 'layers' ? null : 'layers'}>
-          Layers
+        <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => {
+          openPanel = openPanel === 'zooms' ? null : 'zooms';
+          showBarChart = false;
+          barChartData = null;
+          isolationReset++;
+          panelCloseSignal++;
+        }}>
+          <span class="label">Zooms</span>
         </button>
       </div>
 
         {#if openPanel}
-          <div class="filter-overlay" aria-live="polite">
+          <div class="filter-overlay" class:zooms-open={openPanel === 'zooms'} aria-live="polite">
             <div class="overlay-head">
               <div class="overlay-title">
-                {openPanel === 'anthromes' ? 'Anthromes' : openPanel === 'year' ? 'Year' : 'Layers'}
+                {openPanel === 'anthromes' ? 'Anthromes' : 'Zooms'}
               </div>
               <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
             </div>
@@ -289,31 +332,22 @@
                 {/each}
               </div>
               <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
-            {:else if openPanel === 'year'}
-              <p class="overlay-desc">Choose a year to view anthrome distribution.</p>
-              <div class="year-grid">
-                {#each years as yr}
-                  <button
-                    class="chip"
-                    class:active={selectedYear === yr}
-                    onclick={() => selectedYear = yr}
-                  >
-                    {yr}
-                  </button>
-                {/each}
-              </div>
-            {:else if openPanel === 'layers'}
-              <p class="overlay-desc">Toggle map layers and boundaries.</p>
-              <label class="checkbox-label">
-                <input type="checkbox" bind:checked={showBoundaries} />
-                <span>Show Country Boundaries</span>
-              </label>
+            {:else if openPanel === 'zooms'}
+              <ZoomsPanel legend={legend} />
             {/if}
+          </div>
+        {/if}
+
+        {#if showBarChart && barChartData?.length}
+          <div class="history-chart-section" bind:this={historyChartEl}>
+            <div class="history-chart-title">Cell History</div>
+            <HistoryCircleChart periods={barChartData} size={historyChartSize} />
           </div>
         {/if}
       </div>
 
       <div class="viz-area">
+        <AnnotationBubbles size={viewSize} />
         <WaffleChart
           {data}
           {years}
@@ -329,6 +363,12 @@
           {showBoundaries}
           mapScale={zoomLevel}
           mapRotation={rotation}
+          bind:mapPanX
+          bind:mapPanY
+          bind:showBarChart
+          bind:barChartData
+          bind:isolationReset
+          panelCloseSignal={panelCloseSignal}
         />
       </div>
     </div>
@@ -496,24 +536,52 @@
   /* New rail + overlay styles */
   .layout {
     display: grid;
-    grid-template-columns: minmax(260px, 340px) 1fr;
+    grid-template-columns: 1fr 2fr;
     height: 100%;
     align-items: stretch;
   }
 
   .filter-rail {
     grid-column: 1;
-    padding: 18px 14px;
+    padding: 18px 28px;
     box-sizing: border-box;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
-    align-content: start;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .history-chart-section {
+    position: fixed;
+    left: 0;
+    top: 50vh;           /* start at the midpoint of the screen */
+    width: 33.33vw;      /* full filter rail width */
+    height: 40vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    overflow: visible;
+    padding: 8px;
+    box-sizing: border-box;
+    pointer-events: none;
+  }
+
+  .history-chart-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
 
   .filter-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
     gap: 10px;
+    max-width: 50%;
   }
 
   .control-circles {
@@ -521,6 +589,7 @@
     grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     justify-items: center;
+    max-width: 50%;
   }
 
   .circle-btn {
@@ -544,8 +613,8 @@
   }
 
   .mini-circle {
-    width: 86px;
-    height: 86px;
+    width: 82px;
+    height: 82px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -554,10 +623,14 @@
     color: var(--fg);
     cursor: pointer;
     box-shadow: var(--shadow);
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, color 0.2s ease;
-    text-align: center;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+  }
+
+  .mini-circle .label {
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.03em;
+    color: var(--muted);
   }
 
   .mini-circle:hover {
@@ -580,6 +653,14 @@
     box-shadow: var(--shadow);
     max-height: 70vh;
     overflow: auto;
+  }
+
+  /* Zooms panel needs full rail height, no scrolling */
+  .filter-overlay.zooms-open {
+    max-height: calc(100vh - 190px);
+    height: calc(100vh - 190px);
+    overflow: hidden;
+    padding: 8px 10px;
   }
 
   .overlay-head {
@@ -661,7 +742,7 @@
   .viz-area {
     grid-column: 2;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
   }
 
 </style>
