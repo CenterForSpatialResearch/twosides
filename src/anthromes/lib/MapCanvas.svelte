@@ -33,7 +33,10 @@
     tooltipX = $bindable(0),
     tooltipY = $bindable(0),
     tooltipContent = $bindable(''),
-    tooltipPinned = $bindable(false)
+    tooltipPinned = $bindable(false),
+    showBarChart = $bindable(false),
+    barChartData = $bindable(null),
+    isolationReset = 0,
   } = $props();
 
   let canvasEl = $state(null);
@@ -49,9 +52,6 @@
   let cellHistoryLoading = $state(false);
   let countryData = $state(null);
   let countryDataLoading = $state(false);
-  let timelineLabelsEl = $state(null);
-  let timelineHeightPx = $state(0);
-  let timelineResizeObserver = null;
   const cache = new Map();
   const inFlight = new Map();
   let draggingHandle = $state(false);
@@ -73,10 +73,6 @@
   let overlayCanvasEl = $state(null);
   let hoveredFeature = $state(null);
   let isolatedFeature = $state(null);
-
-  // Bar chart state
-  let showBarChart = $state(false);
-  let barChartData = $state(null);
 
   // Throttle pointer move for performance
   let lastPointerMoveTime = 0;
@@ -946,7 +942,11 @@
 
   function handleGlobalClick(e) {
     if (e.target.closest('.back-button')) return;
-    if (e.target.closest('.map-layer') || e.target.closest('#info-panel') || e.target.closest('.bar-chart')) return;
+    if (
+      e.target.closest('.map-layer') ||
+      e.target.closest('#info-panel') ||
+      e.target.closest('.filter-rail')
+    ) return;
 
     // Clear cross-highlighting
     if (crossHighlightActive) {
@@ -1151,6 +1151,22 @@
     }
   });
 
+  // Clear isolation when isolationReset signal increments
+  $effect(() => {
+    const reset = isolationReset;
+    if (reset > 0) {
+      untrack(() => {
+        isolatedCellId = null;
+        isolatedFeature = null;
+        showBarChart = false;
+        barChartData = null;
+        tooltipPinned = false;
+        tooltipVisible = false;
+        drawOverlay();
+      });
+    }
+  });
+
   // Load country crosswalk data on mount
   $effect(() => {
     if (!countryData && !countryDataLoading) {
@@ -1158,31 +1174,9 @@
     }
   });
 
-  // Track timeline label container height for spacing calculations
-  $effect(() => {
-    if (!showBarChart || !timelineLabelsEl) return;
-
-    const updateHeight = () => {
-      timelineHeightPx = timelineLabelsEl?.clientHeight || 0;
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver !== 'undefined') {
-      if (timelineResizeObserver) {
-        timelineResizeObserver.disconnect();
-      }
-      timelineResizeObserver = new ResizeObserver(updateHeight);
-      timelineResizeObserver.observe(timelineLabelsEl);
-      return () => {
-        timelineResizeObserver.disconnect();
-      };
-    }
-
-    const onResize = () => updateHeight();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  });
+  // timelineHeightPx kept as constant 0 since vertical bar chart is removed;
+  // processHistoryData still uses it with a safe fallback when 0.
+  const timelineHeightPx = 0;
 
   // Handle cross-highlighting from URL parameter
   $effect(() => {
@@ -1256,49 +1250,6 @@
   {/if}
 </div>
 
-{#if showBarChart && barChartData}
-  <div class="bar-chart">
-    <div class="bar-chart-header">
-      <h3>Anthrome History</h3>
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <button class="close-btn" onclick={() => { showBarChart = false; isolatedCellId = null; }}>×</button>
-    </div>
-    <div class="timeline-container">
-      <div class="timeline-bar">
-        {#each barChartData as period}
-          <div
-            class="period-segment"
-            style="height: {period.heightPercent}%; background: {period.color}"
-            title="{period.label} ({period.startYearLabel} to {period.endYearLabel})"
-          ></div>
-        {/each}
-      </div>
-      <div class="timeline-labels" bind:this={timelineLabelsEl}>
-        {#each barChartData as period, idx}
-          {#if period.leaderVisible}
-            <span
-              class="leader-line-vertical"
-              style={`top: ${period.leaderTopPercent}%; height: ${period.leaderHeightPercent}%;`}
-            ></span>
-          {/if}
-          <div
-            class="period-label-wrapper"
-            style={`top: ${period.labelTopPercent}%;`}
-          >
-            <div class="label-callout">
-              <span class="callout-line"></span>
-              <div class="period-label">
-                <div class="label-name">{period.label}</div>
-                <div class="label-years">{period.startYearLabel} to {period.endYearLabel}</div>
-              </div>
-            </div>
-          </div>
-        {/each}
-      </div>
-    </div>
-  </div>
-{/if}
 
 
 <style>
@@ -1384,150 +1335,4 @@
     border-color: rgba(255, 255, 255, 0.25);
   }
 
-  .bar-chart {
-    position: absolute;
-    left: 20px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 200px;
-    height: 50vh;
-    background: rgba(14, 11, 22, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    pointer-events: auto;
-  }
-
-  .bar-chart-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .bar-chart-header h3 {
-    margin: 0;
-    font-size: 14px;
-    color: #e5e7eb;
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: #9ca3af;
-    font-size: 20px;
-    cursor: pointer;
-    padding: 0;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .close-btn:hover {
-    color: #fff;
-  }
-
-  .timeline-container {
-    display: flex;
-    flex-direction: row;
-    flex: 1;
-    gap: 10px;
-    align-items: stretch;
-  }
-
-  .timeline-bar {
-    display: flex;
-    flex-direction: column;
-    width: 40px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-
-  .timeline-labels {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    position: relative;
-  }
-
-  .leader-line-vertical {
-    position: absolute;
-    left: 6px;
-    width: 1px;
-    background: rgba(255, 255, 255, 0.25);
-    pointer-events: none;
-  }
-
-  .period-label-wrapper {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    min-height: 20px;
-    position: absolute;
-    left: 0;
-    right: 0;
-    transform: translateY(-50%);
-  }
-
-  .period-segment {
-    position: relative;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-    transition: filter 0.2s ease;
-  }
-
-  .period-segment:last-child {
-    border-bottom: none;
-  }
-
-  .period-segment:hover {
-    filter: brightness(1.2);
-  }
-
-  .label-callout {
-    display: flex;
-    align-items: center;
-    width: 100%;
-  }
-
-  .callout-line {
-    flex-shrink: 0;
-    width: 14px;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.3);
-  }
-
-  .period-label {
-    padding: 2px 4px;
-    line-height: 1.2;
-    display: inline-grid;
-    gap: 2px;
-    background: rgba(14, 11, 22, 0.75);
-    border-radius: 4px;
-  }
-
-  .label-name {
-    font-size: 11px;
-    color: #e5e7eb;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .label-years {
-    font-size: 9px;
-    color: #9ca3af;
-    font-weight: 400;
-    white-space: nowrap;
-    margin-top: 1px;
-  }
 </style>

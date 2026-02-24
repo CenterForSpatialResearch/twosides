@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
+  import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
   // State
@@ -30,6 +31,32 @@
 
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
+
+  // Cell history chart state (lifted from MapCanvas via WaffleChart bindings)
+  let showBarChart = $state(false);
+  let barChartData = $state(null);
+
+  // Reset signals (incrementing triggers reset in WaffleChart / MapCanvas)
+  let isolationReset = $state(0);
+  let panelCloseSignal = $state(0);
+
+  // History chart section sizing
+  let historyChartEl = $state(null);
+  let historyChartSize = $state(220);
+
+  $effect(() => {
+    if (!historyChartEl) return;
+    const update = () => {
+      const h = historyChartEl.clientHeight;
+      const w = historyChartEl.clientWidth;
+      // Square chart — fit the smaller dimension with a small gutter
+      historyChartSize = Math.max(60, Math.min(h - 24, w - 24));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(historyChartEl);
+    return () => ro.disconnect();
+  });
 
   // Load data on mount
   onMount(async () => {
@@ -93,6 +120,13 @@
     rotation = 0;
     mapPanX = 0;
     mapPanY = 0;
+    if (years.length > 0) selectedYear = years[years.length - 1];
+    selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
+    showBarChart = false;
+    barChartData = null;
+    isolationReset++;
+    panelCloseSignal++;
+    openPanel = null;
   }
 
   // Handle clear - in original, this also resets to show everything (same as Select All)
@@ -134,6 +168,10 @@
     const target = e.target;
     if (target.closest('.filter-rail') || target.closest('.settings-panel') || target.closest('.settings-toggle')) return;
     openPanel = null;
+    // Close info panel and clear isolation when clicking outside chart/filter-rail
+    if (!target.closest('#info-panel') && !target.closest('.viz-area')) {
+      panelCloseSignal++;
+    }
   }
 
   // Drag selection state
@@ -249,7 +287,14 @@
         </div>
 
       <div class="filter-grid">
-        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => openPanel = openPanel === 'anthromes' ? null : 'anthromes'}>
+        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => {
+          openPanel = openPanel === 'anthromes' ? null : 'anthromes';
+          selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
+          showBarChart = false;
+          barChartData = null;
+          isolationReset++;
+          panelCloseSignal++;
+        }}>
           <span class="label">Anthromes</span>
         </button>
         <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => openPanel = openPanel === 'zooms' ? null : 'zooms'}>
@@ -292,6 +337,13 @@
             {/if}
           </div>
         {/if}
+
+        {#if showBarChart && barChartData?.length}
+          <div class="history-chart-section" bind:this={historyChartEl}>
+            <div class="history-chart-title">Cell History</div>
+            <HistoryCircleChart periods={barChartData} size={historyChartSize} />
+          </div>
+        {/if}
       </div>
 
       <div class="viz-area">
@@ -312,6 +364,10 @@
           mapRotation={rotation}
           bind:mapPanX
           bind:mapPanY
+          bind:showBarChart
+          bind:barChartData
+          bind:isolationReset
+          panelCloseSignal={panelCloseSignal}
         />
       </div>
     </div>
@@ -488,9 +544,36 @@
     grid-column: 1;
     padding: 18px 28px;
     box-sizing: border-box;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
-    align-content: start;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .history-chart-section {
+    position: fixed;
+    left: 0;
+    top: 50vh;           /* start at the midpoint of the screen */
+    width: 33.33vw;      /* full filter rail width */
+    height: 40vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    overflow: visible;
+    padding: 8px;
+    box-sizing: border-box;
+    pointer-events: none;
+  }
+
+  .history-chart-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
 
   .filter-grid {

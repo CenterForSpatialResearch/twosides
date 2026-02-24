@@ -21,7 +21,11 @@
     mapScale = 1,
     mapRotation = 0,
     mapPanX = $bindable(0),
-    mapPanY = $bindable(0)
+    mapPanY = $bindable(0),
+    barChartData = $bindable(null),
+    showBarChart = $bindable(false),
+    isolationReset = $bindable(0),
+    panelCloseSignal = 0,
   } = $props();
 
   const fullSize = 7000;
@@ -63,6 +67,8 @@
     const dx = event.clientX - (rect.left + rect.width / 2);
     const dy = event.clientY - (rect.top + rect.height / 2);
     if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
+    closePanel();
+    isolationReset++;
     panning = true;
     panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY };
     event.preventDefault();
@@ -124,15 +130,9 @@
   let mapYear = $state(null);
   let yearPreview = $state(null);
   let draggingYear = $state(false);
-  let mapPoints = $state([
-    [-117, 33],
-    [36, 4]
-  ]);
+  const defaultPoints = [[-109, 27], [40, 10]]; //previously [117,33],[36,4] ; -109, 26, 40 ,10
+  let mapPoints = $state(defaultPoints.map(p => [...p]));
   let clipAngle = $state(180);
-  const defaultPoints = [
-    [-117, 33],
-    [36, 4]
-  ];
 
   // Memoized computed values using $derived
   const stackedData = $derived.by(() => {
@@ -500,6 +500,8 @@
   function startYearDrag(event) {
     event.stopPropagation();
     event.preventDefault();
+    closePanel();
+    isolationReset++;
     draggingYear = true;
     yearPreview = nearestYearFromPointer(event) || selectedYear;
     updateYearHighlight();
@@ -628,6 +630,14 @@
     connectorStart;
     untrack(updateConnector);
   });
+
+  // Close panel when parent signals a reset
+  $effect(() => {
+    const sig = panelCloseSignal;
+    if (sig > 0) {
+      untrack(() => closePanel());
+    }
+  });
 </script>
 
 <div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} class:panning class:in-circle={hoverInCircle}>
@@ -654,6 +664,9 @@
     bind:tooltipY={mapTooltipY}
     bind:tooltipContent={mapTooltipContent}
     bind:tooltipPinned={mapTooltipPinned}
+    bind:showBarChart
+    bind:barChartData
+    isolationReset={isolationReset}
   />
 
   {#if debugMenuVisible}
@@ -966,11 +979,11 @@
     stroke-dasharray: 4 3;
   }
 
-  /* Info panel — fixed, half viewport width, screen-centered */
+  /* Info panel — fixed, centered horizontally in filter rail, upper half of viewport */
   .info-panel {
     position: fixed;
     left: 16.67vw;
-    top: 50%;
+    top: 25%;
     transform: translate(-50%, -50%);
     width: 16.67vw;
     z-index: 49;
