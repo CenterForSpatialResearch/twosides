@@ -230,8 +230,19 @@
   {/if}
 
   <div class="app">
-    <!-- Side Title -->
-    <div class="side-title">ANTHROMES // 12,025 YEARS OF LAND USE</div>
+    <!-- Corner Nav: Anthromes -> Biomes -->
+    <a class="corner-nav corner-nav--right" href="/biomes/" aria-label="Go to Biomes">
+      <svg class="corner-nav__arc" viewBox="0 0 220 220" aria-hidden="true">
+        <defs>
+          <!-- Top-right quadrant of a 440px circle centered offscreen to bottom-right -->
+          <path id="arc-anthromes" d="M220 220 A220 220 0 0 0 0 0" fill="none" />
+        </defs>
+        <path class="corner-nav__ring" d="M220 220 A220 220 0 0 0 0 0" />
+        <text class="corner-nav__text">
+          <textPath href="#arc-anthromes" startOffset="64%">Biomes →</textPath>
+        </text>
+      </svg>
+    </a>
 
     <!-- Settings Toggle -->
     <button
@@ -403,6 +414,49 @@
     height: 100vh;
     position: relative;
     overflow: hidden;
+  }
+
+  .corner-nav {
+    position: fixed;
+    bottom: -10px;
+    z-index: 6;
+    text-decoration: none;
+    color: var(--fg);
+    pointer-events: auto;
+  }
+
+  .corner-nav--right { right: -32px; }
+
+  .corner-nav__arc {
+    width: 220px;
+    height: 220px;
+    display: block;
+  }
+
+  .corner-nav__ring {
+    stroke: #fff;
+    stroke-width: 6;
+    stroke-linecap: round;
+    fill: none;
+    opacity: 0.14;
+    stroke-dasharray: 200 900; /* show a quarter arc */
+    stroke-dashoffset: 140;
+    transition: stroke-dashoffset 0.45s ease, opacity 0.3s ease, filter 0.3s ease;
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
+  }
+
+  .corner-nav:hover .corner-nav__ring,
+  .corner-nav:focus-visible .corner-nav__ring {
+    opacity: 0.95;
+    stroke-dashoffset: 80;
+  }
+
+  .corner-nav__text {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    fill: #fff;
+    text-transform: uppercase;
   }
 
   .checkbox-label {

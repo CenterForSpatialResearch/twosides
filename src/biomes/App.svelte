@@ -198,7 +198,19 @@
 {:else}
   <div class="app">
     <!-- Side Title -->
-    <div class="side-title">BIOMES // 5000 LINES 5000 SPECIES</div>
+    <!-- Corner Nav: Biomes -> Anthromes -->
+    <a class="corner-nav corner-nav--left" href="/anthromes/" aria-label="Go to Anthromes">
+      <svg class="corner-nav__arc" viewBox="0 0 220 220" aria-hidden="true">
+        <defs>
+          <!-- Top-left quadrant of a 440px circle centered offscreen to bottom-left -->
+          <path id="arc-biomes" d="M0 220 A220 220 0 0 1 220 0" fill="none" />
+        </defs>
+        <path class="corner-nav__ring" d="M0 220 A220 220 0 0 1 220 0" />
+        <text class="corner-nav__text">
+          <textPath href="#arc-biomes" startOffset="6%">→ Anthromes</textPath>
+        </text>
+      </svg>
+    </a>
 
     <!-- Settings toggle & panel intentionally hidden for now -->
 
@@ -404,28 +416,49 @@
     overflow: hidden;
   }
 
-  .side-title {
+  .corner-nav {
     position: fixed;
-    right: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-    font-size: 20px;
-    color: var(--muted);
-    user-select: none;
-    pointer-events: none; /* don’t block chart interactions */
-    z-index: 1;           /* sit behind chart overlays */
-    max-width: 32px;
-    background: var(--bg);
-    padding: 10px 8px;
-    border-radius: 12px;
-    border: none;
-    text-align: center;
-    opacity: 1;
+    bottom: -10px;
+    z-index: 6;
+    text-decoration: none;
+    color: var(--fg);
+    pointer-events: auto;
   }
+
+  .corner-nav--left { left: -32px; }
+
+  .corner-nav__arc {
+    width: 220px;
+    height: 220px;
+    display: block;
+  }
+
+  .corner-nav__ring {
+    stroke: #fff;
+    stroke-width: 6;
+    stroke-linecap: round;
+    fill: none;
+    opacity: 0.14;
+    stroke-dasharray: 200 900; /* show a quarter arc */
+    stroke-dashoffset: 140;
+    transition: stroke-dashoffset 0.45s ease, opacity 0.3s ease, filter 0.3s ease;
+    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
+  }
+
+  .corner-nav:hover .corner-nav__ring,
+  .corner-nav:focus-visible .corner-nav__ring {
+    opacity: 0.95;
+    stroke-dashoffset: 80;
+  }
+
+  .corner-nav__text {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    fill: #fff;
+    text-transform: uppercase;
+  }
+
 
   .settings-toggle {
     position: fixed;
