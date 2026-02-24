@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
   import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
+  import ZoomsPanel from './lib/ZoomsPanel.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
   // State
@@ -299,13 +300,19 @@
         }}>
           <span class="label">Anthromes</span>
         </button>
-        <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => openPanel = openPanel === 'zooms' ? null : 'zooms'}>
+        <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => {
+          openPanel = openPanel === 'zooms' ? null : 'zooms';
+          showBarChart = false;
+          barChartData = null;
+          isolationReset++;
+          panelCloseSignal++;
+        }}>
           <span class="label">Zooms</span>
         </button>
       </div>
 
         {#if openPanel}
-          <div class="filter-overlay" aria-live="polite">
+          <div class="filter-overlay" class:zooms-open={openPanel === 'zooms'} aria-live="polite">
             <div class="overlay-head">
               <div class="overlay-title">
                 {openPanel === 'anthromes' ? 'Anthromes' : 'Zooms'}
@@ -335,7 +342,7 @@
               </div>
               <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
             {:else if openPanel === 'zooms'}
-              <p class="overlay-desc">Zoom presets — coming soon.</p>
+              <ZoomsPanel legend={legend} />
             {/if}
           </div>
         {/if}
@@ -654,6 +661,14 @@
     box-shadow: var(--shadow);
     max-height: 70vh;
     overflow: auto;
+  }
+
+  /* Zooms panel needs full rail height, no scrolling */
+  .filter-overlay.zooms-open {
+    max-height: calc(100vh - 190px);
+    height: calc(100vh - 190px);
+    overflow: hidden;
+    padding: 8px 10px;
   }
 
   .overlay-head {
