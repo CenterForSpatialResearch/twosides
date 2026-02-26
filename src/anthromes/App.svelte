@@ -30,6 +30,7 @@
   let rotation = $state(0);
   let mapPanX = $state(0);
   let mapPanY = $state(0);
+  let infoOpen = $state(false);
 
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
@@ -41,6 +42,7 @@
   // Reset signals (incrementing triggers reset in WaffleChart / MapCanvas)
   let isolationReset = $state(0);
   let panelCloseSignal = $state(0);
+  let detailContent = $state(null);
 
   // History chart section sizing
   let historyChartEl = $state(null);
@@ -175,6 +177,7 @@
     if (!target.closest('#info-panel') && !target.closest('.viz-area')) {
       panelCloseSignal++;
       isolationReset++;
+      detailContent = null;
     }
   }
 
@@ -208,6 +211,14 @@
   function handleLegendMouseUp() {
     dragging = false;
   }
+
+  function handleDetail(event) {
+    detailContent = event.detail?.content || null;
+  }
+
+  function handleDetailClose() {
+    detailContent = null;
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} onmouseup={handleLegendMouseUp} />
@@ -230,16 +241,19 @@
   {/if}
 
   <div class="app">
-    <!-- Corner Nav: Anthromes -> Biomes -->
-    <a class="corner-nav corner-nav--right" href="/biomes/" aria-label="Go to Biomes">
-      <svg class="corner-nav__arc" viewBox="0 0 220 220" aria-hidden="true">
+    <!-- Nav circle: switch sides -->
+    <a class="nav-circle nav-circle--right" href="/biomes/" aria-label="Go to Biomes">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
         <defs>
-          <!-- Top-right quadrant of a 440px circle centered offscreen to bottom-right -->
-          <path id="arc-anthromes" d="M220 220 A220 220 0 0 0 0 0" fill="none" />
+          <path id="nav-arc-top" d="M15 60 A45 45 0 0 1 105 60" />
+          <path id="nav-arc-bottom" d="M105 60 A45 45 0 0 1 15 60" />
         </defs>
-        <path class="corner-nav__ring" d="M220 220 A220 220 0 0 0 0 0" />
-        <text class="corner-nav__text">
-          <textPath href="#arc-anthromes" startOffset="64%">Biomes →</textPath>
+        <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
+        <text class="nav-circle__text nav-circle__text--active">
+          <textPath href="#nav-arc-top" startOffset="50%" text-anchor="middle"><tspan class="here">ANTHROMES</tspan></textPath>
+        </text>
+        <text class="nav-circle__text">
+          <textPath href="#nav-arc-bottom" startOffset="50%" text-anchor="middle">BIOMES →</textPath>
         </text>
       </svg>
     </a>
@@ -286,9 +300,79 @@
     <div class="layout">
       <div class="filter-rail">
         <div class="control-circles">
-          <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
-          <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
-          <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
+        <button class="circle-btn" title="Info" onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
+        <button class="circle-btn" title="Zoom out" onclick={zoomOut}>−</button>
+        <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
+        <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
+      </div>
+
+        <div class="overlay-slot">
+          {#if openPanel}
+            <div class="filter-overlay" class:zooms-open={openPanel === 'zooms'} aria-live="polite">
+              <div class="overlay-head">
+                <div class="overlay-title">
+                  {openPanel === 'info' ? 'Anthromes Overview' : openPanel === 'anthromes' ? 'Anthromes' : 'Zooms'}
+                </div>
+                <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
+              </div>
+
+            {#if openPanel === 'info'}
+              <div class="info-body">
+                <p>Hindcast of anthrome change over 12,025 years.</p>
+                <p>Visualizes human-shaped ecological patterns (anthromes) from population and land-use data.</p>
+                <p>Shows how urbanization and population growth reduce biodiversity and shrink cultured/wild lands.</p>
+              </div>
+              {#if showBarChart && barChartData?.length}
+                <div class="history-chart-section" bind:this={historyChartEl}>
+                  <div class="history-chart-title">Cell History</div>
+                  <HistoryCircleChart periods={barChartData} size={historyChartSize} />
+                </div>
+              {/if}
+            {:else if openPanel === 'anthromes'}
+              <p class="overlay-desc">Select anthrome classes; click or drag to choose a range.</p>
+              <div class="overlay-actions">
+                <button class="btn" onclick={handleSelectAll}>Select All</button>
+                <button class="btn" onclick={handleClear}>Clear</button>
+              </div>
+                <div class="legend-grid">
+                  {#each orderedCodes as code, idx}
+                    <button
+                      class="legend-item"
+                      class:selected={selectedAnthromes.includes(code)}
+                      onmousedown={(e) => handleLegendMouseDown(e, idx)}
+                      onmouseenter={() => handleLegendMouseEnter(idx)}
+                      title="{labelMapping[code]} (Code: {code})"
+                    >
+                      <span class="sw" style="background: {colorMapping[code]};"></span>
+                      <span class="lbl">{labelMapping[code]}</span>
+                    </button>
+                  {/each}
+                </div>
+                <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
+              {:else if openPanel === 'zooms'}
+                <ZoomsPanel legend={legend} />
+              {/if}
+            </div>
+          {/if}
+
+          {#if detailContent}
+            <div class="filter-overlay detail-overlay" aria-live="polite">
+              <div class="overlay-head">
+                <div class="overlay-title">Details</div>
+                <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
+              </div>
+              <div class="panel-content" onclick={(event) => event.stopPropagation()}>
+                {@html detailContent}
+
+                {#if showBarChart && barChartData?.length}
+                  <div class="history-chart-section" bind:this={historyChartEl}>
+                    <div class="history-chart-title">Cell History</div>
+                    <HistoryCircleChart periods={barChartData} size={historyChartSize} />
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/if}
         </div>
 
       <div class="filter-grid">
@@ -300,7 +384,10 @@
           isolationReset++;
           panelCloseSignal++;
         }}>
-          <span class="label">Anthromes</span>
+          <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
+            <defs><path id="arc-anth" d="M50 10 A40 40 0 0 1 90 50" /></defs>
+            <text class="arc-text"><textPath href="#arc-anth" startOffset="4%">Anthromes</textPath></text>
+          </svg>
         </button>
         <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => {
           openPanel = openPanel === 'zooms' ? null : 'zooms';
@@ -309,52 +396,13 @@
           isolationReset++;
           panelCloseSignal++;
         }}>
-          <span class="label">Zooms</span>
+          <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
+            <defs><path id="arc-zooms" d="M50 10 A40 40 0 0 1 90 50" /></defs>
+            <text class="arc-text"><textPath href="#arc-zooms" startOffset="10%">Zooms</textPath></text>
+          </svg>
         </button>
       </div>
 
-        {#if openPanel}
-          <div class="filter-overlay" class:zooms-open={openPanel === 'zooms'} aria-live="polite">
-            <div class="overlay-head">
-              <div class="overlay-title">
-                {openPanel === 'anthromes' ? 'Anthromes' : 'Zooms'}
-              </div>
-              <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
-            </div>
-
-          {#if openPanel === 'anthromes'}
-            <p class="overlay-desc">Select anthrome classes; click or drag to choose a range.</p>
-            <div class="overlay-actions">
-              <button class="btn" onclick={handleSelectAll}>Select All</button>
-              <button class="btn" onclick={handleClear}>Clear</button>
-            </div>
-              <div class="legend-grid">
-                {#each orderedCodes as code, idx}
-                  <button
-                    class="legend-item"
-                    class:selected={selectedAnthromes.includes(code)}
-                    onmousedown={(e) => handleLegendMouseDown(e, idx)}
-                    onmouseenter={() => handleLegendMouseEnter(idx)}
-                    title="{labelMapping[code]} (Code: {code})"
-                  >
-                    <span class="sw" style="background: {colorMapping[code]};"></span>
-                    <span class="lbl">{labelMapping[code]}</span>
-                  </button>
-                {/each}
-              </div>
-              <div class="instruction-text">Click & drag to select range • Shift+click to extend</div>
-            {:else if openPanel === 'zooms'}
-              <ZoomsPanel legend={legend} />
-            {/if}
-          </div>
-        {/if}
-
-        {#if showBarChart && barChartData?.length}
-          <div class="history-chart-section" bind:this={historyChartEl}>
-            <div class="history-chart-title">Cell History</div>
-            <HistoryCircleChart periods={barChartData} size={historyChartSize} />
-          </div>
-        {/if}
       </div>
 
       <div class="viz-area">
@@ -380,6 +428,8 @@
           bind:barChartData
           bind:isolationReset
           panelCloseSignal={panelCloseSignal}
+          on:detail={handleDetail}
+          on:detail-close={handleDetailClose}
         />
       </div>
     </div>
@@ -416,47 +466,51 @@
     overflow: hidden;
   }
 
-  .corner-nav {
+  .nav-circle {
     position: fixed;
-    bottom: -10px;
-    z-index: 6;
-    text-decoration: none;
+    bottom: 16px;
+    right: 16px;
+    width: 124px;
+    height: 124px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    box-shadow: var(--shadow);
+    display: grid;
+    place-items: center;
     color: var(--fg);
-    pointer-events: auto;
+    text-decoration: none;
+    z-index: 8;
   }
 
-  .corner-nav--right { right: -32px; }
-
-  .corner-nav__arc {
-    width: 220px;
-    height: 220px;
-    display: block;
+  .nav-circle svg {
+    width: 110px;
+    height: 110px;
+    overflow: visible;
   }
 
-  .corner-nav__ring {
-    stroke: #fff;
-    stroke-width: 6;
-    stroke-linecap: round;
+  .nav-circle__ring {
     fill: none;
-    opacity: 0.14;
-    stroke-dasharray: 200 900; /* show a quarter arc */
-    stroke-dashoffset: 140;
-    transition: stroke-dashoffset 0.45s ease, opacity 0.3s ease, filter 0.3s ease;
-    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
+    stroke: none;
   }
 
-  .corner-nav:hover .corner-nav__ring,
-  .corner-nav:focus-visible .corner-nav__ring {
-    opacity: 0.95;
-    stroke-dashoffset: 80;
-  }
-
-  .corner-nav__text {
-    font-size: 12px;
+  .nav-circle__text {
+    font-size: 11px;
+    font-weight: 800;
     letter-spacing: 0.08em;
-    font-weight: 700;
+    fill: rgba(255, 255, 255, 0.65);
+  }
+
+  .nav-circle__text--active {
     fill: #fff;
-    text-transform: uppercase;
+  }
+
+  .nav-circle__text .here {
+    text-decoration: underline;
+  }
+
+  .nav-circle:hover .nav-circle__text {
+    fill: #fff;
   }
 
   .checkbox-label {
@@ -599,28 +653,20 @@
     grid-column: 1;
     padding: 18px 28px;
     box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
     gap: 12px;
     height: 100%;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .history-chart-section {
-    position: fixed;
-    left: 0;
-    top: 50vh;           /* start at the midpoint of the screen */
-    width: 33.33vw;      /* full filter rail width */
-    height: 40vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     gap: 6px;
-    overflow: visible;
-    padding: 8px;
+    width: 100%;
     box-sizing: border-box;
-    pointer-events: none;
   }
 
   .history-chart-title {
@@ -631,66 +677,95 @@
     color: var(--muted);
   }
 
+  .overlay-slot {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .detail-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    pointer-events: auto;
+    display: flex;
+  }
+
   .filter-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
     gap: 10px;
-    max-width: 50%;
+    width: 100%;
+    align-self: end;
   }
 
   .control-circles {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
+    gap: 10px;
     justify-items: center;
-    max-width: 50%;
+    width: 100%;
+    max-width: 520px;
   }
 
   .circle-btn {
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 700;
     font-size: 18px;
     cursor: pointer;
-    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
     box-shadow: var(--shadow);
   }
 
   .circle-btn:hover {
     transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
+    color: #fff;
   }
 
   .mini-circle {
     width: 82px;
     height: 82px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
     display: grid;
     place-items: center;
     color: var(--fg);
     cursor: pointer;
     box-shadow: var(--shadow);
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, color 0.2s ease;
+    overflow: visible;
   }
 
-  .mini-circle .label {
+  .mini-arc {
+    width: 72px;
+    height: 72px;
+    overflow: visible;
+  }
+
+  .arc-text {
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: 0.03em;
-    color: var(--muted);
+    letter-spacing: 0.04em;
+    fill: currentColor;
+    text-transform: uppercase;
+    dominant-baseline: middle;
   }
 
   .mini-circle:hover {
     transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
+    color: #fff;
   }
 
   .mini-circle.active {
@@ -705,15 +780,20 @@
     border-radius: 20px;
     padding: 12px 14px;
     box-shadow: var(--shadow);
-    max-height: 70vh;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
     overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
-  /* Zooms panel needs full rail height, no scrolling */
+  /* Zooms panel uses the full middle row */
   .filter-overlay.zooms-open {
-    max-height: calc(100vh - 190px);
-    height: calc(100vh - 190px);
-    overflow: hidden;
+    height: 100%;
+    max-height: 100%;
+    overflow: auto;
     padding: 8px 10px;
   }
 
@@ -728,6 +808,102 @@
   .overlay-title {
     font-weight: 700;
     letter-spacing: 0.04em;
+  }
+
+  .panel-content {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+    display: grid;
+    gap: 10px;
+    height: 100%;
+    overflow: auto;
+  }
+
+  /* Detail panel typography */
+  :global(.panel-content .title) {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #fff;
+  }
+
+  :global(.panel-content .subtitle) {
+    font-size: 12px;
+    color: #cfd3e0;
+    letter-spacing: 0.02em;
+  }
+
+  :global(.panel-content .summary) {
+    font-size: 13px;
+    color: #e7e9f1;
+  }
+
+  :global(.panel-content .kv) {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    padding: 6px 0;
+    border-top: 1px dashed rgba(255,255,255,0.12);
+  }
+
+  :global(.panel-content .kv .k) {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ba3c0;
+  }
+
+  :global(.panel-content .kv .v) {
+    color: #f6f7fb;
+    font-weight: 600;
+  }
+
+  :global(.panel-content .swatch) {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.25);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  :global(.panel-content .pill),
+  :global(.panel-content .badge) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: #fff;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+
+  :global(.panel-content .actions) {
+    display: grid;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  :global(.panel-content .actions button) {
+    text-align: left;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #fff;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  :global(.panel-content .actions button:hover) {
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.26);
   }
 
   .overlay-desc {

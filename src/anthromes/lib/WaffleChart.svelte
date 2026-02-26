@@ -1,5 +1,6 @@
 <script>
   import { onMount, untrack } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import * as d3 from 'd3';
   import MapCanvas from './MapCanvas.svelte';
   import { TOPO_PROFILE } from './constants.js';
@@ -48,6 +49,7 @@
   let infoPanelEl = $state(null);
   let connectorStart = $state(null);
   let connectorEnd = $state(null);
+  const dispatch = createEventDispatcher();
 
   let mapZoom = $state({ k: 1, x: 0, y: 0 });
   let containerWidth = $state(0);
@@ -119,6 +121,22 @@
     connectorEnd = null;
     mapTooltipPinned = false;
     mapTooltipVisible = false;
+    mapTooltipContent = '';
+    mapTooltipX = 0;
+    mapTooltipY = 0;
+    dispatch('detail-close');
+  }
+
+  function showPanel(html, x = null, y = null, pinned = false) {
+    panelContent = html;
+    panelVisible = !!html;
+    if (panelVisible) {
+      if (x != null && y != null) connectorStart = { x, y };
+      if (pinned) panelPinned = true;
+      dispatch('detail', { content: html });
+    } else {
+      dispatch('detail-close');
+    }
   }
 
   function handlePanelAction(event) {
@@ -307,23 +325,21 @@
       .on('mousemove', function(event, d) {
         if (panelPinned) return;
         connectorStart = { x: event.clientX, y: event.clientY };
-        panelContent = createTooltipHTML(d);
-        panelVisible = true;
+        showPanel(createTooltipHTML(d), event.clientX, event.clientY);
         updateConnector();
       })
       .on('mouseover', function(event, d) {
         const key = `${d.year}__${d.label}`;
         d3.selectAll(`[data-key="${key}"]`).classed('is-hover', true);
         if (!panelPinned) {
-          panelContent = createTooltipHTML(d);
-          panelVisible = true;
+          showPanel(createTooltipHTML(d), event.clientX, event.clientY);
         }
       })
       .on('mouseout', function(event, d) {
         const key = `${d.year}__${d.label}`;
         d3.selectAll(`[data-key="${key}"]`).classed('is-hover', false);
         if (!panelPinned) {
-          panelVisible = false;
+          showPanel('');
         }
       })
       .on('click', function(_event, d) {
@@ -621,13 +637,10 @@
     untrack(() => {
       if (panelPinned && !pinned) { closePanel(); return; } // map tooltip cleared — close panel
       if (vis || pinned) {
-        panelContent = content;
-        panelVisible = true;
-        connectorStart = { x, y };
-        if (pinned) panelPinned = true;
+        showPanel(content, x, y, pinned);
         updateConnector();
       } else {
-        if (!panelPinned) panelVisible = false;
+        if (!panelPinned) showPanel('');
       }
     });
   });
@@ -762,28 +775,9 @@
 
   <svg bind:this={svgElement} id="chart"></svg>
 
-  {#if panelVisible && connectorStart && connectorEnd}
-    <svg class="connector-overlay" aria-hidden="true">
-      <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
-    </svg>
-  {/if}
 </div>
 
-{#if panelVisible && panelContent}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <aside class="info-panel" id="info-panel" bind:this={infoPanelEl} aria-live="polite">
-    <div class="info-header">
-      <div class="info-title">Details</div>
-      <button class="close-btn" onclick={closePanel} aria-label="Close">✕</button>
-    </div>
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="panel-content" onclick={handlePanelAction}>
-      {@html panelContent}
-    </div>
-  </aside>
-{/if}
+<!-- Info panel now emitted to parent rail via detail events -->
 
 <style>
   .chart-container {
@@ -971,139 +965,4 @@
     border-color: rgba(255, 255, 255, 0.35);
   }
 
-  /* Connector SVG overlay — fixed so it spans full viewport */
-  .connector-overlay {
-    position: fixed;
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    z-index: 50;
-    overflow: visible;
-  }
-
-  :global(.connector-overlay line) {
-    stroke: rgba(255, 255, 255, 0.5);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 3;
-  }
-
-  /* Info panel — fixed, centered horizontally in filter rail, upper half of viewport */
-  .info-panel {
-    position: fixed;
-    left: 16.67vw;
-    top: 25%;
-    transform: translate(-50%, -50%);
-    width: 16.67vw;
-    z-index: 49;
-    background: var(--bg, #0e0b16);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: 12px;
-    padding: 12px 14px;
-    overflow: auto;
-    color: var(--fg, #ffffff);
-    box-shadow: var(--shadow, 0 10px 30px rgba(0,0,0,0.35));
-  }
-
-  .info-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-
-  .info-title {
-    font-weight: 700;
-    letter-spacing: 0.03em;
-  }
-
-  .close-btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: var(--fg, #ffffff);
-    border-radius: 8px;
-    width: 28px;
-    height: 28px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* Panel content styles (mirror Tooltip.svelte :global rules) */
-  :global(.info-panel .title) {
-    font-size: 16px;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-
-  :global(.info-panel .subtitle) {
-    font-size: 12px;
-    color: #cbd5e1;
-    margin-bottom: 8px;
-  }
-
-  :global(.info-panel .summary b) {
-    font-weight: 700;
-  }
-
-  :global(.info-panel .kv) {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 6px 10px;
-    margin-top: 10px;
-    font-size: 12px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.14);
-    padding-top: 8px;
-  }
-
-  :global(.info-panel .kv .k) {
-    color: #94a3b8;
-  }
-
-  :global(.info-panel .tip-head) {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-
-  :global(.info-panel .chip) {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    flex: 0 0 auto;
-  }
-
-  :global(.info-panel .summary) {
-    font-size: 13px;
-    line-height: 1.5;
-  }
-
-  :global(.info-panel .actions) {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-top: 10px;
-    padding-top: 8px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.14);
-  }
-
-  :global(.info-panel .actions button) {
-    pointer-events: auto;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    color: #f9fafb;
-    border-radius: 8px;
-    padding: 7px 10px;
-    font-size: 12px;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  :global(.info-panel .actions button:hover) {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.25);
-  }
 </style>

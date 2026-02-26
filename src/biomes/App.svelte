@@ -18,14 +18,25 @@
   let tension = $state(0.95);
   let settingsOpen = $state(false);
   let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
-  let selectedProxyKey = $state(null);
   let selectedStudyKey = $state(null);
-  let proxySampleKeys = $state([]);
-  let studyKeys = $state([]);
+  let zoomIdx = $state(0);
+  const cohortOptions = [
+    { key: 'CM_madagascar', label: 'Madagascar' },
+    { key: 'BritoIL_2016', label: 'Fiji' },
+    { key: 'ChengpingW_2017', label: 'China' },
+    { key: 'AsnicarF_2017', label: 'Italy' },
+    { key: 'BackhedF_2015', label: 'Sweden' },
+    { key: 'Castro-NallarE_2015', label: 'USA' }
+  ];
+  let studyKeys = $state(cohortOptions.map(c => c.key));
+  // Panel state
+  let infoOpen = $state(false);
 
   // Circular filter state
-  let openPanel = $state(null); // 'phylum' | 'geo' | 'status' | 'proxy' | 'study' | null
+  let openPanel = $state(null); // 'phylum' | 'geo' | 'status' | 'study' | null
   let filterRailEl = $state(null);
+  let biomesChartRef = $state(null);
+  let detailContent = $state(null);
 
   // Load data on mount
   onMount(async () => {
@@ -40,23 +51,11 @@
       const phylaSet = new Set(leaves.map(leaf => getPhylum(leaf)));
       allPhyla = Array.from(phylaSet).sort((a, b) => a.localeCompare(b));
 
-      // Load proxy sample keys from public data
-      try {
-        const proxyRes = await fetch('/data/proxy_samples.json');
-        if (proxyRes.ok) {
-          const proxyJson = await proxyRes.json();
-          proxySampleKeys = Object.keys(proxyJson?.proxies || {}).slice(0, 24);
-        }
-      } catch (e) {
-        console.warn('Failed to load proxy samples', e);
-      }
-
       // Load study keys from study_index
       try {
         const studyRes = await fetch('/data/study_index.json');
         if (studyRes.ok) {
-          const studyJson = await studyRes.json();
-          studyKeys = Object.keys(studyJson || {}).slice(0, 50);
+          await studyRes.json(); // already have curated cohorts; nothing else required
         }
       } catch (e) {
         console.warn('Failed to load study index', e);
@@ -80,7 +79,6 @@
     selectedPhyla = [];
     unknownFilter = false;
     westernFilter = 'any';
-    selectedProxyKey = null;
   }
 
   // Handle phylum chip toggle
@@ -96,10 +94,6 @@
     const next = new Set(selectedBodySites);
     next.has(site) ? next.delete(site) : next.add(site);
     selectedBodySites = next;
-  }
-
-  function selectProxyKey(key) {
-    selectedProxyKey = selectedProxyKey === key ? null : key;
   }
 
   function selectStudyKey(key) {
@@ -124,6 +118,13 @@
       return;
     }
     openPanel = null;
+    if (!target.closest('.viz-area')) {
+      detailContent = null;
+    }
+  }
+
+  function handleZoomChange(event) {
+    zoomIdx = event.detail?.index ?? 0;
   }
 
   // Handle export
@@ -182,6 +183,14 @@
       window.removeEventListener('resize', handleResize);
     };
   });
+
+  function handleDetail(event) {
+    detailContent = event.detail?.content || null;
+  }
+
+  function handleDetailClose() {
+    detailContent = null;
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -197,198 +206,202 @@
   </div>
 {:else}
   <div class="app">
-    <!-- Side Title -->
-    <!-- Corner Nav: Biomes -> Anthromes -->
-    <a class="corner-nav corner-nav--left" href="/anthromes/" aria-label="Go to Anthromes">
-      <svg class="corner-nav__arc" viewBox="0 0 220 220" aria-hidden="true">
+    <!-- Nav circle: switch sides -->
+    <a class="nav-circle nav-circle--left" href="/anthromes/" aria-label="Go to Anthromes">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
         <defs>
-          <!-- Top-left quadrant of a 440px circle centered offscreen to bottom-left -->
-          <path id="arc-biomes" d="M0 220 A220 220 0 0 1 220 0" fill="none" />
+          <path id="nav-arc-top" d="M15 60 A45 45 0 0 1 105 60" />
+          <path id="nav-arc-bottom" d="M105 60 A45 45 0 0 1 15 60" />
         </defs>
-        <path class="corner-nav__ring" d="M0 220 A220 220 0 0 1 220 0" />
-        <text class="corner-nav__text">
-          <textPath href="#arc-biomes" startOffset="6%">→ Anthromes</textPath>
+        <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
+        <text class="nav-circle__text nav-circle__text--active">
+          <textPath href="#nav-arc-top" startOffset="50%" text-anchor="middle"><tspan class="here">BIOMES</tspan></textPath>
+        </text>
+        <text class="nav-circle__text">
+          <textPath href="#nav-arc-bottom" startOffset="50%" text-anchor="middle">ANTHROMES →</textPath>
         </text>
       </svg>
     </a>
 
     <!-- Settings toggle & panel intentionally hidden for now -->
 
-    <!-- Main Visualization -->
-    <BiomesChart
-      {taxonomyTree}
-      bind:selectedPhyla
-      bind:unknownFilter
-      bind:westernFilter
-      size={viewSize}
-      {tension}
-      bodySiteFilter={selectedBodySites}
-      proxyKey={selectedProxyKey}
-      studyKey={selectedStudyKey}
-    />
-
-    <!-- Filter Rail: five independent filter circles -->
-    <div class="filter-rail" bind:this={filterRailEl}>
-      <div class="filter-grid">
-        <button
-          class="mini-circle"
-          class:active={openPanel === 'phylum'}
-          onclick={() => openPanel = openPanel === 'phylum' ? null : 'phylum'}
-          aria-label="Phylum filters"
-        >
-          <span class="label">Phylum</span>
-        </button>
-        <button
-          class="mini-circle"
-          class:active={openPanel === 'geo'}
-          onclick={() => openPanel = openPanel === 'geo' ? null : 'geo'}
-          aria-label="Geography filters"
-        >
-          <span class="label">Geo</span>
-        </button>
-        <button
-          class="mini-circle"
-          class:active={openPanel === 'status'}
-          onclick={() => openPanel = openPanel === 'status' ? null : 'status'}
-          aria-label="Status filters"
-        >
-          <span class="label">Status</span>
-        </button>
-        <button
-          class="mini-circle"
-          class:active={openPanel === 'proxy'}
-          onclick={() => openPanel = openPanel === 'proxy' ? null : 'proxy'}
-          aria-label="Proxy filters"
-        >
-          <span class="label">Proxy</span>
-        </button>
-        <button
-          class="mini-circle"
-          class:active={openPanel === 'study'}
-          onclick={() => openPanel = openPanel === 'study' ? null : 'study'}
-          aria-label="Study filters"
-        >
-          <span class="label">Study</span>
-        </button>
+    <div class="layout">
+      <div class="viz-area">
+        <BiomesChart
+          bind:this={biomesChartRef}
+          {taxonomyTree}
+          bind:selectedPhyla
+          bind:unknownFilter
+          bind:westernFilter
+          size={viewSize}
+          {tension}
+          bodySiteFilter={selectedBodySites}
+          proxyKey={null}
+          studyKey={selectedStudyKey}
+          on:detail={handleDetail}
+          on:detail-close={handleDetailClose}
+          on:zoomchange={handleZoomChange}
+        />
       </div>
 
-      {#if openPanel}
-        {@const overlayTitle =
-          openPanel === 'phylum' ? 'Phylum' :
-          openPanel === 'geo' ? 'Geography' :
-          openPanel === 'status' ? 'Status' :
-          openPanel === 'proxy' ? 'Proxies' :
-          openPanel === 'study' ? 'Studies' : ''}
-        <div class="filter-overlay" aria-live="polite">
-          <div class="overlay-head">
-            <div class="overlay-title">{overlayTitle}</div>
-            <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
-          </div>
-          {#if openPanel === 'phylum'}
-            <p class="overlay-desc">Filter the tree to only the selected phyla.</p>
-          {:else if openPanel === 'geo'}
-            <p class="overlay-desc">Limit to Western or Non-Western assignments from sample metadata.</p>
-          {:else if openPanel === 'status'}
-            <p class="overlay-desc">Show only uSGBs (Unknown species genome bins) when enabled.</p>
-          {:else if openPanel === 'proxy'}
-            <p class="overlay-desc">Filter by proxy sample groups defined in proxy_samples.json.</p>
-          {:else if openPanel === 'study'}
-            <p class="overlay-desc">Filter to SGBs observed within a specific study (study_index.json).</p>
+      <div class="filter-rail" bind:this={filterRailEl}>
+        <div class="control-circles">
+          <button class="circle-btn" title="Info" onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
+          <button class="circle-btn" title="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
+          <button class="circle-btn" title="Reset" onclick={() => biomesChartRef?.resetControl?.()}>◎</button>
+          <button class="circle-btn" title="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
+          <button class="circle-btn" title="Rotate left" onclick={() => biomesChartRef?.rotateLeftControl?.()}>⟲</button>
+          <button class="circle-btn" title="Rotate right" onclick={() => biomesChartRef?.rotateRightControl?.()}>⟳</button>
+        </div>
+
+        <div class="overlay-slot">
+          {#if openPanel}
+            {@const overlayTitle =
+              openPanel === 'info' ? 'Biomes Overview' :
+              openPanel === 'phylum' ? 'Phylum' :
+              openPanel === 'geo' ? 'Geography' :
+              openPanel === 'status' ? 'Status' :
+              openPanel === 'study' ? 'Cohorts' : ''}
+            <div class="filter-overlay" aria-live="polite">
+              <div class="overlay-head">
+                <div class="overlay-title">{overlayTitle}</div>
+                <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
+              </div>
+              {#if openPanel === 'info'}
+                <div class="info-body">
+                  <p>This visualization shows an evolution of the extensive human microbiome.</p>
+                  <p>9,316 sample collections across 46 datasets plus a Madagascar cohort (Segata Lab).</p>
+                  <p>Each line is a Species-Level Genetic Bin (SGB). 77% of species shown were previously unknown.</p>
+                  <p>Western vs Non-Western diversity highlights the importance of indigenous populations.</p>
+                </div>
+              {:else}
+              {#if openPanel === 'phylum'}
+                <p class="overlay-desc">Filter the tree to only the selected phyla.</p>
+              {:else if openPanel === 'geo'}
+                <p class="overlay-desc">Limit to Western or Non-Western assignments from sample metadata.</p>
+              {:else if openPanel === 'status'}
+                <p class="overlay-desc">Show only uSGBs (Unknown species genome bins) when enabled.</p>
+              {:else if openPanel === 'study'}
+                <p class="overlay-desc">Filter to selected cohorts (named by primary country).</p>
+              {/if}
+
+              {#if openPanel === 'phylum'}
+                <div class="overlay-actions">
+                  <button class="btn" onclick={handleSelectAll} title="Select all phyla">Select all</button>
+                  <button class="btn" onclick={() => selectedPhyla = []} title="Clear phyla">Clear</button>
+                </div>
+                <section class="section">
+                  <div class="chips">
+                    {#each allPhyla as phylum}
+                      {@const color = colorMapping[phylum] || colorMapping.Other}
+                      {@const textColor = pickTextColor(color)}
+                      <button
+                        class="chip"
+                        class:active={selectedPhyla.includes(phylum)}
+                        style="background: {color}; color: {textColor};"
+                        onclick={() => togglePhylum(phylum)}
+                      >
+                        {phylum.replace(/_/g, ' ')}
+                      </button>
+                    {/each}
+                  </div>
+                </section>
+              {:else if openPanel === 'geo'}
+                <div class="overlay-actions">
+                  <button class="btn" onclick={() => westernFilter = 'any'}>All</button>
+                  <button class="btn" onclick={() => westernFilter = 'western'}>Western</button>
+                  <button class="btn" onclick={() => westernFilter = 'nonwestern'}>Non-West.</button>
+                </div>
+                <section class="section">
+                  <div class="pills">
+                    <label class="pill">
+                      <input type="radio" name="western" value="any" bind:group={westernFilter} />
+                      Any
+                    </label>
+                    <label class="pill">
+                      <input type="radio" name="western" value="western" bind:group={westernFilter} />
+                      Western
+                    </label>
+                    <label class="pill">
+                      <input type="radio" name="western" value="nonwestern" bind:group={westernFilter} />
+                      Non-Western
+                    </label>
+                  </div>
+                </section>
+              {:else if openPanel === 'status'}
+                <div class="overlay-actions">
+                  <button class="btn" onclick={() => unknownFilter = true}>Only unknown</button>
+                  <button class="btn" onclick={() => unknownFilter = false}>Clear</button>
+                </div>
+                <section class="section">
+                  <label class="pill" title="Unknown SGBs only">
+                    <input type="checkbox" bind:checked={unknownFilter} />
+                    Unknown
+                  </label>
+                </section>
+              {:else if openPanel === 'study'}
+                <div class="overlay-actions">
+                  <button class="btn" onclick={() => selectedStudyKey = null}>All</button>
+                  <button class="btn" onclick={() => selectedStudyKey = null}>Clear</button>
+                </div>
+                <section class="section">
+                  <div class="chips proxy-grid">
+                    {#each cohortOptions as c}
+                      <button
+                        class="chip"
+                        class:active={selectedStudyKey === c.key}
+                        onclick={() => selectStudyKey(c.key)}
+                      >
+                        {c.label}
+                      </button>
+                    {/each}
+                  </div>
+                </section>
+              {/if}
+              {/if}
+            </div>
           {/if}
 
-          {#if openPanel === 'phylum'}
-            <div class="overlay-actions">
-              <button class="btn" onclick={handleSelectAll} title="Select all phyla">Select all</button>
-              <button class="btn" onclick={() => selectedPhyla = []} title="Clear phyla">Clear</button>
-            </div>
-            <section class="section">
-              <div class="chips">
-                {#each allPhyla as phylum}
-                  {@const color = colorMapping[phylum] || colorMapping.Other}
-                  {@const textColor = pickTextColor(color)}
-                  <button
-                    class="chip"
-                    class:active={selectedPhyla.includes(phylum)}
-                    style="background: {color}; color: {textColor};"
-                    onclick={() => togglePhylum(phylum)}
-                  >
-                    {phylum.replace(/_/g, ' ')}
-                  </button>
-                {/each}
+          {#if detailContent}
+            <div class="filter-overlay detail-overlay" aria-live="polite">
+              <div class="overlay-head">
+                <div class="overlay-title">Details</div>
+                <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
               </div>
-            </section>
-          {:else if openPanel === 'geo'}
-            <div class="overlay-actions">
-              <button class="btn" onclick={() => westernFilter = 'any'}>All</button>
-              <button class="btn" onclick={() => westernFilter = 'western'}>Western</button>
-              <button class="btn" onclick={() => westernFilter = 'nonwestern'}>Non-West.</button>
-            </div>
-            <section class="section">
-              <div class="pills">
-                <label class="pill">
-                  <input type="radio" name="western" value="any" bind:group={westernFilter} />
-                  Any
-                </label>
-                <label class="pill">
-                  <input type="radio" name="western" value="western" bind:group={westernFilter} />
-                  Western
-                </label>
-                <label class="pill">
-                  <input type="radio" name="western" value="nonwestern" bind:group={westernFilter} />
-                  Non-Western
-                </label>
+              <div class="panel-content" onclick={(event) => event.stopPropagation()}>
+                {@html detailContent}
               </div>
-            </section>
-          {:else if openPanel === 'status'}
-            <div class="overlay-actions">
-              <button class="btn" onclick={() => unknownFilter = true}>Only unknown</button>
-              <button class="btn" onclick={() => unknownFilter = false}>Clear</button>
             </div>
-            <section class="section">
-              <label class="pill" title="Unknown SGBs only">
-                <input type="checkbox" bind:checked={unknownFilter} />
-                Unknown
-              </label>
-            </section>
-          {:else if openPanel === 'proxy'}
-            <div class="overlay-actions">
-              <button class="btn" onclick={() => selectedProxyKey = null}>All</button>
-              <button class="btn" onclick={() => selectedProxyKey = null}>Clear</button>
-            </div>
-            <section class="section">
-              <div class="chips proxy-grid">
-                {#each proxySampleKeys as key}
-                  <button
-                    class="chip"
-                    class:active={selectedProxyKey === key}
-                    onclick={() => selectProxyKey(key)}
-                  >
-                    {key}
-                  </button>
-                {/each}
-              </div>
-            </section>
-          {:else if openPanel === 'study'}
-            <div class="overlay-actions">
-              <button class="btn" onclick={() => selectedStudyKey = null}>All</button>
-              <button class="btn" onclick={() => selectedStudyKey = null}>Clear</button>
-            </div>
-            <section class="section">
-              <div class="chips proxy-grid">
-                {#each studyKeys as key}
-                  <button
-                    class="chip"
-                    class:active={selectedStudyKey === key}
-                    onclick={() => selectStudyKey(key)}
-                  >
-                    {key}
-                  </button>
-                {/each}
-              </div>
-            </section>
           {/if}
         </div>
-      {/if}
+
+        <div class="filter-grid">
+          <button class="mini-circle" class:active={openPanel === 'phylum'} onclick={() => openPanel = openPanel === 'phylum' ? null : 'phylum'} aria-label="Phylum filters">
+            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
+              <defs><path id="arc-phylum" d="M50 10 A40 40 0 0 1 90 50" /></defs>
+              <text class="arc-text"><textPath href="#arc-phylum" startOffset="6%">Phylum</textPath></text>
+            </svg>
+          </button>
+          <button class="mini-circle" class:active={openPanel === 'geo'} onclick={() => openPanel = openPanel === 'geo' ? null : 'geo'} aria-label="Geography filters">
+            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
+              <defs><path id="arc-geo" d="M50 10 A40 40 0 0 1 90 50" /></defs>
+              <text class="arc-text"><textPath href="#arc-geo" startOffset="8%">Geo</textPath></text>
+            </svg>
+          </button>
+          <button class="mini-circle" class:active={openPanel === 'status'} onclick={() => openPanel = openPanel === 'status' ? null : 'status'} aria-label="Status filters">
+            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
+              <defs><path id="arc-status" d="M50 10 A40 40 0 0 1 90 50" /></defs>
+              <text class="arc-text"><textPath href="#arc-status" startOffset="2%">Status</textPath></text>
+            </svg>
+          </button>
+          <button class="mini-circle" class:active={openPanel === 'study'} onclick={() => openPanel = openPanel === 'study' ? null : 'study'} aria-label="Cohort filters">
+            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
+              <defs><path id="arc-cohort" d="M50 10 A40 40 0 0 1 90 50" /></defs>
+              <text class="arc-text"><textPath href="#arc-cohort" startOffset="0%">Cohort</textPath></text>
+            </svg>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 {/if}
@@ -416,47 +429,79 @@
     overflow: hidden;
   }
 
-  .corner-nav {
+  .layout {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    height: 100vh;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .filter-rail {
+    grid-column: 2;
+    padding: 18px 28px;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 12px;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    z-index: 5;
+  }
+
+  .viz-area {
+    position: relative;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .nav-circle {
     position: fixed;
-    bottom: -10px;
-    z-index: 6;
-    text-decoration: none;
+    bottom: 16px;
+    left: 16px;
+    width: 124px;
+    height: 124px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    box-shadow: var(--shadow);
+    display: grid;
+    place-items: center;
     color: var(--fg);
-    pointer-events: auto;
+    text-decoration: none;
+    z-index: 8;
   }
 
-  .corner-nav--left { left: -32px; }
-
-  .corner-nav__arc {
-    width: 220px;
-    height: 220px;
-    display: block;
+  .nav-circle svg {
+    width: 110px;
+    height: 110px;
+    overflow: visible;
   }
 
-  .corner-nav__ring {
-    stroke: #fff;
-    stroke-width: 6;
-    stroke-linecap: round;
+  .nav-circle__ring {
     fill: none;
-    opacity: 0.14;
-    stroke-dasharray: 200 900; /* show a quarter arc */
-    stroke-dashoffset: 140;
-    transition: stroke-dashoffset 0.45s ease, opacity 0.3s ease, filter 0.3s ease;
-    filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
+    stroke: none;
   }
 
-  .corner-nav:hover .corner-nav__ring,
-  .corner-nav:focus-visible .corner-nav__ring {
-    opacity: 0.95;
-    stroke-dashoffset: 80;
-  }
-
-  .corner-nav__text {
-    font-size: 12px;
+  .nav-circle__text {
+    font-size: 11px;
+    font-weight: 800;
     letter-spacing: 0.08em;
-    font-weight: 700;
+    fill: rgba(255, 255, 255, 0.65);
+  }
+
+  .nav-circle__text--active {
     fill: #fff;
-    text-transform: uppercase;
+  }
+
+  .nav-circle__text .here {
+    text-decoration: underline;
+  }
+
+  .nav-circle:hover .nav-circle__text {
+    fill: #fff;
   }
 
 
@@ -543,48 +588,137 @@
     line-height: 1.45;
   }
 
-  /* Filter rail */
-  .filter-rail {
-    position: fixed;
-    right: 14px;
-    bottom: 20px;
-    width: clamp(240px, 28vw, 340px);
-    z-index: 9;
+  /* Filter rail internals */
+  .overlay-slot {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .detail-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    pointer-events: auto;
+    display: flex;
+  }
+
+  .control-circles {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
     gap: 10px;
+    justify-items: center;
+    width: 100%;
+    max-width: 520px;
+    justify-self: end;
+    margin-left: auto;
+  }
+
+  .circle-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    color: var(--fg);
+    font-weight: 700;
+    font-size: 18px;
+    cursor: pointer;
+    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+
+  .circle-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
+    color: #fff;
+  }
+
+  .circle-btn:disabled,
+  .circle-btn[aria-disabled="true"] {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+    filter: grayscale(0.3);
+  }
+
+  .info-panel {
+    background: var(--panel);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+    font-size: 12px;
+    color: var(--fg);
+    display: grid;
+    gap: 6px;
+  }
+
+  .info-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .info-title {
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+
+  .info-body p {
+    margin: 0;
+    line-height: 1.4;
+    color: var(--muted);
   }
 
   .filter-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
     gap: 10px;
+    width: 100%;
+    align-self: end;
   }
 
   .mini-circle {
     width: 82px;
     height: 82px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
     display: grid;
     place-items: center;
     color: var(--fg);
     cursor: pointer;
     box-shadow: var(--shadow);
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, color 0.2s ease;
   }
 
-  .mini-circle .label {
+  .mini-arc {
+    width: 72px;
+    height: 72px;
+    overflow: visible;
+  }
+
+  .arc-text {
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: 0.03em;
-    color: var(--muted);
+    letter-spacing: 0.04em;
+    fill: currentColor;
+    text-transform: uppercase;
+    dominant-baseline: middle;
   }
 
   .mini-circle:hover {
     transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
+    color: #fff;
   }
 
   .mini-circle.active {
@@ -599,8 +733,15 @@
     border-radius: 20px;
     padding: 12px 14px;
     box-shadow: var(--shadow);
-    max-height: 60vh;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
     overflow: auto;
+    position: relative;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .overlay-head {
@@ -614,6 +755,102 @@
   .overlay-title {
     font-weight: 700;
     letter-spacing: 0.04em;
+  }
+
+  .panel-content {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+    display: grid;
+    gap: 10px;
+    overflow: auto;
+    height: 100%;
+  }
+
+  /* Detail panel typography */
+  :global(.panel-content .title) {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    color: #fff;
+  }
+
+  :global(.panel-content .subtitle) {
+    font-size: 12px;
+    color: #cfd3e0;
+    letter-spacing: 0.02em;
+  }
+
+  :global(.panel-content .summary) {
+    font-size: 13px;
+    color: #e7e9f1;
+  }
+
+  :global(.panel-content .kv) {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    padding: 6px 0;
+    border-top: 1px dashed rgba(255,255,255,0.12);
+  }
+
+  :global(.panel-content .kv .k) {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9ba3c0;
+  }
+
+  :global(.panel-content .kv .v) {
+    color: #f6f7fb;
+    font-weight: 600;
+  }
+
+  :global(.panel-content .swatch) {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.25);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  :global(.panel-content .pill),
+  :global(.panel-content .badge) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: #fff;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+  }
+
+  :global(.panel-content .actions) {
+    display: grid;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
+  :global(.panel-content .actions button) {
+    text-align: left;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #fff;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  :global(.panel-content .actions button:hover) {
+    background: rgba(255,255,255,0.14);
+    border-color: rgba(255,255,255,0.26);
   }
 
   .overlay-desc {

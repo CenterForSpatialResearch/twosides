@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import * as d3 from 'd3';
   import Tooltip from '../../shared/Tooltip.svelte';
+  import { createEventDispatcher } from 'svelte';
   import {
     colorMapping,
     pickTextColor,
@@ -76,6 +77,7 @@
   let infoPanelEl = $state(null);
   let panelContent = $state('');
   let panelVisible = $state(false);
+  const dispatch = createEventDispatcher();
   let connectorStart = $state(null);
   let connectorEnd = $state(null);
   let viewportW = $state(0);
@@ -92,6 +94,17 @@
     connectorEnd = null;
     currentTooltipDatum = null;
     tooltipPinned = false;
+    dispatch('detail-close');
+  }
+
+  function showPanel(html) {
+    panelContent = html;
+    panelVisible = !!html;
+    if (panelVisible) {
+      dispatch('detail', { content: html });
+    } else {
+      dispatch('detail-close');
+    }
   }
 
   function applyTransforms() {
@@ -180,6 +193,10 @@
     return Math.max(0, Math.min(zoomLevels.length - 1, idx));
   }
 
+  function emitZoomChange() {
+    dispatch('zoomchange', { level: zoomLevels[zoomIdx], index: zoomIdx });
+  }
+
   function setZoomByIndex(idx) {
     if (!svgElement) return;
     const rect = svgElement.getBoundingClientRect();
@@ -187,6 +204,7 @@
     const k = zoomLevels[zoomIdx];
     const { x: anchorX, y: anchorY } = anchorPoint(rect, k);
     applyZoom(k, anchorX, anchorY);
+    emitZoomChange();
   }
 
   function resetView() {
@@ -195,6 +213,13 @@
     rotationDeg = 0;
     applyTransforms();
   }
+
+  // Expose controls for parent rail
+  export function zoomInControl() { zoomIn(); }
+  export function zoomOutControl() { zoomOut(); }
+  export function resetControl() { resetView(); }
+  export function rotateLeftControl() { rotateBy(-rotateStepDeg); }
+  export function rotateRightControl() { rotateBy(rotateStepDeg); }
 
   function rotateBy(deltaDeg) {
     // snap to 5° increments for fewer repaints
@@ -572,15 +597,15 @@
     return `
       <div class="tip-header">
         <div class="h-left">
-          <span class="swatch" style="background:${color}"></span>
-          <div>
-            <div class="title">${sgb}</div>
-            <div class="subtitle">${phylum.replace(/_/g, ' ')}${lineage(d) ? ' • ' + lineage(d) : ''}</div>
+          <div class="title-block two-col">
+            <div class="title-row">
+              <span class="swatch" style="background:${color}"></span>
+              <div class="title">${sgb}</div>
+            </div>
+            <div class="subtitle">${phylum.replace(/_/g, ' ')}</div>
+            <div class="subtitle lineage">${lineage(d) || ''}</div>
           </div>
         </div>
-        <svg class="mini-glyph" viewBox="-60 -60 120 120" aria-hidden="true">
-          <path d="${glyphPath}" stroke="${glyphStroke}" fill="none" stroke-width="1.2" vector-effect="non-scaling-stroke" />
-        </svg>
       </div>
 
       <div class="summary">${summary}</div>
@@ -612,8 +637,7 @@
         tooltipX = event.clientX;
         tooltipY = event.clientY;
         connectorStart = { x: event.clientX, y: event.clientY };
-        panelContent = createTooltipHTML(datum);
-        panelVisible = true;
+        showPanel(createTooltipHTML(datum));
         currentTooltipDatum = datum; // Track current datum
         updateConnector();
       })
@@ -623,8 +647,7 @@
         if (lid) toggleClassForLeaf(lid, 'is-hover', true);
         if (!tooltipPinned) {
           const datum = accessor(d);
-          panelContent = createTooltipHTML(datum);
-          panelVisible = true;
+          showPanel(createTooltipHTML(datum));
           currentTooltipDatum = datum; // Track current datum
           connectorStart = { x: event.clientX, y: event.clientY };
           updateConnector();
@@ -635,7 +658,7 @@
         const lid = this.getAttribute('data-leaf-id');
         if (lid) toggleClassForLeaf(lid, 'is-hover', false);
         if (!tooltipPinned) {
-          panelVisible = false;
+          showPanel('');
           currentTooltipDatum = null; // Clear datum when hiding
           connectorStart = null;
           connectorEnd = null;
@@ -655,9 +678,8 @@
         tooltipPinned = true;
         tooltipX = event.clientX;
         tooltipY = event.clientY;
-        panelContent = createTooltipHTML(datum);
+        showPanel(createTooltipHTML(datum));
         currentTooltipDatum = datum; // Track current datum
-        panelVisible = true;
         connectorStart = { x: event.clientX, y: event.clientY };
         updateConnector();
 
@@ -875,7 +897,7 @@
   function handleWindowClick(event) {
     const target = event.target;
     if (target.closest('.back-button')) return;
-    if (target.closest('#info-panel') || target.closest('svg#chart') || target.closest('.zoom-controls')) return;
+    if (target.closest('#info-panel') || target.closest('svg#chart') || target.closest('.zoom-controls') || target.closest('.filter-rail') || target.closest('.control-circles')) return;
 
     closePanel();
     clearSelected();
@@ -1051,6 +1073,7 @@
     // Add event listeners
     window.addEventListener('click', handleWindowClick);
     window.addEventListener('keydown', handleEscape);
+    emitZoomChange();
 
     return () => {
       window.removeEventListener('click', handleWindowClick);
@@ -1068,56 +1091,24 @@
     </div>
   {/if}
 
-  <div class="rail">
-    <div class="control-circles">
-      <button class="circle-btn" title="Zoom out" onclick={zoomOut} disabled={zoomIdx === 0}>−</button>
-      <button class="circle-btn" title="Reset" onclick={resetView}>◎</button>
-      <button class="circle-btn" title="Zoom in" onclick={zoomIn} disabled={zoomIdx === zoomLevels.length - 1}>＋</button>
-      <button class="circle-btn" title="Rotate left" onclick={() => rotateBy(-rotateStepDeg)}>⟲</button>
-      <button class="circle-btn" title="Rotate right" onclick={() => rotateBy(rotateStepDeg)}>⟳</button>
-    </div>
-  </div>
-
   <div class="viz-area">
     <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
     </svg>
-
-    <svg class="connector-overlay" width="100%" height="100%" aria-hidden="true">
-      {#if connectorStart && connectorEnd && panelVisible}
-        <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
-      {/if}
-    </svg>
   </div>
 
-  {#if panelVisible && panelContent}
-    <aside class="info-panel" id="info-panel" bind:this={infoPanelEl} aria-live="polite">
-      <div class="info-header">
-        <div class="info-title">Details</div>
-        <button class="close-btn" onclick={closePanel} aria-label="Close">✕</button>
-      </div>
-      <div class="panel-content biomes-tooltip">
-        {@html panelContent}
-      </div>
-    </aside>
-  {/if}
+  <!-- Info panel is emitted to parent rail overlay via detail events -->
 
   <!-- Filters handled via circular menu in App; inline stack hidden -->
 </div>
 
 <style>
   .chart-container {
-    width: 100vw;
-    height: 100vh;
-    min-height: 100dvh;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
-    align-items: center;
+    width: 100%;
+    height: 100%;
     position: relative;
   }
 
   .viz-area {
-    grid-column: 1;
-    grid-row: 1;
     position: relative;
     width: 100%;
     height: 100%;
@@ -1135,50 +1126,10 @@
     display: block;
     background: transparent;
     width: 100%;
-    height: 100vh;
-    max-height: 100vh;
+    height: 100%;
+    max-height: 100%;
     object-fit: contain;
     margin: 0 auto;
-  }
-
-  .rail {
-    grid-column: 2;
-    grid-row: 1;
-    align-self: flex-start;
-    justify-self: end;
-    width: 100%;
-    max-width: 360px;
-    padding: 14px 12px 18px;
-    box-sizing: border-box;
-    display: grid;
-    gap: 14px;
-  }
-
-  .control-circles {
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
-    justify-items: center;
-  }
-
-  .circle-btn {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: var(--fg);
-    font-weight: 700;
-    font-size: 18px;
-    cursor: pointer;
-    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
-    box-shadow: var(--shadow);
-  }
-
-  .circle-btn:hover {
-    transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.28);
   }
 
   .circle-btn:disabled {
@@ -1215,72 +1166,6 @@
     border-color: rgba(255, 255, 255, 0.28);
   }
 
-
-  .connector-overlay {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .connector-overlay line {
-    stroke: rgba(255, 255, 255, 0.5);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 3;
-  }
-
-  .info-panel {
-    position: absolute;
-    top: 72px;
-    right: 16px;
-    width: 28vw;
-    max-width: 340px;
-    min-width: 220px;
-    max-height: 72vh;
-    background: var(--bg);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: 12px;
-    padding: 12px 14px;
-    overflow: auto;
-    color: var(--fg);
-    z-index: 12;
-    box-shadow: var(--shadow);
-  }
-
-  .panel-content.biomes-tooltip {
-    position: relative;
-    left: 0;
-    top: 0;
-    display: block;
-    max-width: 100%;
-    min-width: 0;
-  }
-
-  .info-panel .placeholder {
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  .info-panel .info-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-
-  .info-panel .info-title {
-    font-weight: 700;
-    letter-spacing: 0.03em;
-  }
-
-  .info-panel .close-btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: var(--fg);
-    border-radius: 8px;
-    width: 28px;
-    height: 28px;
-    cursor: pointer;
-  }
 
   .filter-stack {
     position: absolute;
@@ -1515,45 +1400,73 @@
     display: none;
   }
 
-  :global(.biomes-tooltip .tip-header) {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
+:global(.biomes-tooltip .tip-header) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 
-  :global(.biomes-tooltip .h-left) {
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-  }
+:global(.biomes-tooltip .h-left) {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 
-  :global(.biomes-tooltip .swatch) {
-    width: 12px;
-    height: 12px;
+:global(.biomes-tooltip .swatch) {
+  width: 12px;
+  height: 12px;
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.45);
     margin-top: 4px;
   }
 
-  :global(.biomes-tooltip .title) {
-    font-size: 16px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-  }
+:global(.biomes-tooltip .title) {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
 
-  :global(.biomes-tooltip .subtitle) {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 2px;
-  }
+:global(.biomes-tooltip .title-row) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 
-  :global(.biomes-tooltip .mini-glyph) {
-    width: 110px;
-    height: 110px;
-    flex: 0 0 auto;
-  }
+:global(.biomes-tooltip .subtitle) {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+:global(.biomes-tooltip .title-block.two-col) {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  row-gap: 2px;
+  min-width: 0;
+  align-items: center;
+}
+
+:global(.biomes-tooltip .title-block.two-col .title) {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+:global(.biomes-tooltip .title-block.two-col .subtitle) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+:global(.biomes-tooltip .title-block.two-col .lineage) {
+  grid-column: 2;
+  grid-row: 2;
+  color: #aeb6d4;
+  text-align: right;
+  white-space: nowrap;
+}
 
   :global(.biomes-tooltip .summary) {
     font-size: 13px;
