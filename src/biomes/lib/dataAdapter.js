@@ -133,7 +133,7 @@ export function parseWestern(meta) {
  * @param {Object} meta - Metadata object
  * @returns {string} Human-readable location string
  */
-export function locationsFromMeta(meta) {
+export function locationsFromMeta(meta, nameMap) {
   if (!meta) return '—';
 
   let v = meta["Country_List"];
@@ -165,10 +165,11 @@ export function locationsFromMeta(meta) {
   if (!arr.length) return 'various global sites';
 
   const uniq = Array.from(new Set(arr.map(s => s.trim())));
+  const named = nameMap ? uniq.map(code => nameMap.get(code) || code) : uniq;
 
-  const shown = uniq.slice(0, 5).join(', ');
-  if (uniq.length > 5) {
-    const remaining = uniq.length - 5;
+  const shown = named.slice(0, 5).join(', ');
+  if (named.length > 5) {
+    const remaining = named.length - 5;
     return `${shown}, and ${remaining} other global site${remaining > 1 ? 's' : ''}`;
   }
   return shown;

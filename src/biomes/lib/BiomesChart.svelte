@@ -50,6 +50,9 @@
   let highlightedSGBs = $state(new Set());
   let crossHighlightActive = $state(false);
 
+  // Country name lookup (ISO3 → display name)
+  let iso3ToName = $state(new Map());
+
   // Constants
   const fullSize = 6400;        // base SVG dimension for full view
   const previewSize = 1200;     // smaller preview mode
@@ -576,7 +579,7 @@
     const glyphPath = glyphLine(chain);
 
     // Summary text
-    const loc = locationsFromMeta(meta);
+    const loc = locationsFromMeta(meta, iso3ToName);
     const sgb = sgbLabel(d);
     const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> genomes within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.`;
 
@@ -928,6 +931,16 @@
           proxyLoaded = true;
           scheduleFilters();
         }
+      })
+      .catch(() => {});
+
+    // Load ISO3 → country name lookup
+    const base = import.meta.env.BASE_URL;
+    fetch(`${base}data/iso3_names.json`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (!json) return;
+        iso3ToName = new Map(Object.entries(json));
       })
       .catch(() => {});
 

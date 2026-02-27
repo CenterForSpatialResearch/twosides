@@ -54,6 +54,7 @@
   let cellHistoryLoading = $state(false);
   let countryData = $state(null);
   let countryDataLoading = $state(false);
+  let iso3ToName = $state(new Map());
   const cache = new Map();
   const inFlight = new Map();
   let draggingHandle = $state(false);
@@ -300,14 +301,19 @@
     countryDataLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
-      const url = `${base}data/country_index.json`;
       const isDev = import.meta.env.DEV;
-      const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
-      if (!res.ok) {
-        throw new Error(`Failed to load country data (${res.status})`);
+
+      const [countryRes, namesRes] = await Promise.all([
+        fetch(`${base}data/country_index.json`, { cache: isDev ? 'no-store' : 'force-cache' }),
+        fetch(`${base}data/iso3_names.json`,    { cache: isDev ? 'no-store' : 'force-cache' }),
+      ]);
+
+      if (!countryRes.ok) throw new Error(`Failed to load country data (${countryRes.status})`);
+      countryData = new Map(Object.entries(await countryRes.json()));
+
+      if (namesRes.ok) {
+        iso3ToName = new Map(Object.entries(await namesRes.json()));
       }
-      const data = await res.json();
-      countryData = new Map(Object.entries(data));
     } catch (err) {
       console.error('MapCanvas: Failed to load country data', err);
     } finally {
@@ -753,7 +759,7 @@
       <div class="kv">
         <div class="k">${label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
         <div class="k">${label} share in ${yearLabel}</div><div>${percentDisplay}</div>
-        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${crosswalk?.country || countryISO3}</div>` : ''}
+        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3}</div>` : ''}
         ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
         ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>
