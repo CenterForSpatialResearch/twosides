@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, flushSync } from 'svelte';
   import * as d3 from 'd3';
   import * as topojson from 'topojson-client';
   import { ZOOM_PROFILE } from './constants.js';
@@ -22,7 +22,7 @@
 
   const ZOOM_MIN  = 8;
   const ZOOM_MAX  = 14;
-  const ZOOM_STEP = 1;
+  const ZOOM_STEP = 0.5;
 
 
   // Generation counter — stale async renders bail when gen !== renderGen
@@ -192,8 +192,6 @@
     const layout = calcLayout(panelW, panelH);
     if (!layout || layout.diam <= 0) return;
 
-    rendering = true;
-
     // Parallel data fetch
     const [geo, changeYears, locations] = await Promise.all([
       loadTopo(),
@@ -247,6 +245,7 @@
     if (gridEl && w > 0 && h > 0) {
       renderGen++;
       const gen = renderGen;
+      rendering = true;
       doRender(gen);
     }
   });
@@ -279,7 +278,7 @@
     <div class="zp-sort">
       <label for="zp-sort-sel">Sort By</label>
       <div class="zp-sort-row">
-        <button class="zp-zoom-btn" onclick={() => zoomK = Math.max(ZOOM_MIN, zoomK - ZOOM_STEP)} disabled={zoomK <= ZOOM_MIN}>−</button>
+        <button class="zp-zoom-btn" onclick={() => { flushSync(() => { rendering = true; }); setTimeout(() => { zoomK = Math.max(ZOOM_MIN, zoomK - ZOOM_STEP); }, 0); }} disabled={zoomK <= ZOOM_MIN}>−</button>
         <select id="zp-sort-sel" bind:value={sortBy}>
           <option value="selected">Selected sites</option>
           <option value="intensive-1900">Largest Intensive Shifts since 1900</option>
@@ -287,13 +286,16 @@
           <option value="intensive-2000">Largest Intensive Shifts since 2000</option>
           <option value="cultured-2000">Largest Cultured Shifts since 2000</option>
         </select>
-        <button class="zp-zoom-btn" onclick={() => zoomK = Math.min(ZOOM_MAX, zoomK + ZOOM_STEP)} disabled={zoomK >= ZOOM_MAX}>+</button>
+        <button class="zp-zoom-btn" onclick={() => { flushSync(() => { rendering = true; }); setTimeout(() => { zoomK = Math.min(ZOOM_MAX, zoomK + ZOOM_STEP); }, 0); }} disabled={zoomK >= ZOOM_MAX}>+</button>
       </div>
     </div>
   </div>
 
   {#if rendering}
-    <div class="zp-loading">Rendering…</div>
+    <div class="zp-loading">
+      <div class="zp-loading-spinner"></div>
+      <div class="zp-loading-text">Rendering…</div>
+    </div>
   {/if}
 
   <!-- Grid filled programmatically by doRender() -->
@@ -402,12 +404,35 @@
   /* ── Loading ── */
   .zp-loading {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: var(--muted);
-    font-size: 12px;
+    inset: 0;
+    top: 100px; /* below header */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(6, 7, 13, 0.7);
     pointer-events: none;
+    z-index: 10;
+  }
+
+  .zp-loading-spinner {
+    width: 22px;
+    height: 22px;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--fg);
+    border-radius: 50%;
+    animation: zp-spin 0.75s linear infinite;
+  }
+
+  .zp-loading-text {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  @keyframes zp-spin {
+    to { transform: rotate(360deg); }
   }
 
   /* ── Grid (circles rendered programmatically) ── */
