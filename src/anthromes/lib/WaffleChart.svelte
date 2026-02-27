@@ -42,12 +42,14 @@
   let mapTooltipX = $state(0);
   let mapTooltipY = $state(0);
   let mapTooltipContent = $state('');
+  let mapTooltipMeta = $state(null);
   let mapTooltipPinned = $state(false);
 
   // Unified info panel
   let panelVisible = $state(false);
   let panelContent = $state('');
   let panelPinned = $state(false);
+  let panelMeta = $state(null);
   const dispatch = createEventDispatcher();
 
   let mapZoom = $state({ k: 1, x: 0, y: 0 });
@@ -139,6 +141,7 @@
   function closePanel() {
     panelVisible = false;
     panelPinned = false;
+    panelMeta = null;
     connectorStart = null;
     mapTooltipPinned = false;
     mapTooltipVisible = false;
@@ -148,19 +151,21 @@
     dispatch('detail-close');
   }
 
-  function showPanel(html, x = null, y = null, pinned = false) {
+  function showPanel(html, x = null, y = null, pinned = false, meta = undefined) {
+    if (meta !== undefined) panelMeta = meta;
+    if (!html) panelMeta = null;
     panelContent = html;
     panelVisible = !!html;
     if (panelVisible) {
       if (x != null && y != null) connectorStart = { x, y };
       if (pinned) panelPinned = true;
-      dispatch('detail', { content: html });
+      dispatch('detail', { content: html, meta: panelMeta });
     } else {
       dispatch('detail-close');
     }
   }
 
-  function handlePanelAction(event) {
+  export function handlePanelAction(event) {
     const btn = event.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.getAttribute('data-act');
@@ -252,7 +257,7 @@
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
 
-  function createTooltipHTML(d) {
+  function createTooltipData(d) {
     const code = Object.keys(labelMapping).find(k => labelMapping[k] === d.label);
     const color = colorMapping[code] || '#ccc';
     const yearEntry = yearDataLookup?.get(d.year);
@@ -262,7 +267,7 @@
     const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
     const yearLabel = formatYearLabel(d.year);
 
-    return `
+    const html = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
         <div>
@@ -276,6 +281,15 @@
         <div class="k">${d.label} share in ${yearLabel}</div><div>${percentDisplay}</div>
       </div>
     `;
+    return {
+      html,
+      meta: {
+        code,
+        label: d.label,
+        color,
+        year: yearLabel
+      }
+    };
   }
 
   function renderChart() {
@@ -358,13 +372,15 @@
       .on('mousemove', function(event, d) {
         if (panelPinned) return;
         connectorStart = { x: event.clientX, y: event.clientY };
-        showPanel(createTooltipHTML(d), event.clientX, event.clientY);
+        const { html, meta } = createTooltipData(d);
+        showPanel(html, event.clientX, event.clientY, false, meta);
       })
       .on('mouseover', function(event, d) {
         const key = `${d.year}__${d.label}`;
         d3.selectAll(`[data-key="${key}"]`).classed('is-hover', true);
         if (!panelPinned) {
-          showPanel(createTooltipHTML(d), event.clientX, event.clientY);
+          const { html, meta } = createTooltipData(d);
+          showPanel(html, event.clientX, event.clientY, false, meta);
         }
       })
       .on('mouseout', function(event, d) {
@@ -442,12 +458,31 @@
       .attr('class', d => `year-bracket year-bracket-${d}`)
       .attr('pointer-events', 'none');
 
-    yearAxis.selectAll('circle.year-drag-handle')
+    yearAxis.selectAll('g.year-drag-handle')
       .data([null])
-      .join('circle')
-      .attr('class', 'year-drag-handle')
-      .attr('r', 32)
-      .on('pointerdown', startYearDrag);
+      .join(enter => {
+        const g = enter.append('g')
+          .attr('class', 'year-drag-handle')
+          .on('pointerdown', startYearDrag);
+
+        g.append('circle')
+          .attr('class', 'year-handle-outer')
+          .attr('r', 200);
+
+        g.append('circle')
+          .attr('class', 'year-handle-inner')
+          .attr('r', 140);
+
+        g.append('path')
+          .attr('class', 'year-handle-chevron left')
+          .attr('d', 'M -42 -58 L -92 0 L -42 58');
+
+        g.append('path')
+          .attr('class', 'year-handle-chevron right')
+          .attr('d', 'M 42 -58 L 92 0 L 42 58');
+
+        return g;
+      });
 
     updateYearHighlight();
   }
@@ -543,8 +578,10 @@
       .endAngle(endAngle);
 
     const a = yearAngles.get(displayYear);
-    const hx = Math.cos(a) * (radius + 160);
-    const hy = Math.sin(a) * (radius + 160);
+    const handleOffset = radius + 340; // extra padding from chart edge for large handle
+    const hx = Math.cos(a) * handleOffset;
+    const hy = Math.sin(a) * handleOffset;
+    const tangentDeg = (a * 180) / Math.PI + 90; // rotate so chevrons run along the circle edge
 
     const svg = d3.select(svgElement);
 
@@ -572,8 +609,7 @@
     svg.select('.year-bracket-outer').attr('d', outerBracket());
 
     svg.select('.year-drag-handle')
-      .attr('cx', hx)
-      .attr('cy', hy);
+      .attr('transform', `translate(${hx}, ${hy}) rotate(${tangentDeg})`);
   }
 
   function startYearDrag(event) {
@@ -687,11 +723,12 @@
     const x = mapTooltipX;
     const y = mapTooltipY;
     const pinned = mapTooltipPinned;
+    const meta = mapTooltipMeta;
 
     untrack(() => {
       if (panelPinned && !pinned) { closePanel(); return; } // map tooltip cleared — close panel
       if (vis || pinned) {
-        showPanel(content, x, y, pinned);
+        showPanel(content, x, y, pinned, meta ?? null);
       } else {
         if (!panelPinned) showPanel('');
       }
@@ -730,6 +767,7 @@
     bind:tooltipX={mapTooltipX}
     bind:tooltipY={mapTooltipY}
     bind:tooltipContent={mapTooltipContent}
+    bind:tooltipMeta={mapTooltipMeta}
     bind:tooltipPinned={mapTooltipPinned}
     bind:showBarChart
     bind:barChartData
@@ -912,15 +950,52 @@
   }
 
   :global(.year-drag-handle) {
-    fill: #ffffff;
-    stroke: #0e0b16;
-    stroke-width: 3px;
     cursor: grab;
     pointer-events: all;
+    filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+    transition: transform 0.15s ease;
   }
 
   :global(.year-drag-handle:active) {
     cursor: grabbing;
+  }
+
+  :global(.year-handle-outer) {
+    fill: var(--bg, #0e0b16);
+    stroke: rgba(255, 255, 255, 0.9);
+    stroke-width: 10px;
+  }
+
+  :global(.year-handle-inner) {
+    fill: rgba(255, 255, 255, 0.08);
+    stroke: rgba(255, 255, 255, 0.85);
+    stroke-width: 8px;
+    transition: fill 0.18s ease, stroke 0.18s ease;
+  }
+
+  :global(.year-handle-chevron) {
+    stroke: rgba(255, 255, 255, 0.95);
+    stroke-width: 13px;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 0.18s ease;
+  }
+
+  :global(.year-drag-handle:hover .year-handle-inner),
+  :global(.year-drag-handle:active .year-handle-inner) {
+    fill: #ffffff;
+    stroke: #ffffff;
+  }
+
+  :global(.year-drag-handle:hover .year-handle-outer),
+  :global(.year-drag-handle:active .year-handle-outer) {
+    stroke: #ffffff;
+  }
+
+  :global(.year-drag-handle:hover .year-handle-chevron),
+  :global(.year-drag-handle:active .year-handle-chevron) {
+    stroke: var(--bg, #0e0b16);
   }
 
   :global(.map-mask-stroke) {

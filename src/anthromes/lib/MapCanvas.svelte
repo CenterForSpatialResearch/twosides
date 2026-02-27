@@ -33,6 +33,7 @@
     tooltipX = $bindable(0),
     tooltipY = $bindable(0),
     tooltipContent = $bindable(''),
+    tooltipMeta = $bindable(null),
     tooltipPinned = $bindable(false),
     showBarChart = $bindable(false),
     barChartData = $bindable(null),
@@ -668,7 +669,10 @@
 
     if (tooltipPinned && e.type === 'pointermove') return;
     if (!projection || !currentGeo) {
-      if (!tooltipPinned) tooltipVisible = false;
+      if (!tooltipPinned) {
+        tooltipVisible = false;
+        tooltipMeta = null;
+      }
       return;
     }
     const rect = canvasEl.getBoundingClientRect();
@@ -686,6 +690,7 @@
       hoveredFeature = null;
       drawOverlay();
       tooltipVisible = false;
+      tooltipMeta = null;
       return;
     }
 
@@ -696,6 +701,7 @@
         hoveredFeature = null;
         drawOverlay();
         tooltipVisible = false;
+        tooltipMeta = null;
         return;
       }
     }
@@ -734,6 +740,7 @@
       tooltipY = e.clientY;
     }
 
+    tooltipMeta = { color, label, year: yearLabel, code };
     tooltipContent = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
@@ -764,6 +771,7 @@
   function handlePointerLeave() {
     if (!tooltipPinned) {
       tooltipVisible = false;
+      tooltipMeta = null;
       hoveredFeature = null;
       drawOverlay();
     }
@@ -944,6 +952,7 @@
     barChartData = null;
     tooltipPinned = false;
     tooltipVisible = false;
+    tooltipMeta = null;
     drawOverlay();
   }
 

@@ -12,7 +12,7 @@
 
   // UI State
   let selectedPhyla = $state([]);
-  let unknownFilter = $state(false);
+  let unknownFilter = $state('all'); // 'all' | 'unknown' | 'known'
   let westernFilter = $state('any');
   let viewSize = $state('full'); // 'full' or 'preview'
   let tension = $state(0.95);
@@ -37,6 +37,11 @@
   let filterRailEl = $state(null);
   let biomesChartRef = $state(null);
   let detailContent = $state(null);
+  let detailPoint = $state(null);
+  let detailPanelEl = $state(null);
+  let detailPanelAnchor = $state(null);
+  let viewportW = $state(0);
+  let viewportH = $state(0);
 
   // Load data on mount
   onMount(async () => {
@@ -48,8 +53,10 @@
       const root = d3.hierarchy(taxonomyTree);
       const leaves = root.leaves();
 
-      const phylaSet = new Set(leaves.map(leaf => getPhylum(leaf)));
-      allPhyla = Array.from(phylaSet).sort((a, b) => a.localeCompare(b));
+      const phylumCounts = d3.rollup(leaves, v => v.length, leaf => getPhylum(leaf));
+      allPhyla = Array.from(phylumCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([phylum]) => phylum);
 
       // Load study keys from study_index
       try {
@@ -77,7 +84,7 @@
   // Handle clear all filters
   function handleClear() {
     selectedPhyla = [];
-    unknownFilter = false;
+    unknownFilter = 'all';
     westernFilter = 'any';
   }
 
@@ -120,11 +127,49 @@
     openPanel = null;
     if (!target.closest('.viz-area')) {
       detailContent = null;
+      detailPoint = null;
     }
   }
 
   function handleZoomChange(event) {
     zoomIdx = event.detail?.index ?? 0;
+  }
+
+  // Close detail when any panel opens
+  $effect(() => {
+    if (openPanel && detailContent) {
+      detailContent = null;
+      detailPoint = null;
+    }
+  });
+
+  $effect(() => {
+    if (detailPanelEl && detailPoint) {
+      const rect = detailPanelEl.getBoundingClientRect();
+      detailPanelAnchor = {
+        x: rect.left + 2,
+        y: rect.top + rect.height / 2
+      };
+    } else {
+      detailPanelAnchor = null;
+    }
+  });
+
+  function handleDetail(event) {
+    detailContent = event.detail?.content || null;
+    detailPoint = event.detail?.point || null;
+    openPanel = null;
+  }
+
+  function handleDetailPanelClick(event) {
+    event.stopPropagation();
+    biomesChartRef?.handleTooltipAction?.(event);
+  }
+
+  function handleDetailClose() {
+    detailContent = null;
+    detailPoint = null;
+    detailPanelAnchor = null;
   }
 
   // Handle export
@@ -177,20 +222,21 @@
   onMount(() => {
     window.addEventListener('click', handleWindowClick);
     window.addEventListener('resize', handleResize);
+    const setSize = () => {
+      viewportW = window.innerWidth;
+      viewportH = window.innerHeight;
+    };
+    setSize();
+    window.addEventListener('resize', setSize);
 
     return () => {
       window.removeEventListener('click', handleWindowClick);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', setSize);
     };
   });
 
-  function handleDetail(event) {
-    detailContent = event.detail?.content || null;
-  }
-
-  function handleDetailClose() {
-    detailContent = null;
-  }
+  // (moved below)
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -206,22 +252,32 @@
   </div>
 {:else}
   <div class="app">
-    <!-- Nav circle: switch sides -->
-    <a class="nav-circle nav-circle--left" href="/anthromes/" aria-label="Go to Anthromes">
-      <svg viewBox="0 0 120 120" aria-hidden="true">
-        <defs>
-          <path id="nav-arc-top" d="M15 60 A45 45 0 0 1 105 60" />
-          <path id="nav-arc-bottom" d="M105 60 A45 45 0 0 1 15 60" />
-        </defs>
-        <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
-        <text class="nav-circle__text nav-circle__text--active">
-          <textPath href="#nav-arc-top" startOffset="50%" text-anchor="middle"><tspan class="here">BIOMES</tspan></textPath>
-        </text>
-        <text class="nav-circle__text">
-          <textPath href="#nav-arc-bottom" startOffset="50%" text-anchor="middle">ANTHROMES →</textPath>
-        </text>
-      </svg>
-    </a>
+    <!-- Nav circle: switch sides + home dot -->
+    <div class="nav-circle nav-circle--left">
+      <div class="nav-circle__outer">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <defs>
+            <!-- upper arc (left→right across the top) -->
+            <path id="nav-arc-top-left" d="M8 60 A52 52 0 0 1 112 60" />
+            <!-- lower arc (right→left across the bottom) -->
+            <path id="nav-arc-bottom-right" d="M112 60 A52 52 0 0 1 8 60" />
+          </defs>
+          <g class="nav-circle__labels" transform="rotate(45 60 60)">
+            <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
+            <text class="nav-circle__text nav-circle__text--active">
+              <textPath href="#nav-arc-top-left" startOffset="50%" text-anchor="middle"><tspan class="here">BIOMES</tspan></textPath>
+            </text>
+            <text class="nav-circle__text nav-circle__text--link">
+              <a href="/src/anthromes/" aria-label="Go to Anthromes">
+                <textPath href="#nav-arc-bottom-right" startOffset="50%" text-anchor="middle">ANTHROMES →</textPath>
+              </a>
+            </text>
+          </g>
+        </svg>
+      </div>
+
+      <a class="nav-circle__home" href="/src/" aria-label="Back to home">←</a>
+    </div>
 
     <!-- Settings toggle & panel intentionally hidden for now -->
 
@@ -254,14 +310,41 @@
           <button class="circle-btn" title="Rotate right" onclick={() => biomesChartRef?.rotateRightControl?.()}>⟳</button>
         </div>
 
+        <div class="filter-grid">
+          <button class="mini-circle" class:active={openPanel === 'phylum'} onclick={() => openPanel = openPanel === 'phylum' ? null : 'phylum'} aria-label="Phylum filters">
+            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
+              <defs><path id="arc-phylum" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
+              <text class="arc-text"><textPath href="#arc-phylum" startOffset="0%" text-anchor="start">Phylum</textPath></text>
+            </svg>
+          </button>
+          <button class="mini-circle" class:active={openPanel === 'geo'} onclick={() => openPanel = openPanel === 'geo' ? null : 'geo'} aria-label="Geography filters">
+            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
+              <defs><path id="arc-geo" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
+              <text class="arc-text"><textPath href="#arc-geo" startOffset="0%" text-anchor="start">NON/WESTERN</textPath></text>
+            </svg>
+          </button>
+          <button class="mini-circle" class:active={openPanel === 'status'} onclick={() => openPanel = openPanel === 'status' ? null : 'status'} aria-label="Status filters">
+            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
+              <defs><path id="arc-status" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
+              <text class="arc-text"><textPath href="#arc-status" startOffset="0%" text-anchor="start">UN/KNOWN</textPath></text>
+            </svg>
+          </button>
+          <button class="mini-circle" class:active={openPanel === 'study'} onclick={() => openPanel = openPanel === 'study' ? null : 'study'} aria-label="Cohort filters">
+            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
+              <defs><path id="arc-cohort" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
+              <text class="arc-text"><textPath href="#arc-cohort" startOffset="0%" text-anchor="start">Cohort</textPath></text>
+            </svg>
+          </button>
+        </div>
+
         <div class="overlay-slot">
           {#if openPanel}
             {@const overlayTitle =
               openPanel === 'info' ? 'Biomes Overview' :
               openPanel === 'phylum' ? 'Phylum' :
-              openPanel === 'geo' ? 'Geography' :
-              openPanel === 'status' ? 'Status' :
-              openPanel === 'study' ? 'Cohorts' : ''}
+              openPanel === 'geo' ? 'NON/WESTERN' :
+              openPanel === 'status' ? 'UN/KNOWN' :
+              openPanel === 'study' ? 'Cohort' : ''}
             <div class="filter-overlay" aria-live="polite">
               <div class="overlay-head">
                 <div class="overlay-title">{overlayTitle}</div>
@@ -269,20 +352,32 @@
               </div>
               {#if openPanel === 'info'}
                 <div class="info-body">
-                  <p>This visualization shows an evolution of the extensive human microbiome.</p>
-                  <p>9,316 sample collections across 46 datasets plus a Madagascar cohort (Segata Lab).</p>
-                  <p>Each line is a Species-Level Genetic Bin (SGB). 77% of species shown were previously unknown.</p>
-                  <p>Western vs Non-Western diversity highlights the importance of indigenous populations.</p>
+                  <p><strong>5000 Lines 5000 Species</strong></p>
+                  <p>This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
+                  <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
+                  <p><strong>Known / Unknown:</strong> within this study, 77% of bacteria species visualized and analyzed were previously unknown.</p>
+                  <p><strong>Western / Non Western:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
+                  <div class="info-citations">
+                    <div class="info-citations-title">Citations</div>
+                    <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. "Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle." <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
+                    <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+                  </div>
                 </div>
               {:else}
               {#if openPanel === 'phylum'}
-                <p class="overlay-desc">Filter the tree to only the selected phyla.</p>
+                <p class="overlay-desc">Filter the tree to only the selected phyla, evolutionary lineages that shape how biological diversity is organized and understood.</p>
               {:else if openPanel === 'geo'}
-                <p class="overlay-desc">Limit to Western or Non-Western assignments from sample metadata.</p>
+                <div class="overlay-desc">
+                  <p><strong>Westernized</strong><br />Study-defined category referring to industrialized, urban populations with high exposure to modern medical and food systems.</p>
+                  <p><strong>Non-Westernized</strong><br />Study-defined category referring to populations with limited industrialization and lower exposure to modern medical and food systems.</p>
+                </div>
               {:else if openPanel === 'status'}
-                <p class="overlay-desc">Show only uSGBs (Unknown species genome bins) when enabled.</p>
+                <div class="overlay-desc">
+                  <p><strong>Unknown (uSGB)</strong><br />Genome-defined species-level group newly identified in this study — not previously represented in reference databases.</p>
+                  <p><strong>Unknown (uSGB)</strong><br />Previously uncharacterized microbial lineage revealed through large-scale metagenomic assembly.</p>
+                </div>
               {:else if openPanel === 'study'}
-                <p class="overlay-desc">Filter to selected cohorts (named by primary country).</p>
+                <p class="overlay-desc"><strong>Cohort</strong><br />A defined group of study participants whose samples were collected and analyzed together.</p>
               {/if}
 
               {#if openPanel === 'phylum'}
@@ -307,37 +402,38 @@
                   </div>
                 </section>
               {:else if openPanel === 'geo'}
-                <div class="overlay-actions">
-                  <button class="btn" onclick={() => westernFilter = 'any'}>All</button>
-                  <button class="btn" onclick={() => westernFilter = 'western'}>Western</button>
-                  <button class="btn" onclick={() => westernFilter = 'nonwestern'}>Non-West.</button>
-                </div>
                 <section class="section">
                   <div class="pills">
                     <label class="pill">
                       <input type="radio" name="western" value="any" bind:group={westernFilter} />
-                      Any
+                      All
                     </label>
                     <label class="pill">
                       <input type="radio" name="western" value="western" bind:group={westernFilter} />
-                      Western
+                      Westernized
                     </label>
                     <label class="pill">
                       <input type="radio" name="western" value="nonwestern" bind:group={westernFilter} />
-                      Non-Western
+                      Non-Westernized
                     </label>
                   </div>
                 </section>
               {:else if openPanel === 'status'}
-                <div class="overlay-actions">
-                  <button class="btn" onclick={() => unknownFilter = true}>Only unknown</button>
-                  <button class="btn" onclick={() => unknownFilter = false}>Clear</button>
-                </div>
                 <section class="section">
-                  <label class="pill" title="Unknown SGBs only">
-                    <input type="checkbox" bind:checked={unknownFilter} />
-                    Unknown
-                  </label>
+                  <div class="pills">
+                    <label class="pill">
+                      <input type="radio" name="usgb" value="all" bind:group={unknownFilter} />
+                      All
+                    </label>
+                    <label class="pill">
+                      <input type="radio" name="usgb" value="known" bind:group={unknownFilter} />
+                      Known (ref. databases)
+                    </label>
+                    <label class="pill">
+                      <input type="radio" name="usgb" value="unknown" bind:group={unknownFilter} />
+                      Unknown (uSGB)
+                    </label>
+                  </div>
                 </section>
               {:else if openPanel === 'study'}
                 <div class="overlay-actions">
@@ -363,44 +459,31 @@
           {/if}
 
           {#if detailContent}
-            <div class="filter-overlay detail-overlay" aria-live="polite">
+            <div class="filter-overlay detail-overlay" aria-live="polite" bind:this={detailPanelEl}>
               <div class="overlay-head">
                 <div class="overlay-title">Details</div>
                 <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
               </div>
-              <div class="panel-content" onclick={(event) => event.stopPropagation()}>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="panel-content" onclick={handleDetailPanelClick}>
                 {@html detailContent}
               </div>
             </div>
           {/if}
         </div>
 
-        <div class="filter-grid">
-          <button class="mini-circle" class:active={openPanel === 'phylum'} onclick={() => openPanel = openPanel === 'phylum' ? null : 'phylum'} aria-label="Phylum filters">
-            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
-              <defs><path id="arc-phylum" d="M50 10 A40 40 0 0 1 90 50" /></defs>
-              <text class="arc-text"><textPath href="#arc-phylum" startOffset="6%">Phylum</textPath></text>
-            </svg>
-          </button>
-          <button class="mini-circle" class:active={openPanel === 'geo'} onclick={() => openPanel = openPanel === 'geo' ? null : 'geo'} aria-label="Geography filters">
-            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
-              <defs><path id="arc-geo" d="M50 10 A40 40 0 0 1 90 50" /></defs>
-              <text class="arc-text"><textPath href="#arc-geo" startOffset="8%">Geo</textPath></text>
-            </svg>
-          </button>
-          <button class="mini-circle" class:active={openPanel === 'status'} onclick={() => openPanel = openPanel === 'status' ? null : 'status'} aria-label="Status filters">
-            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
-              <defs><path id="arc-status" d="M50 10 A40 40 0 0 1 90 50" /></defs>
-              <text class="arc-text"><textPath href="#arc-status" startOffset="2%">Status</textPath></text>
-            </svg>
-          </button>
-          <button class="mini-circle" class:active={openPanel === 'study'} onclick={() => openPanel = openPanel === 'study' ? null : 'study'} aria-label="Cohort filters">
-            <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
-              <defs><path id="arc-cohort" d="M50 10 A40 40 0 0 1 90 50" /></defs>
-              <text class="arc-text"><textPath href="#arc-cohort" startOffset="0%">Cohort</textPath></text>
-            </svg>
-          </button>
-        </div>
+        {#if detailContent && detailPoint && detailPanelAnchor}
+          <svg
+            class="leader-overlay"
+            aria-hidden="true"
+            width={viewportW}
+            height={viewportH}
+            viewBox={`0 0 ${viewportW} ${viewportH}`}
+          >
+            <line x1={detailPoint.x} y1={detailPoint.y} x2={detailPanelAnchor.x} y2={detailPanelAnchor.y} />
+          </svg>
+        {/if}
       </div>
     </div>
   </div>
@@ -438,11 +521,19 @@
   }
 
   .filter-rail {
+    --circle-gap: 14px;
+    --circle-col-min: 120px;
+    --mini-size: 100px;
+    --mini-arc-size: 88px;
+    --mini-font: 16px;
+    --row-gap-between-controls: 10px;
+    --control-col-min: 72px;
+    --control-gap: 10px;
     grid-column: 2;
     padding: 18px 28px;
     box-sizing: border-box;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
     height: 100%;
     overflow: hidden;
@@ -472,6 +563,18 @@
     color: var(--fg);
     text-decoration: none;
     z-index: 8;
+    pointer-events: auto;
+    overflow: visible;
+  }
+
+  .nav-circle__outer {
+    display: grid;
+    place-items: center;
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    text-decoration: none;
+    pointer-events: auto;
   }
 
   .nav-circle svg {
@@ -486,10 +589,11 @@
   }
 
   .nav-circle__text {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.02em;
     fill: rgba(255, 255, 255, 0.65);
+    pointer-events: none;
   }
 
   .nav-circle__text--active {
@@ -500,8 +604,54 @@
     text-decoration: underline;
   }
 
+  /* Leader overlay uses fixed viewport coords */
+
   .nav-circle:hover .nav-circle__text {
     fill: #fff;
+  }
+
+  .nav-circle__text--link {
+    pointer-events: auto;
+  }
+
+  .nav-circle__text--link a {
+    fill: inherit;
+    text-decoration: none;
+  }
+
+  .nav-circle__text--link a:hover textPath,
+  .nav-circle__text--link a:hover {
+    text-decoration: underline;
+    fill: #fff;
+  }
+
+  .nav-circle__home {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.9);
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    line-height: 1;
+    font-weight: 800;
+    text-decoration: none;
+    transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    pointer-events: auto;
+  }
+
+  .nav-circle__home:hover {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08);
+    transform: translate(-50%, -50%) scale(1.05);
   }
 
 
@@ -592,28 +742,57 @@
   .overlay-slot {
     position: relative;
     width: 100%;
-    height: 100%;
     overflow: hidden;
     display: flex;
+    flex: 1;
+    min-height: 0;
+    align-items: flex-start;
+  }
+
+  .leader-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9;
+  }
+
+  .leader-overlay line {
+    stroke: rgba(255, 255, 255, 0.65);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
   }
 
   .detail-overlay {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 8;
     pointer-events: auto;
     display: flex;
+    width: 100%;
   }
 
   .control-circles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
-    gap: 10px;
-    justify-items: center;
-    width: 100%;
-    max-width: 520px;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    grid-template-columns: repeat(6, max-content);
+    column-gap: var(--control-gap);
+    row-gap: 0;
+    justify-items: start;
+    width: fit-content;
+    max-width: none;
     justify-self: end;
     margin-left: auto;
+    justify-content: end;
+    margin-bottom: var(--row-gap-between-controls);
+  }
+
+  @media (max-width: 1180px) {
+    .filter-grid {
+      grid-template-columns: repeat(auto-fit, minmax(var(--mini-size), 1fr));
+    }
   }
 
   .circle-btn {
@@ -671,23 +850,52 @@
     font-size: 11px;
   }
 
+  .info-body {
+    display: grid;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
   .info-body p {
     margin: 0;
-    line-height: 1.4;
-    color: var(--muted);
+  }
+
+  .info-body p + p {
+    padding-top: 6px;
+  }
+
+  .info-body strong {
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .info-body u {
+    text-decoration-thickness: 2px;
+    text-decoration-color: rgba(255, 255, 255, 0.35);
+    text-underline-offset: 3px;
+  }
+
+  .info-body em {
+    color: #e7e9f1;
   }
 
   .filter-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(6, minmax(var(--mini-size), 1fr));
+    column-gap: var(--circle-gap);
+    row-gap: var(--circle-gap);
     width: 100%;
-    align-self: end;
+    justify-items: start;
+    align-items: center;
+    justify-content: start;
+    margin-bottom: 10px;
   }
 
   .mini-circle {
-    width: 82px;
-    height: 82px;
+    width: var(--mini-size);
+    height: var(--mini-size);
     border-radius: 50%;
     background: var(--bg);
     border: 2px solid rgba(255, 255, 255, 0.85);
@@ -700,13 +908,13 @@
   }
 
   .mini-arc {
-    width: 72px;
-    height: 72px;
+    width: var(--mini-arc-size);
+    height: var(--mini-arc-size);
     overflow: visible;
   }
 
   .arc-text {
-    font-size: 12px;
+    font-size: var(--mini-font);
     font-weight: 700;
     letter-spacing: 0.04em;
     fill: currentColor;
@@ -729,14 +937,15 @@
 
   .filter-overlay {
     background: var(--bg);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.85);
     border-radius: 20px;
     padding: 12px 14px;
     box-shadow: var(--shadow);
     width: 100%;
-    height: 100%;
-    max-height: 100%;
     overflow: auto;
+    max-height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
     position: relative;
     z-index: 6;
     display: flex;
@@ -764,7 +973,54 @@
     display: grid;
     gap: 10px;
     overflow: auto;
-    height: 100%;
+  }
+
+  .panel-content p {
+    margin: 0;
+  }
+
+  .panel-content p + p {
+    margin-top: 16px;
+  }
+
+  .panel-content strong {
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .info-citations {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .info-citations-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .info-citations p {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin: 0 0 8px;
+  }
+
+  .info-citations p:last-child {
+    margin-bottom: 0;
+  }
+
+  .info-citations a {
+    color: var(--accent, #7dd3fc);
+    text-decoration: none;
+  }
+
+  .info-citations a:hover {
+    text-decoration: underline;
   }
 
   /* Detail panel typography */
@@ -878,15 +1134,15 @@
   }
 
   .chevron {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: var(--bg);
+    border: 2px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     border-radius: 50%;
     width: 28px;
     height: 28px;
     display: grid;
     place-items: center;
-    font-weight: 700;
+    font-weight: 800;
     cursor: pointer;
   }
 

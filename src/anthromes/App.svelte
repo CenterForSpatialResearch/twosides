@@ -30,6 +30,7 @@
   let mapPanX = $state(0);
   let mapPanY = $state(0);
   let infoOpen = $state(false);
+  let waffleChartRef = $state(null);
 
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
@@ -42,6 +43,7 @@
   let isolationReset = $state(0);
   let panelCloseSignal = $state(0);
   let detailContent = $state(null);
+  let detailMeta = $state(null);
 
   // History chart section sizing
   let historyChartEl = $state(null);
@@ -195,6 +197,7 @@
       panelCloseSignal++;
       isolationReset++;
       detailContent = null;
+      detailMeta = null;
     }
   }
 
@@ -231,11 +234,27 @@
 
   function handleDetail(event) {
     detailContent = event.detail?.content || null;
+    detailMeta = event.detail?.meta ?? null;
+    openPanel = null;
   }
 
   function handleDetailClose() {
     detailContent = null;
+    detailMeta = null;
   }
+
+  function handleDetailPanelClick(event) {
+    event.stopPropagation();
+    waffleChartRef?.handlePanelAction?.(event);
+  }
+
+  // Close detail when any panel opens (prevent stacking overlays)
+  $effect(() => {
+    if (openPanel && detailContent) {
+      detailContent = null;
+      detailMeta = null;
+    }
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} onmouseup={handleLegendMouseUp} />
@@ -258,32 +277,32 @@
   {/if}
 
   <div class="app">
-    <!-- Nav circle: switch sides -->
-    <a class="nav-circle nav-circle--right" href="/biomes/" aria-label="Go to Biomes">
-      <svg viewBox="0 0 120 120" aria-hidden="true">
-        <defs>
-          <path id="nav-arc-top" d="M15 60 A45 45 0 0 1 105 60" />
-          <path id="nav-arc-bottom" d="M105 60 A45 45 0 0 1 15 60" />
-        </defs>
-        <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
-        <text class="nav-circle__text nav-circle__text--active">
-          <textPath href="#nav-arc-top" startOffset="50%" text-anchor="middle"><tspan class="here">ANTHROMES</tspan></textPath>
-        </text>
-        <text class="nav-circle__text">
-          <textPath href="#nav-arc-bottom" startOffset="50%" text-anchor="middle">BIOMES →</textPath>
-        </text>
-      </svg>
-    </a>
+    <!-- Nav circle: switch sides + home dot -->
+    <div class="nav-circle nav-circle--right">
+      <div class="nav-circle__outer">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <defs>
+            <!-- upper arc (left→right across the top) -->
+            <path id="nav-arc-top-right" d="M8 60 A52 52 0 0 1 112 60" />
+            <!-- lower arc (right→left across the bottom) -->
+            <path id="nav-arc-bottom-left" d="M112 60 A52 52 0 0 1 8 60" />
+          </defs>
+          <g class="nav-circle__labels" transform="rotate(45 60 60)">
+            <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
+            <text class="nav-circle__text nav-circle__text--active">
+              <textPath href="#nav-arc-top-right" startOffset="50%" text-anchor="middle"><tspan class="here">ANTHROMES</tspan></textPath>
+            </text>
+            <text class="nav-circle__text nav-circle__text--link">
+              <a href="/src/biomes/" aria-label="Go to Biomes">
+                <textPath href="#nav-arc-bottom-left" startOffset="50%" text-anchor="middle">BIOMES →</textPath>
+              </a>
+            </text>
+          </g>
+        </svg>
+      </div>
 
-    <!-- Settings Toggle -->
-    <button
-      class="settings-toggle"
-      onclick={() => settingsOpen = !settingsOpen}
-      aria-label="Settings"
-      title="Settings (M)"
-    >
-      ⚙️
-    </button>
+      <a class="nav-circle__home" href="/src/" aria-label="Back to home">←</a>
+    </div>
 
     <!-- Settings Panel -->
     <div class="settings-panel" class:open={settingsOpen}>
@@ -323,23 +342,60 @@
         <button class="circle-btn" title="Zoom in" onclick={zoomIn}>＋</button>
       </div>
 
+      <div class="filter-grid">
+        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => {
+          openPanel = openPanel === 'anthromes' ? null : 'anthromes';
+          selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
+          showBarChart = false;
+          barChartData = null;
+          isolationReset++;
+          panelCloseSignal++;
+        }}>
+          <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
+            <defs><path id="arc-anth" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
+            <text class="arc-text"><textPath href="#arc-anth" startOffset="0%" text-anchor="start">Filters</textPath></text>
+          </svg>
+        </button>
+        <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => {
+          openPanel = openPanel === 'zooms' ? null : 'zooms';
+          showBarChart = false;
+          barChartData = null;
+          isolationReset++;
+          panelCloseSignal++;
+        }}>
+          <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
+            <defs><path id="arc-zooms" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
+            <text class="arc-text"><textPath href="#arc-zooms" startOffset="0%" text-anchor="start">Views</textPath></text>
+          </svg>
+        </button>
+      </div>
+
         <div class="overlay-slot">
           {#if openPanel}
-            <div class="filter-overlay" class:zooms-open={openPanel === 'zooms'} aria-live="polite">
+            <div class="filter-overlay" class:views-open={openPanel === 'zooms'} aria-live="polite">
               <div class="overlay-head">
                 <div class="overlay-title">
-                  {openPanel === 'info' ? 'Anthromes Overview' : openPanel === 'anthromes' ? 'Anthromes' : 'Zooms'}
+                  {openPanel === 'info' ? 'Anthromes Overview' : openPanel === 'anthromes' ? 'Filters' : 'Views'}
                 </div>
                 <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
               </div>
 
             {#if openPanel === 'info'}
               <div class="info-body">
-                <p>More than 65% of terrestrial nature has been shaped, in very different ways, by people.</p>
-                <p>Anthromes are defined as the ecological patterns shaped by human habitation.</p>
-                <p>Visualized here is the Anthromes Dataset. It is a "hindcast," a model built from global population and land use data showing change over 12,025 years.</p>
-                <p>As global population increases, and urbanization accelerates, biodiversity shrinks.</p>
-                <p>Preserving "cultured" and "wild" lands is key to preserving biodiversity.</p>
+                <p><strong><u>More than 65% of terrestrial nature</u></strong> has been shaped, in very different ways, by people.</p>
+                <p><strong>Anthromes</strong> are defined as the ecological patterns shaped by human habitation.</p>
+                <p>Visualized here is the <strong>Anthromes Dataset</strong>. It is a "hindcast," a model built from global population and land use data showing change over <u>12,025 years</u>.</p>
+                <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong></p>
+                <p><u>Preserving "cultured" and "wild" lands</u> is key to preserving biodiversity.</p>
+
+                <div class="info-swatches" aria-label="Anthrome color swatches">
+                  {#each orderedCodes as code}
+                    <div class="swatch-pill">
+                      <span class="swatch-pill__color" style={`background: ${colorMapping[code]}`}></span>
+                      <span class="swatch-pill__label">{labelMapping[code]}</span>
+                    </div>
+                  {/each}
+                </div>
 
                 <div class="info-citations">
                   <div class="info-citations-title">Citations</div>
@@ -382,16 +438,23 @@
           {/if}
 
           {#if detailContent}
-            <div class="filter-overlay detail-overlay" aria-live="polite" bind:this={detailPanelEl}>
+            <div class="filter-overlay detail-overlay" class:with-chart={showBarChart && barChartData?.length} aria-live="polite" bind:this={detailPanelEl}>
               <div class="overlay-head">
-                <div class="overlay-title">Details</div>
+                <div class="overlay-title detail-title">
+                  {#if detailMeta?.color}
+                    <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
+                  {/if}
+                  <span>{detailMeta?.label ?? 'Details'}</span>
+                </div>
                 <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
               </div>
-              <div class="panel-content" onclick={(event) => event.stopPropagation()}>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="panel-content" onclick={handleDetailPanelClick}>
                 {@html detailContent}
 
                 {#if showBarChart && barChartData?.length}
-                  <div class="history-chart-section" bind:this={historyChartEl}>
+                  <div class="history-chart-section" class:needs-space={showBarChart && barChartData?.length} bind:this={historyChartEl}>
                     <div class="history-chart-title">Cell History</div>
                     <HistoryCircleChart periods={barChartData} size={historyChartSize} />
                   </div>
@@ -401,38 +464,11 @@
           {/if}
         </div>
 
-      <div class="filter-grid">
-        <button class="mini-circle" class:active={openPanel === 'anthromes'} onclick={() => {
-          openPanel = openPanel === 'anthromes' ? null : 'anthromes';
-          selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
-          showBarChart = false;
-          barChartData = null;
-          isolationReset++;
-          panelCloseSignal++;
-        }}>
-          <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
-            <defs><path id="arc-anth" d="M50 10 A40 40 0 0 1 90 50" /></defs>
-            <text class="arc-text"><textPath href="#arc-anth" startOffset="4%">Anthromes</textPath></text>
-          </svg>
-        </button>
-        <button class="mini-circle" class:active={openPanel === 'zooms'} onclick={() => {
-          openPanel = openPanel === 'zooms' ? null : 'zooms';
-          showBarChart = false;
-          barChartData = null;
-          isolationReset++;
-          panelCloseSignal++;
-        }}>
-          <svg class="mini-arc" viewBox="0 0 100 100" aria-hidden="true">
-            <defs><path id="arc-zooms" d="M50 10 A40 40 0 0 1 90 50" /></defs>
-            <text class="arc-text"><textPath href="#arc-zooms" startOffset="10%">Zooms</textPath></text>
-          </svg>
-        </button>
-      </div>
-
       </div>
 
       <div class="viz-area">
         <WaffleChart
+          bind:this={waffleChartRef}
           {data}
           {years}
           {colorMapping}
@@ -529,6 +565,18 @@
     color: var(--fg);
     text-decoration: none;
     z-index: 8;
+    pointer-events: auto;
+    overflow: visible;
+  }
+
+  .nav-circle__outer {
+    display: grid;
+    place-items: center;
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    text-decoration: none;
+    pointer-events: auto;
   }
 
   .nav-circle svg {
@@ -543,10 +591,11 @@
   }
 
   .nav-circle__text {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 800;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.02em;
     fill: rgba(255, 255, 255, 0.65);
+    pointer-events: none;
   }
 
   .nav-circle__text--active {
@@ -559,6 +608,50 @@
 
   .nav-circle:hover .nav-circle__text {
     fill: #fff;
+  }
+
+  .nav-circle__text--link {
+    pointer-events: auto;
+  }
+
+  .nav-circle__text--link a {
+    fill: inherit;
+    text-decoration: none;
+  }
+
+  .nav-circle__text--link a:hover textPath,
+  .nav-circle__text--link a:hover {
+    text-decoration: underline;
+    fill: #fff;
+  }
+
+  .nav-circle__home {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.9);
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    line-height: 1;
+    font-weight: 800;
+    text-decoration: none;
+    transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    pointer-events: auto;
+  }
+
+  .nav-circle__home:hover {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08);
+    transform: translate(-50%, -50%) scale(1.05);
   }
 
   .checkbox-label {
@@ -697,11 +790,19 @@
   }
 
   .filter-rail {
+    --circle-gap: 14px;
+    --circle-col-min: 120px;
+    --mini-size: 100px;
+    --mini-arc-size: 88px;
+    --mini-font: 16px;
+    --row-gap-between-controls: 10px;
+    --control-col-min: 72px;
+    --control-gap: 10px;
     grid-column: 1;
     padding: 18px 28px;
     box-sizing: border-box;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
     height: 100%;
     overflow: hidden;
@@ -727,34 +828,62 @@
   .overlay-slot {
     position: relative;
     width: 100%;
-    height: 100%;
     overflow: hidden;
     display: flex;
+    flex: 1;
+    min-height: 0;
+    align-items: flex-start;
   }
 
   .detail-overlay {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 8;
     pointer-events: auto;
     display: flex;
+    width: 100%;
+  }
+
+  .detail-overlay.with-chart {
+    bottom: 0;
+    height: 100%;
+  }
+
+  .history-chart-section.needs-space {
+    min-height: 240px;
   }
 
   .filter-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(6, minmax(var(--mini-size), 1fr));
+    column-gap: var(--circle-gap);
+    row-gap: var(--circle-gap);
     width: 100%;
-    align-self: end;
+    justify-items: start;
+    align-items: center;
+    justify-content: start;
+    margin-bottom: 10px;
   }
 
   .control-circles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
-    gap: 10px;
-    justify-items: center;
-    width: 100%;
-    max-width: 520px;
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    column-gap: var(--control-gap);
+    row-gap: var(--control-gap);
+    justify-items: start;
+    width: fit-content;
+    max-width: none;
+    justify-content: start;
+    margin-bottom: var(--row-gap-between-controls);
+  }
+
+  @media (max-width: 1180px) {
+    .filter-grid {
+      grid-template-columns: repeat(auto-fit, minmax(var(--mini-size), 1fr));
+    }
   }
 
   .circle-btn {
@@ -779,8 +908,8 @@
   }
 
   .mini-circle {
-    width: 82px;
-    height: 82px;
+    width: var(--mini-size);
+    height: var(--mini-size);
     border-radius: 50%;
     background: var(--bg);
     border: 2px solid rgba(255, 255, 255, 0.85);
@@ -794,13 +923,13 @@
   }
 
   .mini-arc {
-    width: 72px;
-    height: 72px;
+    width: var(--mini-arc-size);
+    height: var(--mini-arc-size);
     overflow: visible;
   }
 
   .arc-text {
-    font-size: 12px;
+    font-size: var(--mini-font);
     font-weight: 700;
     letter-spacing: 0.04em;
     fill: currentColor;
@@ -823,25 +952,25 @@
 
   .filter-overlay {
     background: var(--bg);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.85);
     border-radius: 20px;
     padding: 12px 14px;
     box-shadow: var(--shadow);
     width: 100%;
-    height: 100%;
-    max-height: 100%;
     overflow: auto;
+    max-height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
 
-  /* Zooms panel uses the full middle row */
-  .filter-overlay.zooms-open {
+  /* Views panel uses the full middle row */
+  .filter-overlay.views-open {
+    padding: 8px 10px;
     height: 100%;
     max-height: 100%;
-    overflow: auto;
-    padding: 8px 10px;
   }
 
   .overlay-head {
@@ -857,13 +986,26 @@
     letter-spacing: 0.04em;
   }
 
+  .detail-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .overlay-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    flex: 0 0 auto;
+  }
+
   .panel-content {
     font-size: 13px;
     color: var(--muted);
     line-height: 1.5;
     display: grid;
     gap: 10px;
-    height: 100%;
     overflow: auto;
   }
 
@@ -960,6 +1102,63 @@
     line-height: 1.4;
   }
 
+  .info-body {
+    display: grid;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .info-body p {
+    margin: 0;
+  }
+
+  .info-body p + p {
+    padding-top: 6px;
+  }
+
+  .info-swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .swatch-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    color: #e7e9f1;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+  }
+
+  .swatch-pill__color {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    flex: 0 0 auto;
+  }
+
+  .info-body strong {
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .info-body u {
+    text-decoration-thickness: 2px;
+    text-decoration-color: rgba(255, 255, 255, 0.35);
+    text-underline-offset: 3px;
+  }
+
+  .info-body em {
+    color: #e7e9f1;
+  }
+
   .info-citations {
     margin-top: 14px;
     padding-top: 10px;
@@ -1016,8 +1215,8 @@
   }
 
   .chevron {
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.1);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    background: var(--bg);
     color: var(--fg);
     width: 30px;
     height: 30px;
@@ -1025,6 +1224,7 @@
     cursor: pointer;
     display: grid;
     place-items: center;
+    font-weight: 800;
   }
 
   .year-grid {
