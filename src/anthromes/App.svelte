@@ -1,9 +1,8 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
   import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
   import ZoomsPanel from './lib/ZoomsPanel.svelte';
-  import AnnotationBubbles from './lib/AnnotationBubbles.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
   // State
@@ -47,6 +46,24 @@
   // History chart section sizing
   let historyChartEl = $state(null);
   let historyChartSize = $state(220);
+
+  // Connector (leader line) state
+  let connectorStart = $state(null);
+  let connectorEnd = $state(null);
+  let detailPanelEl = $state(null);
+
+  $effect(() => {
+    const start = connectorStart;
+    const panel = detailPanelEl;
+    untrack(() => {
+      if (!panel || !start) { connectorEnd = null; return; }
+      const rect = panel.getBoundingClientRect();
+      connectorEnd = {
+        x: rect.right,
+        y: (rect.top + rect.bottom) / 2
+      };
+    });
+  });
 
   $effect(() => {
     if (!historyChartEl) return;
@@ -110,13 +127,13 @@
   const ZOOM_LEVELS = [1, 2, 7];
 
   function zoomIn() {
-    const idx = ZOOM_LEVELS.indexOf(zoomLevel);
-    if (idx < ZOOM_LEVELS.length - 1) zoomLevel = ZOOM_LEVELS[idx + 1];
+    const next = ZOOM_LEVELS.find(z => z > zoomLevel);
+    if (next != null) zoomLevel = next;
   }
 
   function zoomOut() {
-    const idx = ZOOM_LEVELS.indexOf(zoomLevel);
-    if (idx > 0) zoomLevel = ZOOM_LEVELS[idx - 1];
+    const prev = [...ZOOM_LEVELS].reverse().find(z => z < zoomLevel);
+    if (prev != null) zoomLevel = prev;
   }
 
   function resetView() {
@@ -318,9 +335,18 @@
 
             {#if openPanel === 'info'}
               <div class="info-body">
-                <p>Hindcast of anthrome change over 12,025 years.</p>
-                <p>Visualizes human-shaped ecological patterns (anthromes) from population and land-use data.</p>
-                <p>Shows how urbanization and population growth reduce biodiversity and shrink cultured/wild lands.</p>
+                <p>More than 65% of terrestrial nature has been shaped, in very different ways, by people.</p>
+                <p>Anthromes are defined as the ecological patterns shaped by human habitation.</p>
+                <p>Visualized here is the Anthromes Dataset. It is a "hindcast," a model built from global population and land use data showing change over 12,025 years.</p>
+                <p>As global population increases, and urbanization accelerates, biodiversity shrinks.</p>
+                <p>Preserving "cultured" and "wild" lands is key to preserving biodiversity.</p>
+
+                <div class="info-citations">
+                  <div class="info-citations-title">Citations</div>
+                  <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+                  <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Diaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. "People have shaped most of terrestrial nature for at least 12,000 years." <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
+                  <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
+                </div>
               </div>
               {#if showBarChart && barChartData?.length}
                 <div class="history-chart-section" bind:this={historyChartEl}>
@@ -356,7 +382,7 @@
           {/if}
 
           {#if detailContent}
-            <div class="filter-overlay detail-overlay" aria-live="polite">
+            <div class="filter-overlay detail-overlay" aria-live="polite" bind:this={detailPanelEl}>
               <div class="overlay-head">
                 <div class="overlay-title">Details</div>
                 <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
@@ -406,7 +432,6 @@
       </div>
 
       <div class="viz-area">
-        <AnnotationBubbles size={viewSize} />
         <WaffleChart
           {data}
           {years}
@@ -420,13 +445,14 @@
           size={viewSize}
           {debugMenuVisible}
           {showBoundaries}
-          mapScale={zoomLevel}
+          bind:mapScale={zoomLevel}
           mapRotation={rotation}
           bind:mapPanX
           bind:mapPanY
           bind:showBarChart
           bind:barChartData
           bind:isolationReset
+          bind:connectorStart
           panelCloseSignal={panelCloseSignal}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -434,9 +460,31 @@
       </div>
     </div>
   </div>
+
+  {#if detailContent && connectorStart && connectorEnd}
+    <svg class="connector-overlay" aria-hidden="true">
+      <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
+    </svg>
+  {/if}
 {/if}
 
 <style>
+  .connector-overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 50;
+    overflow: visible;
+  }
+
+  .connector-overlay line {
+    stroke: rgba(255, 255, 255, 0.5);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+
   .loading-overlay,
   .error {
     display: flex;
@@ -609,9 +657,8 @@
 
   .legend-item.selected {
     opacity: 1;
-    background: #fff;
-    border-color: #fff;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2) inset;
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.35);
   }
 
   .legend-item .sw {
@@ -630,7 +677,7 @@
   }
 
   .legend-item.selected .lbl {
-    color: var(--bg);
+    color: #ffffff;
   }
 
   .instruction-text {
@@ -911,6 +958,41 @@
     font-size: 11px;
     color: var(--muted);
     line-height: 1.4;
+  }
+
+  .info-citations {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .info-citations-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .info-citations p {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin: 0 0 8px;
+  }
+
+  .info-citations p:last-child {
+    margin-bottom: 0;
+  }
+
+  .info-citations a {
+    color: var(--accent, #7dd3fc);
+    text-decoration: none;
+  }
+
+  .info-citations a:hover {
+    text-decoration: underline;
   }
 
   .overlay-actions {

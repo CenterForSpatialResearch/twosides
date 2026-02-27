@@ -9,15 +9,21 @@
   const FIXED_ZOOM  = 11;
   const COLS        = 3;
   const GAP         = 10;   // px gap between grid cells
-  const INFO_H      = 40;   // px reserved below each circle for title + shift
-  const HEADER_H    = 52;   // px for the sort-by header area
+  const INFO_H      = 56;   // px reserved below each circle for title + shift + desc
+  const HEADER_H    = 100;  // px for the sort-by header area (includes intro + desc line)
 
   let panelEl  = $state(null);
   let gridEl   = $state(null);
   let panelW   = $state(0);
   let panelH   = $state(0);
-  let sortBy   = $state('intensive-1900');
+  let sortBy   = $state('selected');
   let rendering = $state(false);
+  let zoomK    = $state(FIXED_ZOOM);
+
+  const ZOOM_MIN  = 8;
+  const ZOOM_MAX  = 14;
+  const ZOOM_STEP = 1;
+
 
   // Generation counter — stale async renders bail when gen !== renderGen
   let renderGen = 0;
@@ -52,7 +58,7 @@
 
   // ── Projection scale ──────────────────────────────────────────────────────
   function getScale(radius) {
-    return radius * 2.5 * Math.pow(2, FIXED_ZOOM - 9);
+    return radius * 2.5 * Math.pow(2, zoomK - 9);
   }
 
   // ── Data loading ──────────────────────────────────────────────────────────
@@ -89,11 +95,7 @@
         url = `${base}data/${file}`;
       }
       const data = await fetch(url).then(r => r.json());
-      cache.locations.set(sort,
-        sort === 'selected'
-          ? data.sort((a, b) => a.title.localeCompare(b.title))
-          : data
-      );
+      cache.locations.set(sort, data);
     }
     return cache.locations.get(sort).slice(0, count);
   }
@@ -223,6 +225,7 @@
       info.innerHTML = `
         <div class="zp-title">${loc.title}</div>
         ${loc.shift != null ? `<div class="zp-shift">${loc.shift.toFixed(2)}</div>` : ''}
+        ${loc.description ? `<div class="zp-desc-item">${loc.description}</div>` : ''}
       `;
 
       wrapper.appendChild(circle);
@@ -240,6 +243,7 @@
     const w    = panelW;
     const h    = panelH;
     const sort = sortBy;
+    const zoom = zoomK;
     if (gridEl && w > 0 && h > 0) {
       renderGen++;
       const gen = renderGen;
@@ -260,6 +264,7 @@
   });
 
   onDestroy(() => {
+    zoomK = FIXED_ZOOM;
     if (tooltipEl) {
       tooltipEl.remove();
       tooltipEl = null;
@@ -270,15 +275,20 @@
 <div class="zooms-panel" bind:this={panelEl}>
   <!-- Sort dropdown — centered at top -->
   <div class="zp-header">
+    <p class="zp-intro">Zooms of selected sites at higher resolution. Highlight cells to see the year that cell changed to its current anthrome.</p>
     <div class="zp-sort">
       <label for="zp-sort-sel">Sort By</label>
-      <select id="zp-sort-sel" bind:value={sortBy}>
-        <option value="selected">Selected sites</option>
-        <option value="intensive-1900">Largest Intensive Shifts since 1900</option>
-        <option value="cultured-1900">Largest Cultured Shifts since 1900</option>
-        <option value="intensive-2000">Largest Intensive Shifts since 2000</option>
-        <option value="cultured-2000">Largest Cultured Shifts since 2000</option>
-      </select>
+      <div class="zp-sort-row">
+        <button class="zp-zoom-btn" onclick={() => zoomK = Math.max(ZOOM_MIN, zoomK - ZOOM_STEP)} disabled={zoomK <= ZOOM_MIN}>−</button>
+        <select id="zp-sort-sel" bind:value={sortBy}>
+          <option value="selected">Selected sites</option>
+          <option value="intensive-1900">Largest Intensive Shifts since 1900</option>
+          <option value="cultured-1900">Largest Cultured Shifts since 1900</option>
+          <option value="intensive-2000">Largest Intensive Shifts since 2000</option>
+          <option value="cultured-2000">Largest Cultured Shifts since 2000</option>
+        </select>
+        <button class="zp-zoom-btn" onclick={() => zoomK = Math.min(ZOOM_MAX, zoomK + ZOOM_STEP)} disabled={zoomK >= ZOOM_MAX}>+</button>
+      </div>
     </div>
   </div>
 
@@ -302,11 +312,23 @@
 
   /* ── Header ── */
   .zp-header {
-    height: 52px;
+    height: 100px;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
+    gap: 6px;
     flex-shrink: 0;
+    padding: 0 8px;
+  }
+
+  .zp-intro {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.4;
+    width: 75%;
   }
 
   .zp-sort {
@@ -323,20 +345,58 @@
     letter-spacing: 0.06em;
   }
 
+  .zp-sort-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
   .zp-sort select {
     padding: 4px 8px;
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.07);
+    background: #1a1625;
     color: var(--fg);
     font-size: 11px;
     cursor: pointer;
     max-width: 220px;
   }
 
+  .zp-sort select option {
+    background: #1a1625;
+    color: var(--fg);
+  }
+
   .zp-sort select:focus {
     outline: none;
     border-color: var(--accent);
+  }
+
+  .zp-zoom-btn {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: #1a1625;
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 0;
+    transition: border-color 0.15s, opacity 0.15s;
+  }
+
+  .zp-zoom-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+
+  .zp-zoom-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
   }
 
   /* ── Loading ── */
@@ -383,7 +443,7 @@
 
   :global(.zp-info) {
     width: var(--zp-diam, 80px);
-    height: var(--zp-info, 40px);
+    height: var(--zp-info, 56px);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -392,16 +452,23 @@
     overflow: hidden;
   }
 
+  :global(.zp-desc-item) {
+    font-size: 9px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.2;
+    max-width: 100%;
+    margin-top: 2px;
+  }
+
   :global(.zp-title) {
     font-size: 10px;
     font-weight: 600;
     color: var(--fg, #fff);
     text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
     max-width: 100%;
-    line-height: 1.3;
+    line-height: 1.2;
   }
 
   :global(.zp-shift) {
