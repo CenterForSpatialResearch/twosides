@@ -301,7 +301,7 @@
         </svg>
       </div>
 
-      <a class="nav-circle__home" href="/src/" aria-label="Back to home">←</a>
+      <a class="nav-circle__home" href={import.meta.env.BASE_URL} aria-label="Back to home">←</a>
     </div>
 
     <!-- Settings Panel -->
