@@ -869,6 +869,7 @@
       url.searchParams.delete('highlightSGBs');
       url.searchParams.delete('highlightSGB');
       window.history.replaceState({}, '', url);
+      sessionStorage.removeItem('highlightSGBs');
     }
 
     scheduleFilters();
@@ -980,9 +981,14 @@
         if (taxonomyTree && handles.root) {
           clearInterval(checkTreeInterval);
 
-          // Parse comma-separated SGB IDs (or single SGB ID)
-          const sgbIds = highlightSGBsParam
-            ? highlightSGBsParam.split(',').map(id => parseInt(id.trim(), 10))
+          // Parse comma-separated SGB IDs (or single SGB ID).
+          // If sentinel 'session', read the full list from sessionStorage
+          // to avoid URI Too Long errors for large countries.
+          const resolvedSGBsParam = highlightSGBsParam === 'session'
+            ? (sessionStorage.getItem('highlightSGBs') || '')
+            : highlightSGBsParam;
+          const sgbIds = resolvedSGBsParam
+            ? resolvedSGBsParam.split(',').map(id => parseInt(id.trim(), 10))
             : [parseInt(highlightSGBParam, 10)];
 
           // Find ALL matching leaves

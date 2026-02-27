@@ -173,7 +173,8 @@
       const sgbs = btn.getAttribute('data-sgbs');
       if (sgbs) {
         const base = import.meta.env.BASE_URL;
-        window.location.href = `${base}src/biomes/index.html?highlightSGBs=${sgbs}`;
+        sessionStorage.setItem('highlightSGBs', sgbs);
+        window.location.href = `${base}src/biomes/index.html?highlightSGBs=session`;
       }
     }
   }
