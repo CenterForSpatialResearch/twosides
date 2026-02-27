@@ -12,8 +12,8 @@
   // Radii for label placement
   const YEAR_TICK_LEN  = $derived(R * 0.07);           // inward tick from inner edge
   const YEAR_LABEL_R   = $derived(innerR * 0.62);       // year text inside hole
-  const ANT_LEADER_R   = $derived(outerR + R * 0.04);   // leader start at outer edge
-  const ANT_LABEL_R    = $derived(outerR + R * 0.22);   // anthrome text outside
+  const ANT_LEADER_R   = $derived(outerR + R * 0.02);   // leader start at outer edge
+  const ANT_LABEL_R    = $derived(outerR + R * 0.14);   // anthrome text outside
 
   // ── Sectors ───────────────────────────────────────────────────────────────
   const sectors = $derived.by(() => {
@@ -100,8 +100,8 @@
   });
 
   // ── Font sizes ─────────────────────────────────────────────────────────────
-  const antFontSize  = $derived(Math.max(3, Math.round(R * 0.041)));
-  const yearFontSize = $derived(Math.max(2, Math.round(R * 0.034)));
+  const antFontSize  = $derived(Math.max(3, Math.round(R * 0.034)));
+  const yearFontSize = $derived(Math.max(2, Math.round(R * 0.028)));
 </script>
 
 <svg
@@ -171,20 +171,21 @@
     {@const my  = -Math.cos(a.midAngle) * ANT_LEADER_R}
     {@const lx  = Math.sin(a.labelAngle) * ANT_LABEL_R}
     {@const ly  = -Math.cos(a.labelAngle) * ANT_LABEL_R}
-    {@const xdir = Math.sin(a.labelAngle)}
-    {@const anchor = xdir > 0.12 ? 'start' : xdir < -0.12 ? 'end' : 'middle'}
-
     <line x1={mx} y1={my} x2={lx} y2={ly}
       stroke="rgba(255,255,255,0.28)" stroke-width="0.8" />
+    {@const words = a.label.split(' ')}
     <text
       x={lx} y={ly}
-      text-anchor={anchor}
+      text-anchor="middle"
       dominant-baseline="middle"
       font-size={antFontSize}
       fill="rgba(255,255,255,0.82)"
       font-family="system-ui,-apple-system,sans-serif"
       font-weight="600"
-    >{a.label}</text>
+    >{#each words as word, wi}<tspan
+        x={lx}
+        dy={wi === 0 ? `${-(words.length - 1) * antFontSize * 0.6}` : `${antFontSize * 1.2}`}
+      >{word}</tspan>{/each}</text>
   {/each}
 </svg>
 
