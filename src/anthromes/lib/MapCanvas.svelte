@@ -965,7 +965,6 @@
   function handleGlobalClick(e) {
     if (e.target.closest('.back-button')) return;
     if (
-      e.target.closest('.map-layer') ||
       e.target.closest('#info-panel') ||
       e.target.closest('.filter-rail')
     ) return;

@@ -567,11 +567,12 @@
     // Handle: half-disc sitting on the outer edge of the year bracket.
     // The outer bracket ends at radius + 22; HANDLE_OFFSET adds a small gap beyond it.
     // ↓ adjust this value to slide the disc in/out
-    const HANDLE_OFFSET = 40; // SVG units beyond the ring edge (outer bracket = radius + 22)
+    const HANDLE_OFFSET = 10; // SVG units beyond the ring edge (outer bracket = radius + 22)
     const handleBaseR = radius + HANDLE_OFFSET;
 
     // r_dome = semicircle radius whose diameter spans the year's chord at handleBaseR
-    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2);
+    // ↓ adjust this multiplier to resize the dome
+    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.075;
 
     // Base endpoints on the handle base circle
     const px_s = Math.sin(startAngle) * handleBaseR;
@@ -612,7 +613,9 @@
     svg.select('.year-bracket-outer').attr('d', outerBracket());
 
     svg.select('.year-drag-handle').attr('transform', null);
-    svg.select('.year-handle-arc').attr('d', handlePath);
+    svg.select('.year-handle-arc')
+      .attr('d', handlePath)
+      .attr('stroke-width', 15); // SVG user units — matches year bracket thickness (radius+22 − radius+4)
   }
 
   function startYearDrag(event) {
@@ -965,7 +968,6 @@
   :global(.year-handle-arc) {
     fill: rgba(0, 0, 0, 0.01); /* near-transparent but hittable */
     stroke: rgba(255, 255, 255, 0.9);
-    stroke-width: 8px;
     transition: fill 0.18s ease;
   }
 

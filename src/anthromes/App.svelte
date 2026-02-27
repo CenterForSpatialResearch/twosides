@@ -852,7 +852,8 @@
   }
 
   .history-chart-section.needs-space {
-    min-height: 240px;
+    flex: 1;
+    min-height: 0;
   }
 
   .filter-grid {
@@ -1004,9 +1005,12 @@
     font-size: 13px;
     color: var(--muted);
     line-height: 1.5;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
-    overflow: auto;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
   }
 
   /* Detail panel typography */
