@@ -19,14 +19,16 @@
     debugMenuVisible = false,
     showBoundaries = false,
     mapReady = $bindable(false),
-    mapScale = 1,
+    mapScale = $bindable(1),
     mapRotation = 0,
     mapPanX = $bindable(0),
     mapPanY = $bindable(0),
     barChartData = $bindable(null),
     showBarChart = $bindable(false),
     isolationReset = $bindable(0),
+    cellIsolated = $bindable(false),
     panelCloseSignal = 0,
+    connectorStart = $bindable(null),
   } = $props();
 
   const fullSize = 7000;
@@ -40,15 +42,14 @@
   let mapTooltipX = $state(0);
   let mapTooltipY = $state(0);
   let mapTooltipContent = $state('');
+  let mapTooltipMeta = $state(null);
   let mapTooltipPinned = $state(false);
 
   // Unified info panel
   let panelVisible = $state(false);
   let panelContent = $state('');
   let panelPinned = $state(false);
-  let infoPanelEl = $state(null);
-  let connectorStart = $state(null);
-  let connectorEnd = $state(null);
+  let panelMeta = $state(null);
   const dispatch = createEventDispatcher();
 
   let mapZoom = $state({ k: 1, x: 0, y: 0 });
@@ -63,6 +64,9 @@
   // closePanel/isolationReset fire only on first real movement, not on simple clicks,
   // to avoid a race where the reset effect fires after handleCanvasClick isolates a cell.
   let panHasMoved = false;
+
+  const SCROLL_ZOOM_MIN = 0.5;
+  const SCROLL_ZOOM_MAX = 8;
 
   // Cursor state — grab only inside inner circle
   let hoverInCircle = $state(false);
@@ -105,20 +109,40 @@
     hoverInCircle = dx * dx + dy * dy <= innerRadiusPx * innerRadiusPx;
   }
 
-  function updateConnector() {
-    if (!infoPanelEl || !connectorStart) return;
-    const rect = infoPanelEl.getBoundingClientRect();
-    connectorEnd = {
-      x: rect.right - 6,
-      y: Math.max(rect.top + 10, Math.min(rect.bottom - 10, connectorStart.y))
-    };
+  function handleWheel(event) {
+    if (!chartContainer || !innerRadiusPx) return;
+    const rect = chartContainer.getBoundingClientRect();
+    const dx = event.clientX - (rect.left + rect.width / 2);
+    const dy = event.clientY - (rect.top + rect.height / 2);
+    // Only zoom when the pointer is inside the inner circle (the map area).
+    if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
+
+    event.preventDefault();
+
+    // Normalize delta across mouse wheel (deltaMode 1 = lines, 2 = pages) and
+    // trackpad (deltaMode 0 = pixels). A factor of ~0.999 per pixel gives a
+    // comfortable ~10% change per 100 px of scroll on both input types.
+    let delta = event.deltaY;
+    if (event.deltaMode === 1) delta *= 16;   // lines → pixels approximation
+    if (event.deltaMode === 2) delta *= 400;  // pages → pixels approximation
+
+    const oldScale = mapScale;
+    const factor = Math.pow(0.999, delta);
+    const newScale = Math.min(SCROLL_ZOOM_MAX, Math.max(SCROLL_ZOOM_MIN, oldScale * factor));
+    const clampedFactor = newScale / oldScale;
+
+    // Zoom to cursor: adjust pan so the point under the pointer stays fixed.
+    // dx/dy is the cursor offset from the container center (in screen px).
+    mapPanX = dx + clampedFactor * (mapPanX - dx);
+    mapPanY = dy + clampedFactor * (mapPanY - dy);
+    mapScale = newScale;
   }
 
   function closePanel() {
     panelVisible = false;
     panelPinned = false;
+    panelMeta = null;
     connectorStart = null;
-    connectorEnd = null;
     mapTooltipPinned = false;
     mapTooltipVisible = false;
     mapTooltipContent = '';
@@ -127,19 +151,21 @@
     dispatch('detail-close');
   }
 
-  function showPanel(html, x = null, y = null, pinned = false) {
+  function showPanel(html, x = null, y = null, pinned = false, meta = undefined) {
+    if (meta !== undefined) panelMeta = meta;
+    if (!html) panelMeta = null;
     panelContent = html;
     panelVisible = !!html;
     if (panelVisible) {
       if (x != null && y != null) connectorStart = { x, y };
       if (pinned) panelPinned = true;
-      dispatch('detail', { content: html });
+      dispatch('detail', { content: html, meta: panelMeta });
     } else {
       dispatch('detail-close');
     }
   }
 
-  function handlePanelAction(event) {
+  export function handlePanelAction(event) {
     const btn = event.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.getAttribute('data-act');
@@ -228,28 +254,42 @@
     innerRadiusPx = layout.innerRadius * pxPerUnit;
   });
 
-  function createTooltipHTML(d) {
+  const EARTH_RADIUS_KM = 6371.0088;
+  const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+
+  function createTooltipData(d) {
     const code = Object.keys(labelMapping).find(k => labelMapping[k] === d.label);
     const color = colorMapping[code] || '#ccc';
-    const total = stackedData?.totalsByYear?.get(d.year) || 0;
-    const count = d.seg[1] - d.seg[0];
-    const pct = total > 0 ? ((count / total) * 100).toFixed(1) + '%' : '—';
+    const yearEntry = yearDataLookup?.get(d.year);
+    const percent = yearEntry?.percentages?.[String(code)];
+    const percentDisplay = percent != null ? `${percent.toFixed(2)}%` : '—';
+    const globalAreaKm2 = percent != null ? (percent / 100) * EARTH_SURFACE_KM2 : null;
+    const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
+    const yearLabel = formatYearLabel(d.year);
 
-    return `
+    const html = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
         <div>
           <div class="title">${d.label}</div>
-          <div class="subtitle">Year ${formatYearLabel(d.year)}</div>
+          <div class="subtitle">Year ${yearLabel}</div>
         </div>
       </div>
-      <div class="summary">In <b>${formatYearLabel(d.year)}</b>, <b>${d.label}</b> accounts for <b>${count.toLocaleString()}</b> units (<b>${pct}</b> of the year's total).</div>
+      <div class="summary">In <b>${yearLabel}</b>, <b>${d.label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
       <div class="kv">
-        <div class="k">Year total</div><div>${total.toLocaleString()}</div>
-        <div class="k">Segment value</div><div>${count.toLocaleString()}</div>
-        <div class="k">Share</div><div>${pct}</div>
+        <div class="k">${d.label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
+        <div class="k">${d.label} share in ${yearLabel}</div><div>${percentDisplay}</div>
       </div>
     `;
+    return {
+      html,
+      meta: {
+        code,
+        label: d.label,
+        color,
+        year: yearLabel
+      }
+    };
   }
 
   function renderChart() {
@@ -279,6 +319,13 @@
 
     g.append('circle')
       .attr('class', 'map-mask-stroke')
+      .attr('r', innerRadius)
+      .attr('cx', 0)
+      .attr('cy', 0);
+
+    // Gap ring: thin dark border between the map and the waffle slices
+    g.append('circle')
+      .attr('class', 'map-gap-ring')
       .attr('r', innerRadius)
       .attr('cx', 0)
       .attr('cy', 0);
@@ -325,14 +372,15 @@
       .on('mousemove', function(event, d) {
         if (panelPinned) return;
         connectorStart = { x: event.clientX, y: event.clientY };
-        showPanel(createTooltipHTML(d), event.clientX, event.clientY);
-        updateConnector();
+        const { html, meta } = createTooltipData(d);
+        showPanel(html, event.clientX, event.clientY, false, meta);
       })
       .on('mouseover', function(event, d) {
         const key = `${d.year}__${d.label}`;
         d3.selectAll(`[data-key="${key}"]`).classed('is-hover', true);
         if (!panelPinned) {
-          showPanel(createTooltipHTML(d), event.clientX, event.clientY);
+          const { html, meta } = createTooltipData(d);
+          showPanel(html, event.clientX, event.clientY, false, meta);
         }
       })
       .on('mouseout', function(event, d) {
@@ -343,6 +391,10 @@
         }
       })
       .on('click', function(_event, d) {
+        if (cellIsolated) {
+          closePanel();
+          isolationReset++;
+        }
         commitYear(d.year);
       });
 
@@ -406,12 +458,31 @@
       .attr('class', d => `year-bracket year-bracket-${d}`)
       .attr('pointer-events', 'none');
 
-    yearAxis.selectAll('circle.year-drag-handle')
+    yearAxis.selectAll('g.year-drag-handle')
       .data([null])
-      .join('circle')
-      .attr('class', 'year-drag-handle')
-      .attr('r', 32)
-      .on('pointerdown', startYearDrag);
+      .join(enter => {
+        const g = enter.append('g')
+          .attr('class', 'year-drag-handle')
+          .on('pointerdown', startYearDrag);
+
+        g.append('circle')
+          .attr('class', 'year-handle-outer')
+          .attr('r', 200);
+
+        g.append('circle')
+          .attr('class', 'year-handle-inner')
+          .attr('r', 140);
+
+        g.append('path')
+          .attr('class', 'year-handle-chevron left')
+          .attr('d', 'M -42 -58 L -92 0 L -42 58');
+
+        g.append('path')
+          .attr('class', 'year-handle-chevron right')
+          .attr('d', 'M 42 -58 L 92 0 L 42 58');
+
+        return g;
+      });
 
     updateYearHighlight();
   }
@@ -507,19 +578,38 @@
       .endAngle(endAngle);
 
     const a = yearAngles.get(displayYear);
-    const hx = Math.cos(a) * (radius + 120);
-    const hy = Math.sin(a) * (radius + 120);
+    const handleOffset = radius + 340; // extra padding from chart edge for large handle
+    const hx = Math.cos(a) * handleOffset;
+    const hy = Math.sin(a) * handleOffset;
+    const tangentDeg = (a * 180) / Math.PI + 90; // rotate so chevrons run along the circle edge
 
     const svg = d3.select(svgElement);
+
+    // Reposition labels: selected gets shifted outward by half the extra font height
+    // so the inner edge of all labels stays flush with the same imaginary circle.
+    // The extra outward push (in SVG units) compensates for the larger CSS font size.
+    const selectedOutwardShift = 20; // SVG units ≈ half the size difference (65px vs 52px) scaled to viewBox
+    const labelRadius = radius + 50;
     svg.selectAll('.year-label')
-      .classed('selected', d => d === displayYear);
+      .classed('selected', d => d === displayYear)
+      .each(function(yr) {
+        const ang = yearAngles.get(yr);
+        if (ang == null) return;
+        const isSelected = yr === displayYear;
+        const r = isSelected ? labelRadius + selectedOutwardShift : labelRadius;
+        const lx = Math.cos(ang) * r;
+        const ly = Math.sin(ang) * r;
+        const rot = (ang * 180) / Math.PI + 90;
+        const flipY = Math.cos(ang) > 0 ? 1 : -1;
+        const isTop = Math.cos(ang) > 0;
+        d3.select(this).attr('transform', `translate(${lx},${ly}) rotate(${rot}) scale(${flipY}, ${isTop ? 1 : -1})`);
+      });
 
     svg.select('.year-bracket-inner').attr('d', innerBracket());
     svg.select('.year-bracket-outer').attr('d', outerBracket());
 
     svg.select('.year-drag-handle')
-      .attr('cx', hx)
-      .attr('cy', hy);
+      .attr('transform', `translate(${hx}, ${hy}) rotate(${tangentDeg})`);
   }
 
   function startYearDrag(event) {
@@ -608,7 +698,7 @@
     }
   });
 
-  // Sync mapScale/rotation to MapCanvas (map only; bars stay static)
+  // Sync mapScale/rotation to MapCanvas (map only; bars stay static).
   $effect(() => {
     mapScale;
     mapRotation;
@@ -633,24 +723,16 @@
     const x = mapTooltipX;
     const y = mapTooltipY;
     const pinned = mapTooltipPinned;
+    const meta = mapTooltipMeta;
 
     untrack(() => {
       if (panelPinned && !pinned) { closePanel(); return; } // map tooltip cleared — close panel
       if (vis || pinned) {
-        showPanel(content, x, y, pinned);
-        updateConnector();
+        showPanel(content, x, y, pinned, meta ?? null);
       } else {
         if (!panelPinned) showPanel('');
       }
     });
-  });
-
-  // Recompute connector endpoint when panel renders or connector start changes
-  $effect(() => {
-    panelVisible;
-    infoPanelEl;
-    connectorStart;
-    untrack(updateConnector);
   });
 
   // Close panel when parent signals a reset
@@ -662,7 +744,7 @@
   });
 </script>
 
-<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} class:panning class:in-circle={hoverInCircle}>
+<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} onwheel={handleWheel} class:panning class:in-circle={hoverInCircle}>
   <MapCanvas
     width={containerWidth}
     height={containerHeight}
@@ -685,9 +767,11 @@
     bind:tooltipX={mapTooltipX}
     bind:tooltipY={mapTooltipY}
     bind:tooltipContent={mapTooltipContent}
+    bind:tooltipMeta={mapTooltipMeta}
     bind:tooltipPinned={mapTooltipPinned}
     bind:showBarChart
     bind:barChartData
+    bind:cellIsolated
     isolationReset={isolationReset}
   />
 
@@ -857,6 +941,7 @@
 
   :global(.year-axis text.selected) {
     fill: var(--accent);
+    font-size: 65px;
   }
 
   :global(.year-bracket) {
@@ -865,15 +950,52 @@
   }
 
   :global(.year-drag-handle) {
-    fill: #ffffff;
-    stroke: #0e0b16;
-    stroke-width: 3px;
     cursor: grab;
     pointer-events: all;
+    filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+    transition: transform 0.15s ease;
   }
 
   :global(.year-drag-handle:active) {
     cursor: grabbing;
+  }
+
+  :global(.year-handle-outer) {
+    fill: var(--bg, #0e0b16);
+    stroke: rgba(255, 255, 255, 0.9);
+    stroke-width: 10px;
+  }
+
+  :global(.year-handle-inner) {
+    fill: rgba(255, 255, 255, 0.08);
+    stroke: rgba(255, 255, 255, 0.85);
+    stroke-width: 8px;
+    transition: fill 0.18s ease, stroke 0.18s ease;
+  }
+
+  :global(.year-handle-chevron) {
+    stroke: rgba(255, 255, 255, 0.95);
+    stroke-width: 13px;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 0.18s ease;
+  }
+
+  :global(.year-drag-handle:hover .year-handle-inner),
+  :global(.year-drag-handle:active .year-handle-inner) {
+    fill: #ffffff;
+    stroke: #ffffff;
+  }
+
+  :global(.year-drag-handle:hover .year-handle-outer),
+  :global(.year-drag-handle:active .year-handle-outer) {
+    stroke: #ffffff;
+  }
+
+  :global(.year-drag-handle:hover .year-handle-chevron),
+  :global(.year-drag-handle:active .year-handle-chevron) {
+    stroke: var(--bg, #0e0b16);
   }
 
   :global(.map-mask-stroke) {
@@ -881,6 +1003,13 @@
     stroke: #ffffff;
     stroke-opacity: 0.3;
     stroke-width: 1.5;
+  }
+
+  :global(.map-gap-ring) {
+    fill: none;
+    stroke: #0e0b16;
+    stroke-width: 24;
+    pointer-events: none;
   }
 
   .debug-panel {

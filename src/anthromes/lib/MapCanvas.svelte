@@ -33,9 +33,11 @@
     tooltipX = $bindable(0),
     tooltipY = $bindable(0),
     tooltipContent = $bindable(''),
+    tooltipMeta = $bindable(null),
     tooltipPinned = $bindable(false),
     showBarChart = $bindable(false),
     barChartData = $bindable(null),
+    cellIsolated = $bindable(false),
     isolationReset = 0,
   } = $props();
 
@@ -667,7 +669,10 @@
 
     if (tooltipPinned && e.type === 'pointermove') return;
     if (!projection || !currentGeo) {
-      if (!tooltipPinned) tooltipVisible = false;
+      if (!tooltipPinned) {
+        tooltipVisible = false;
+        tooltipMeta = null;
+      }
       return;
     }
     const rect = canvasEl.getBoundingClientRect();
@@ -685,6 +690,7 @@
       hoveredFeature = null;
       drawOverlay();
       tooltipVisible = false;
+      tooltipMeta = null;
       return;
     }
 
@@ -695,6 +701,7 @@
         hoveredFeature = null;
         drawOverlay();
         tooltipVisible = false;
+        tooltipMeta = null;
         return;
       }
     }
@@ -733,6 +740,7 @@
       tooltipY = e.clientY;
     }
 
+    tooltipMeta = { color, label, year: yearLabel, code };
     tooltipContent = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
@@ -743,9 +751,8 @@
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
       <div class="kv">
-        <div class="k">Area</div><div>${Math.round(areaKm2).toLocaleString()} km²</div>
-        <div class="k">Total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
-        <div class="k">Anthrome code</div><div>${code}</div>
+        <div class="k">${label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
+        <div class="k">${label} share in ${yearLabel}</div><div>${percentDisplay}</div>
         ${countryISO3 ? `<div class="k">Present Day Country</div><div>${crosswalk?.country || countryISO3}</div>` : ''}
         ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
         ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
@@ -764,6 +771,7 @@
   function handlePointerLeave() {
     if (!tooltipPinned) {
       tooltipVisible = false;
+      tooltipMeta = null;
       hoveredFeature = null;
       drawOverlay();
     }
@@ -939,10 +947,12 @@
   function clearAll() {
     isolatedCellId = null;
     isolatedFeature = null;
+    cellIsolated = false;
     showBarChart = false;
     barChartData = null;
     tooltipPinned = false;
     tooltipVisible = false;
+    tooltipMeta = null;
     drawOverlay();
   }
 
@@ -1001,6 +1011,7 @@
     // Otherwise, pin the tooltip and isolate this cell
     if (cellId != null) {
       isolatedCellId = cellId;
+      cellIsolated = true;
       isolatedFeature = feature;
       drawOverlay();
       tooltipPinned = true;

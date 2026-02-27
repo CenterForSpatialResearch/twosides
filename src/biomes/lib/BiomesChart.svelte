@@ -22,7 +22,7 @@
   let {
     taxonomyTree = null,
     selectedPhyla = $bindable([]),
-    unknownFilter = $bindable(false),
+    unknownFilter = $bindable('all'), // 'all' | 'unknown' | 'known'
     westernFilter = $bindable('any'),
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
@@ -43,7 +43,6 @@
   // Internal state (handles doesn't need to be reactive)
   let handles = { root: null, selections: {} };
   let selectedLeafId = $state(null);
-  let highlightedLeaf = $state(null);
   let maxGenomeCount = $state(1);
   let tickDenom = $state(1);
 
@@ -66,7 +65,6 @@
   const zoomLevels = [1, 2, 7];
   const edgeMarginPx = 12;
   const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
-  const proxyFilters = ['Proxy', 'Study', 'Site'];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
@@ -86,6 +84,7 @@
   let studySgbMap = {};
   let proxyLoaded = false;
   let studyLoaded = false;
+  let cachedLeaves = null;
 
   function closePanel() {
     panelVisible = false;
@@ -101,7 +100,7 @@
     panelContent = html;
     panelVisible = !!html;
     if (panelVisible) {
-      dispatch('detail', { content: html });
+      dispatch('detail', { content: html, point: connectorStart });
     } else {
       dispatch('detail-close');
     }
@@ -266,6 +265,7 @@
     handles.root = root;
 
     const leaves = root.leaves();
+    cachedLeaves = leaves;
     leaves.forEach((d, i) => d.leafId = i);
 
     // Calculate metrics
@@ -620,9 +620,8 @@
         <div class="k">Geography</div><div>${safe(geo)}</div>
       </div>
 
-      ${leaf ? `<div class="actions">
-        <button data-act="highlight">Highlight this species</button>
-        ${meta?.SGB_ID ? `<button data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</button>` : ''}
+      ${leaf && meta?.SGB_ID ? `<div class="actions">
+        <button data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</button>
       </div>` : ''}
     `;
   }
@@ -707,7 +706,6 @@
   }
 
   function clearHighlight() {
-    highlightedLeaf = null;
     highlightedSGBs = new Set();
     crossHighlightActive = false;
     const svg = d3.select(svgElement);
@@ -718,54 +716,16 @@
       .style('pointer-events', null);
   }
 
-  function highlightLeaf(d) {
-    highlightedLeaf = d;
-    const keep = new Set(d.ancestors());
-    keep.add(d);
-
-    const svg = d3.select(svgElement);
-    const g = svg.select('g.zoom-container');
-    g.classed('isolated', true);
-    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
-      .attr('opacity', datum => {
-        const nd = datum?.target ? datum.target : datum;
-        return keep.has(nd) ? 1 : DIM_OPACITY;
-      })
-      .style('pointer-events', datum => {
-        const nd = datum?.target ? datum.target : datum;
-        return keep.has(nd) ? null : 'none';
-      });
-  }
-
-  function highlightMultipleLeaves(leaves) {
-    const keep = new Set();
-    leaves.forEach(leaf => {
-      leaf.ancestors().forEach(a => keep.add(a));
-      keep.add(leaf);
-    });
-
-    const svg = d3.select(svgElement);
-    const g = svg.select('g.zoom-container');
-    g.classed('isolated', true);
-    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
-      .attr('opacity', datum => {
-        const nd = datum?.target ? datum.target : datum;
-        return keep.has(nd) ? 1 : DIM_OPACITY;
-      })
-      .style('pointer-events', datum => {
-        const nd = datum?.target ? datum.target : datum;
-        return keep.has(nd) ? null : 'none';
-      });
-  }
-
   // Filtering logic
   function leafMatchesFilters(leaf) {
     if (selectedPhyla.length > 0) {
       const ph = getPhylum(leaf);
       if (!selectedPhyla.includes(ph)) return false;
     }
-    if (unknownFilter) {
+    if (unknownFilter === 'unknown') {
       if (parseUSGB(leaf.data.metadata) !== 'Yes') return false;
+    } else if (unknownFilter === 'known') {
+      if (parseUSGB(leaf.data.metadata) !== 'No') return false;
     }
     if (westernFilter === 'western') {
       if (!isWesternYes(leaf.data.metadata)) return false;
@@ -798,13 +758,15 @@
   function computeKeepSet(root) {
     const anyActive =
       selectedPhyla.length > 0 ||
-      unknownFilter ||
+      unknownFilter !== 'all' ||
       westernFilter !== 'any' ||
       bodySiteFilter.size > 0 ||
-      !!proxyKey;
+      !!proxyKey ||
+      !!studyKey;
     if (!anyActive) return null;
 
-    const matchedLeaves = root.leaves().filter(leafMatchesFilters);
+    const leaves = cachedLeaves || root.leaves();
+    const matchedLeaves = leaves.filter(leafMatchesFilters);
     const keep = new Set();
     matchedLeaves.forEach(l => {
       l.ancestors().forEach(a => keep.add(a));
@@ -816,41 +778,47 @@
   let filterRaf = null;
 
   function applyFiltersNow() {
-    const { root, selections } = handles;
-    if (!root) return;
+    try {
+      const { root, selections } = handles;
+      if (!root) {
+        return;
+      }
 
-    const keep = computeKeepSet(root);
+      const keep = computeKeepSet(root);
 
-    function styleDim(sel, isKept, isLabel = false) {
-      return sel
-        .attr('opacity', d => isKept(d) ? 1 : (isLabel ? DIM_LABEL_OPACITY : DIM_OPACITY))
-        .style('pointer-events', d => isKept(d) ? null : 'none');
+      function styleDim(sel, isKept, isLabel = false) {
+        return sel
+          .attr('opacity', d => isKept(d) ? 1 : (isLabel ? DIM_LABEL_OPACITY : DIM_OPACITY))
+          .style('pointer-events', d => isKept(d) ? null : 'none');
+      }
+
+      const svg = d3.select(svgElement);
+      const g = svg.select('g.zoom-container');
+
+      if (keep === null) {
+        g.classed('isolated', false);
+        Object.values(selections).forEach(sel => {
+          if (sel) {
+            sel.attr('opacity', null).style('pointer-events', null);
+          }
+        });
+        return;
+      }
+
+      g.classed('isolated', true);
+      styleDim(selections.nodes, d => keep.has(d));
+      styleDim(selections.internals, d => keep.has(d), true);
+      styleDim(selections.links, d => keep.has(d.target));
+      styleDim(selections.linkHits, d => keep.has(d.target));
+      styleDim(selections.bars, d => keep.has(d));
+      styleDim(selections.sgbLines, d => keep.has(d));
+      styleDim(selections.usgb, d => keep.has(d));
+      styleDim(selections.west, d => keep.has(d));
+      styleDim(selections.regions, d => keep.has(d));
+      styleDim(selections.labels, d => keep.has(d), true);
+    } catch (err) {
+      console.error('Failed to apply filters', err);
     }
-
-    const svg = d3.select(svgElement);
-    const g = svg.select('g.zoom-container');
-
-    if (keep === null) {
-      g.classed('isolated', false);
-      Object.values(selections).forEach(sel => {
-        if (sel) {
-          sel.attr('opacity', null).style('pointer-events', null);
-        }
-      });
-      return;
-    }
-
-    g.classed('isolated', true);
-    styleDim(selections.nodes, d => keep.has(d));
-    styleDim(selections.internals, d => keep.has(d), true);
-    styleDim(selections.links, d => keep.has(d.target));
-    styleDim(selections.linkHits, d => keep.has(d.target));
-    styleDim(selections.bars, d => keep.has(d));
-    styleDim(selections.sgbLines, d => keep.has(d));
-    styleDim(selections.usgb, d => keep.has(d));
-    styleDim(selections.west, d => keep.has(d));
-    styleDim(selections.regions, d => keep.has(d));
-    styleDim(selections.labels, d => keep.has(d), true);
   }
 
   function scheduleFilters() {
@@ -859,26 +827,16 @@
       filterRaf = null;
       applyFiltersNow();
     };
-    if (typeof requestIdleCallback === 'function') {
-      filterRaf = requestIdleCallback(cb, { timeout: 50 });
-    } else {
-      filterRaf = requestAnimationFrame(cb);
-    }
+    filterRaf = requestAnimationFrame(cb);
   }
 
   // Handle tooltip actions
-  function handleTooltipAction(event) {
+  export function handleTooltipAction(event) {
     const btn = event.target.closest('button');
     if (!btn) return;
 
     const act = btn.getAttribute('data-act');
-    if (act === 'highlight' && currentTooltipDatum) {
-      highlightLeaf(currentTooltipDatum);
-      btn.textContent = 'Highlighted';
-      setTimeout(() => {
-        btn.textContent = 'Highlight this species';
-      }, 1200);
-    } else if (act === 'highlight-countries') {
+    if (act === 'highlight-countries') {
       const sgbId = parseInt(btn.getAttribute('data-sgb'), 10);
       if (sgbId) {
         const base = import.meta.env.BASE_URL;

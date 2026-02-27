@@ -1,69 +1,57 @@
 [
   {
+    "title": "Parque Indígena do Xingu",
+    "lat": -11.243954,
+    "lon": -53.242386,
+    "description": "Indigenous territory in the Amazon, endangered by livestock farming"
+  },
+  {
+    "title": "New Delhi, India",
+    "lat": 28.613823,
+    "lon": 77.207404,
+    "description": "Dense colonial center, informal and agrarian outskirts out to the Himalayas"
+  },
+  {
+    "title": "Nairobi, Kenya",
+    "lat": -1.293991,
+    "lon": 36.823125,
+    "description": "Colonial-era city of varied density, spotted with protected national parks"
+  },
+  {
     "title": "Manhattan, New York",
     "lat": 40.7580,
     "lon": -73.9855,
     "description": "Rapid urbanization in the 19th-20th century"
   },
   {
-    "title": "Amazon Rainforest, Brazil",
-    "lat": -3.4653,
-    "lon": -62.2159,
-    "description": "Deforestation and agricultural expansion since 1970s"
+    "title": "Nile Delta, Egypt",
+    "lat": 31.0409,
+    "lon": 31.3785,
+    "description": "Early site of irrigated agriculture"
   },
   {
-    "title": "Ganges Delta, Bangladesh",
-    "lat": 23.6850,
-    "lon": 90.3563,
-    "description": "Dense rice agriculture and population"
+    "title": "Brasília, Brazil",
+    "lat": -15.795587,
+    "lon": -47.878337,
+    "description": "Monumental planned city"
   },
   {
-    "title": "Sahel Region, Niger",
-    "lat": 13.5116,
-    "lon": 2.1254,
-    "description": "Desertification and land degradation"
-  },
-  {
-    "title": "Pearl River Delta, China",
-    "lat": 23.1291,
-    "lon": 113.2644,
-    "description": "Rapid industrialization and megacity growth"
-  },
-  {
-    "title": "Central Valley, California",
-    "lat": 36.7783,
-    "lon": -119.4179,
-    "description": "Intensive irrigated agriculture"
-  },
-  {
-    "title": "Cerrado, Brazil",
-    "lat": -12.9704,
-    "lon": -47.9172,
-    "description": "Savanna to cropland expansion since 1980s"
+    "title": "Yuma County, Arizona",
+    "lat": 32.692381,
+    "lon": -114.056947,
+    "description": "Intensive rangelands, largest feedlot in the USA"
   },
   {
     "title": "Borneo Rainforest, Indonesia",
     "lat": 0.5897,
     "lon": 113.9213,
-    "description": "Palm oil plantations and logging"
+    "description": "Rapid deforestation from palm oil plantations and logging"
   },
   {
-    "title": "Great Plains, USA",
-    "lat": 39.8283,
-    "lon": -98.5795,
-    "description": "Agricultural intensification and cropland expansion"
-  },
-  {
-    "title": "Nile Delta, Egypt",
-    "lat": 31.0409,
-    "lon": 31.3785,
-    "description": "Ancient to modern irrigated agriculture"
-  },
-  {
-    "title": "Los Angeles Basin, California",
-    "lat": 34.0522,
-    "lon": -118.2437,
-    "description": "20th century urban sprawl"
+    "title": "Pearl River Delta, Guangdong",
+    "lat": 22.7964,
+    "lon": 113.5913,
+    "description": "Rapid urban expansion, dense manufacturing corridor"
   },
   {
     "title": "Dubai, UAE",
@@ -72,21 +60,15 @@
     "description": "Desert to urban transformation since 1990s"
   },
   {
-    "title": "São Paulo, Brazil",
-    "lat": -23.5505,
-    "lon": -46.6333,
-    "description": "Megacity expansion from coffee plantations"
+    "title": "Tokyo, Japan",
+    "lat": 35.681525,
+    "lon": 139.755552,
+    "description": "Sprawling megacity"
   },
   {
-    "title": "Punjab, India",
-    "lat": 30.9010,
-    "lon": 75.8573,
-    "description": "Green Revolution agricultural intensification"
-  },
-  {
-    "title": "Kalimantan, Indonesia",
-    "lat": -1.6815,
-    "lon": 113.3824,
-    "description": "Forest to plantation conversion"
+    "title": "Great Plains, USA",
+    "lat": 39.8283,
+    "lon": -98.5795,
+    "description": "Agricultural intensification and cropland expansion"
   }
 ]
