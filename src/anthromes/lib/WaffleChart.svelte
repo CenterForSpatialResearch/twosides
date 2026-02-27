@@ -465,21 +465,8 @@
           .attr('class', 'year-drag-handle')
           .on('pointerdown', startYearDrag);
 
-        g.append('circle')
-          .attr('class', 'year-handle-outer')
-          .attr('r', 200);
-
-        g.append('circle')
-          .attr('class', 'year-handle-inner')
-          .attr('r', 140);
-
         g.append('path')
-          .attr('class', 'year-handle-chevron left')
-          .attr('d', 'M -42 -58 L -92 0 L -42 58');
-
-        g.append('path')
-          .attr('class', 'year-handle-chevron right')
-          .attr('d', 'M 42 -58 L 92 0 L 42 58');
+          .attr('class', 'year-handle-arc');
 
         return g;
       });
@@ -577,11 +564,27 @@
       .startAngle(startAngle)
       .endAngle(endAngle);
 
-    const a = yearAngles.get(displayYear);
-    const handleOffset = radius + 340; // extra padding from chart edge for large handle
-    const hx = Math.cos(a) * handleOffset;
-    const hy = Math.sin(a) * handleOffset;
-    const tangentDeg = (a * 180) / Math.PI + 90; // rotate so chevrons run along the circle edge
+    // Handle: half-disc sitting on the outer edge of the year bracket.
+    // The outer bracket ends at radius + 22; HANDLE_OFFSET adds a small gap beyond it.
+    // ↓ adjust this value to slide the disc in/out
+    const HANDLE_OFFSET = 40; // SVG units beyond the ring edge (outer bracket = radius + 22)
+    const handleBaseR = radius + HANDLE_OFFSET;
+
+    // r_dome = semicircle radius whose diameter spans the year's chord at handleBaseR
+    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2);
+
+    // Base endpoints on the handle base circle
+    const px_s = Math.sin(startAngle) * handleBaseR;
+    const py_s = -Math.cos(startAngle) * handleBaseR;
+    const px_e = Math.sin(endAngle) * handleBaseR;
+    const py_e = -Math.cos(endAngle) * handleBaseR;
+
+    // Path: flat arc along handle base (CW) then semicircular dome back (CCW = outward)
+    // Open dome arc only — no flat base edge drawn.
+    // SVG still fills the enclosed region (maintaining hit area) but only strokes the curve.
+    const handlePath =
+      `M ${px_e} ${py_e}` +
+      ` A ${r_dome} ${r_dome} 0 1 0 ${px_s} ${py_s}`;
 
     const svg = d3.select(svgElement);
 
@@ -608,8 +611,8 @@
     svg.select('.year-bracket-inner').attr('d', innerBracket());
     svg.select('.year-bracket-outer').attr('d', outerBracket());
 
-    svg.select('.year-drag-handle')
-      .attr('transform', `translate(${hx}, ${hy}) rotate(${tangentDeg})`);
+    svg.select('.year-drag-handle').attr('transform', null);
+    svg.select('.year-handle-arc').attr('d', handlePath);
   }
 
   function startYearDrag(event) {
@@ -953,49 +956,22 @@
     cursor: grab;
     pointer-events: all;
     filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
-    transition: transform 0.15s ease;
   }
 
   :global(.year-drag-handle:active) {
     cursor: grabbing;
   }
 
-  :global(.year-handle-outer) {
-    fill: var(--bg, #0e0b16);
+  :global(.year-handle-arc) {
+    fill: rgba(0, 0, 0, 0.01); /* near-transparent but hittable */
     stroke: rgba(255, 255, 255, 0.9);
-    stroke-width: 10px;
-  }
-
-  :global(.year-handle-inner) {
-    fill: rgba(255, 255, 255, 0.08);
-    stroke: rgba(255, 255, 255, 0.85);
     stroke-width: 8px;
-    transition: fill 0.18s ease, stroke 0.18s ease;
+    transition: fill 0.18s ease;
   }
 
-  :global(.year-handle-chevron) {
-    stroke: rgba(255, 255, 255, 0.95);
-    stroke-width: 13px;
-    fill: none;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: stroke 0.18s ease;
-  }
-
-  :global(.year-drag-handle:hover .year-handle-inner),
-  :global(.year-drag-handle:active .year-handle-inner) {
-    fill: #ffffff;
-    stroke: #ffffff;
-  }
-
-  :global(.year-drag-handle:hover .year-handle-outer),
-  :global(.year-drag-handle:active .year-handle-outer) {
-    stroke: #ffffff;
-  }
-
-  :global(.year-drag-handle:hover .year-handle-chevron),
-  :global(.year-drag-handle:active .year-handle-chevron) {
-    stroke: var(--bg, #0e0b16);
+  :global(.year-drag-handle:hover .year-handle-arc),
+  :global(.year-drag-handle:active .year-handle-arc) {
+    fill: rgba(255, 255, 255, 0.15);
   }
 
   :global(.map-mask-stroke) {
