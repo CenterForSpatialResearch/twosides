@@ -956,14 +956,8 @@
     drawOverlay();
   }
 
-  function handleBackButton() {
-    const sgbId = new URLSearchParams(window.location.search).get('highlightSGB');
-    const base = import.meta.env.BASE_URL;
-    window.location.href = `${base}src/biomes/index.html${sgbId ? `?highlightSGB=${sgbId}` : ''}`;
-  }
 
   function handleGlobalClick(e) {
-    if (e.target.closest('.back-button')) return;
     if (
       e.target.closest('#info-panel') ||
       e.target.closest('.filter-rail')
@@ -1199,14 +1193,6 @@
 </script>
 
 <div class="map-layer" style={`width:${width}px;height:${height}px;`}>
-  {#if crossHighlightActive}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="back-button" onclick={handleBackButton}>
-      ← Back to Biomes
-    </div>
-  {/if}
-
   <canvas
     bind:this={canvasEl}
     aria-label="Anthromes map"
@@ -1310,25 +1296,5 @@
     color: #ff9ca1;
   }
 
-  .back-button {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    background: rgba(0, 0, 0, 0.65);
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    color: #e5e7eb;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    cursor: pointer;
-    pointer-events: auto;
-    user-select: none;
-    z-index: 10;
-  }
-
-  .back-button:hover {
-    background: rgba(0, 0, 0, 0.85);
-    border-color: rgba(255, 255, 255, 0.25);
-  }
 
 </style>

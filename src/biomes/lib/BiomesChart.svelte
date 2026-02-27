@@ -49,7 +49,6 @@
   // Cross-highlighting state
   let highlightedSGBs = $state(new Set());
   let crossHighlightActive = $state(false);
-  let showBackButton = $state(false);
 
   // Constants
   const fullSize = 6400;        // base SVG dimension for full view
@@ -845,26 +844,19 @@
     }
   }
 
-  function handleBackButton() {
-    const sgbsParam = new URLSearchParams(window.location.search).get('highlightSGBs');
-    const base = import.meta.env.BASE_URL;
-    window.location.href = `${base}src/anthromes/index.html${sgbsParam ? `?highlightSGBs=${sgbsParam}` : ''}`;
-  }
 
   // Handle window click (unpin, clear selection, clear highlight)
   function handleWindowClick(event) {
     const target = event.target;
-    if (target.closest('.back-button')) return;
-    if (target.closest('#info-panel') || target.closest('svg#chart') || target.closest('.zoom-controls') || target.closest('.filter-rail') || target.closest('.control-circles')) return;
+    if (target.closest('#info-panel') || target.closest('.zoom-controls') || target.closest('.filter-rail') || target.closest('.control-circles')) return;
 
     closePanel();
     clearSelected();
     clearHighlight();
 
     // Clear URL parameters and cross-highlighting state
-    if (crossHighlightActive || showBackButton) {
+    if (crossHighlightActive) {
       crossHighlightActive = false;
-      showBackButton = false;
       const url = new URL(window.location.href);
       url.searchParams.delete('highlightSGBs');
       url.searchParams.delete('highlightSGB');
@@ -973,7 +965,6 @@
     const highlightSGBParam = urlParams.get('highlightSGB');
 
     if (highlightSGBsParam || highlightSGBParam) {
-      showBackButton = true;
       crossHighlightActive = true;
 
       // Wait for taxonomy tree to load using polling
@@ -1047,14 +1038,6 @@
 </script>
 
 <div class="chart-container">
-  {#if crossHighlightActive}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="back-button" onclick={handleBackButton}>
-      ← Back to Anthromes
-    </div>
-  {/if}
-
   <div class="viz-area">
     <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
     </svg>
@@ -1506,23 +1489,4 @@
     white-space: nowrap;
   }
 
-  .back-button {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    background: rgba(14, 11, 22, 0.85);
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    color: #e5e7eb;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    cursor: pointer;
-    user-select: none;
-    z-index: 10;
-  }
-
-  .back-button:hover {
-    background: rgba(14, 11, 22, 0.95);
-    border-color: rgba(255, 255, 255, 0.25);
-  }
 </style>
