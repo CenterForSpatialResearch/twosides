@@ -7,8 +7,8 @@
   let { legend = {} } = $props();
 
   const FIXED_ZOOM  = 11;
-  const COLS        = 3;
   const GAP         = 10;   // px gap between grid cells
+  const MIN_DIAM_3COL = 180; // below this circle size, drop to 2 columns
   const INFO_H      = 56;   // px reserved below each circle for title + shift + desc
   const HEADER_H    = 100;  // px for the sort-by header area (includes intro + desc line)
 
@@ -17,6 +17,9 @@
   let panelW   = $state(0);
   let panelH   = $state(0);
   let sortBy   = $state('selected');
+
+  // Responsive columns: 3 on large screens, 2 when circles would be too small
+  let cols = $derived(panelW > 0 && (panelW - GAP * 2) / 3 >= MIN_DIAM_3COL ? 3 : 2);
   let rendering = $state(false);
   let zoomK    = $state(FIXED_ZOOM);
 
@@ -45,7 +48,7 @@
     if (w <= 0 || h <= 0) return null;
     const availH = h - HEADER_H;
     // With GAP between columns but not on edges:
-    const initDiam = (w - GAP * (COLS - 1)) / COLS;
+    const initDiam = (w - GAP * (cols - 1)) / cols;
     // Row height = circle + info + gap (last row has no trailing gap)
     // rows * (diam + INFO_H + GAP) - GAP = availH
     // → rowsFrac = (availH + GAP) / (initDiam + INFO_H + GAP)
@@ -53,7 +56,7 @@
     const rows = Math.max(1, Math.ceil(rowsFrac));
     // Solve for exact diam: rows*(diam + INFO_H + GAP) - GAP = availH
     const diam = (availH + GAP - rows * (INFO_H + GAP)) / rows;
-    return { diam: Math.max(20, diam), rows, total: COLS * rows };
+    return { diam: Math.max(20, diam), rows, total: cols * rows };
   }
 
   // ── Projection scale ──────────────────────────────────────────────────────
@@ -205,7 +208,7 @@
     gridEl.style.setProperty('--zp-diam', `${layout.diam}px`);
     gridEl.style.setProperty('--zp-info', `${INFO_H}px`);
     gridEl.style.setProperty('--zp-gap',  `${GAP}px`);
-    gridEl.style.setProperty('--zp-cols', `${COLS}`);
+    gridEl.style.setProperty('--zp-cols', `${cols}`);
 
     gridEl.innerHTML = '';
 
@@ -274,7 +277,7 @@
 <div class="zooms-panel" bind:this={panelEl}>
   <!-- Sort dropdown — centered at top -->
   <div class="zp-header">
-    <p class="zp-intro">Zooms of selected sites at higher resolution. Highlight cells to see the year that cell changed to its current anthrome.</p>
+    <p class="zp-intro">Views of selected sites at higher resolution. Highlight cells to see the year that cell changed to its current anthrome.</p>
     <div class="zp-sort">
       <label for="zp-sort-sel">Sort By</label>
       <div class="zp-sort-row">
@@ -326,7 +329,7 @@
 
   .zp-intro {
     margin: 0;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
     text-align: center;
     line-height: 1.4;
