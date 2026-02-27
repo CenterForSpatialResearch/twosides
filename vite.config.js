@@ -2,9 +2,12 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
 
+// Allow overriding the base path at build time (e.g., BASE_PATH=/twosides/ for repo pages).
+// Default to root '/' so custom domains (twosides.earth) serve assets correctly.
+const BASE_PATH = process.env.BASE_PATH || '/';
+
 export default defineConfig(({ mode }) => ({
-  // Use base '/' for dev server; '/twosides/' for production (GitHub Pages)
-  base: mode === 'production' ? '/twosides/' : '/',
+  base: mode === 'production' ? BASE_PATH : '/',
   plugins: [svelte()],
   build: {
     rollupOptions: {
