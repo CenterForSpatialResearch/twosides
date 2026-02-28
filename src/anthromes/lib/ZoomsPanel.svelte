@@ -278,19 +278,20 @@
   <!-- Sort dropdown — centered at top -->
   <div class="zp-header">
     <p class="zp-intro">Views of selected sites at higher resolution. Highlight cells to see the year that cell changed to its current anthrome.</p>
-    <div class="zp-sort">
-      <label for="zp-sort-sel">Sort By</label>
-      <div class="zp-sort-row">
+    <div class="zp-controls">
+      <label for="zp-sort-sel">Sort By:</label>
+      <select id="zp-sort-sel" bind:value={sortBy}>
+        <option value="selected">Selected sites</option>
+        <option value="intensive-1900">Largest Intensive Shifts since 1900</option>
+        <option value="cultured-1900">Largest Cultured Shifts since 1900</option>
+        <option value="intensive-2000">Largest Intensive Shifts since 2000</option>
+        <option value="cultured-2000">Largest Cultured Shifts since 2000</option>
+      </select>
+      <span class="zp-zoom-group">
+        <span class="zp-zoom-label">Zoom:</span>
         <button class="zp-zoom-btn" onclick={() => { flushSync(() => { rendering = true; }); setTimeout(() => { zoomK = Math.max(ZOOM_MIN, zoomK - ZOOM_STEP); }, 0); }} disabled={zoomK <= ZOOM_MIN}>−</button>
-        <select id="zp-sort-sel" bind:value={sortBy}>
-          <option value="selected">Selected sites</option>
-          <option value="intensive-1900">Largest Intensive Shifts since 1900</option>
-          <option value="cultured-1900">Largest Cultured Shifts since 1900</option>
-          <option value="intensive-2000">Largest Intensive Shifts since 2000</option>
-          <option value="cultured-2000">Largest Cultured Shifts since 2000</option>
-        </select>
         <button class="zp-zoom-btn" onclick={() => { flushSync(() => { rendering = true; }); setTimeout(() => { zoomK = Math.min(ZOOM_MAX, zoomK + ZOOM_STEP); }, 0); }} disabled={zoomK >= ZOOM_MAX}>+</button>
-      </div>
+      </span>
     </div>
   </div>
 
@@ -320,43 +321,36 @@
     height: 100px;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
+    justify-content: flex-start;
+    align-items: flex-start;
     gap: 6px;
     flex-shrink: 0;
-    padding: 0 8px;
   }
 
   .zp-intro {
-    margin: 0;
+    margin: 0 0 2px;
     font-size: 11px;
     color: var(--muted);
-    text-align: center;
     line-height: 1.4;
-    width: 75%;
   }
 
-  .zp-sort {
+  .zp-controls {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 3px;
+    gap: 6px;
+    flex-wrap: nowrap;
   }
 
-  .zp-sort label {
+  .zp-controls label {
     font-size: 10px;
     text-transform: uppercase;
     color: var(--muted);
     letter-spacing: 0.06em;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
-  .zp-sort-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .zp-sort select {
+  .zp-controls select {
     padding: 4px 8px;
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -364,17 +358,34 @@
     color: var(--fg);
     font-size: 11px;
     cursor: pointer;
-    max-width: 220px;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
-  .zp-sort select option {
+  .zp-controls select option {
     background: #1a1625;
     color: var(--fg);
   }
 
-  .zp-sort select:focus {
+  .zp-controls select:focus {
     outline: none;
     border-color: var(--accent);
+  }
+
+  .zp-zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    margin-left: 8px;
+  }
+
+  .zp-zoom-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    white-space: nowrap;
   }
 
   .zp-zoom-btn {

@@ -5,6 +5,15 @@
   import ZoomsPanel from './lib/ZoomsPanel.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
+  const LEGEND_CATEGORIES = [
+    { name: 'Dense Settlements', codes: [11, 12] },
+    { name: 'Villages',          codes: [21, 22, 23, 24] },
+    { name: 'Croplands',         codes: [31, 32, 33, 34] },
+    { name: 'Rangelands',        codes: [41, 42, 43] },
+    { name: 'Cultured',          codes: [51, 52, 53, 54] },
+    { name: 'Wildlands',         codes: [61, 62, 63] },
+  ];
+
   // State
   let loading = $state(true);
   let error = $state(null);
@@ -383,25 +392,36 @@
             {#if openPanel === 'info'}
               <div class="info-body">
                 <p><strong><u>More than 65% of terrestrial nature</u></strong> has been shaped, in very different ways, by people.</p>
-                <p><strong>Anthromes</strong> are defined as the ecological patterns shaped by human habitation.</p>
+                <p><strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
                 <p>Visualized here is the <strong>Anthromes Dataset</strong>. It is a "hindcast," a model built from global population and land use data showing change over <u>12,025 years</u>.</p>
                 <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong></p>
                 <p><u>Preserving "cultured" and "wild" lands</u> is key to preserving biodiversity.</p>
 
-                <div class="info-swatches" aria-label="Anthrome color swatches">
-                  {#each orderedCodes as code}
-                    <div class="swatch-pill">
-                      <span class="swatch-pill__color" style={`background: ${colorMapping[code]}`}></span>
-                      <span class="swatch-pill__label">{labelMapping[code]}</span>
+                <div class="legend-section">
+                  <div class="legend-category-name">Legend</div>
+                  <div class="legend-body">
+                    <div class="legend-axis" aria-hidden="true">
+                      <span class="legend-axis-label">more intensive anthromes</span>
                     </div>
-                  {/each}
+                    <div class="info-swatches" aria-label="Anthrome color swatches">
+                      {#each LEGEND_CATEGORIES as category}
+                        <div class="legend-category-name">{category.name}</div>
+                        {#each category.codes as code}
+                          <div class="swatch-pill">
+                            <span class="swatch-pill__color" style={`background: ${colorMapping[code]}`}></span>
+                            <span class="swatch-pill__label">{labelMapping[code]}</span>
+                          </div>
+                        {/each}
+                      {/each}
+                    </div>
+                  </div>
                 </div>
 
                 <div class="info-citations">
                   <div class="info-citations-title">Citations</div>
-                  <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
                   <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Diaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. "People have shaped most of terrestrial nature for at least 12,000 years." <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
                   <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
+                  <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
                 </div>
               </div>
               {#if showBarChart && barChartData?.length}
@@ -411,7 +431,10 @@
                 </div>
               {/if}
             {:else if openPanel === 'anthromes'}
-              <p class="overlay-desc">Select anthrome classes; click or drag to choose a range.</p>
+              <div class="overlay-desc">
+                <p>Select anthrome classes below to filter the visualization; click or drag to choose a range.</p>
+                <p>Anthromes are patterns of direct human interactions with ecosystems, also known as "human biomes."</p>
+              </div>
               <div class="overlay-actions">
                 <button class="btn" onclick={handleSelectAll}>Select All</button>
                 <button class="btn" onclick={handleClear}>Clear</button>
@@ -969,7 +992,7 @@
 
   /* Views panel uses the full middle row */
   .filter-overlay.views-open {
-    padding: 8px 10px;
+    padding: 12px 14px;
     height: 100%;
     max-height: 100%;
   }
@@ -979,7 +1002,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
   .overlay-title {
@@ -1100,10 +1123,18 @@
   }
 
   .overlay-desc {
-    margin: 6px 0 10px;
+    margin: 0 0 10px;
     font-size: 11px;
     color: var(--muted);
     line-height: 1.4;
+  }
+
+  .overlay-desc p {
+    margin: 0;
+  }
+
+  .overlay-desc p + p {
+    margin-top: 8px;
   }
 
   .info-body {
@@ -1122,11 +1153,90 @@
     padding-top: 6px;
   }
 
+  .legend-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .legend-body {
+    display: flex;
+    gap: 30px;
+    align-items: stretch;
+  }
+
+  /* Axis: vertical arrow + label spanning full legend height */
+  .legend-axis {
+    position: relative;
+    width: 16px;
+    flex-shrink: 0;
+  }
+
+  /* Line and arrowhead sit on the right edge of the axis column */
+  .legend-axis::before {
+    content: '';
+    position: absolute;
+    left: 20px;
+    top: 6px;
+    bottom: 0;
+    width: 1px;
+    background: rgba(255,255,255,0.3);
+  }
+
+  .legend-axis::after {
+    content: '';
+    position: absolute;
+    left: 20px;
+    top: 1px;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-bottom: 5px solid rgba(255,255,255,0.3);
+  }
+
+  /* Text spans only the top half so its center sits near Urban */
+  .legend-axis-label {
+    position: absolute;
+    top: 12px;
+    bottom: 50%;
+    left: 5px;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.35);
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+  }
+
   .info-swatches {
+    flex: 1;
+    min-width: 0;
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 8px;
-    margin-top: 4px;
+    gap: 4px 8px;
+  }
+
+  .legend-category-name {
+    grid-column: 1 / -1;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .legend-category-name:first-child {
+    margin-top: 0;
   }
 
   .swatch-pill {
