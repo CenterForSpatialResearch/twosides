@@ -138,6 +138,42 @@
     }
   }
 
+  // ── Phylum pills: tap isolates one, drag across selects a contiguous range ──
+  // (mirrors the anthromes filter key; pointer-based so it works on touch)
+  let phDragging = $state(false);
+  let phAnchor = $state(null);
+
+  function phIdxFromPoint(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const pill = el?.closest?.('.phylum-dot');
+    const idx = pill?.dataset?.idx;
+    return idx == null ? null : parseInt(idx, 10);
+  }
+  function selectPhylaRange(a, b) {
+    const s = Math.min(a, b), e = Math.max(a, b);
+    selectedPhyla = allPhyla.slice(s, e + 1);
+  }
+  function phPointerDown(e) {
+    const pill = e.target?.closest?.('.phylum-dot');
+    if (!pill || pill.dataset.idx == null) return;
+    e.preventDefault();
+    phDragging = true;
+    phAnchor = parseInt(pill.dataset.idx, 10);
+    selectPhylaRange(phAnchor, phAnchor);
+    window.addEventListener('pointermove', phPointerMove);
+    window.addEventListener('pointerup', phPointerUp, { once: true });
+  }
+  function phPointerMove(e) {
+    if (!phDragging || phAnchor == null) return;
+    const idx = phIdxFromPoint(e);
+    if (idx != null) selectPhylaRange(phAnchor, idx);
+  }
+  function phPointerUp() {
+    phDragging = false;
+    phAnchor = null;
+    window.removeEventListener('pointermove', phPointerMove);
+  }
+
   function toggleBodySite(site) {
     const next = new Set(selectedBodySites);
     next.has(site) ? next.delete(site) : next.add(site);
@@ -337,11 +373,9 @@
       <div class="rail">
         <!-- Top tier: largest control circles -->
         <div class="control-circles">
-          <button class="ctl-btn" title="Rotate left" aria-label="Rotate left" onclick={() => biomesChartRef?.rotateLeftControl?.()}>⟲</button>
           <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
           <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={() => biomesChartRef?.resetControl?.()}>◎</button>
           <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
-          <button class="ctl-btn" title="Rotate right" aria-label="Rotate right" onclick={() => biomesChartRef?.rotateRightControl?.()}>⟳</button>
           <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
         </div>
 
@@ -391,16 +425,17 @@
               <button class="mini-link" onclick={() => selectedPhyla = []}>Clear</button>
             </div>
           </div>
-          <div class="phylum-key">
-            {#each allPhyla as phylum}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="phylum-key" onpointerdown={phPointerDown}>
+            {#each allPhyla as phylum, i}
               {@const color = colorMapping[phylum] || colorMapping.Other}
               {@const textColor = pickTextColor(color)}
               <button
                 class="phylum-dot"
                 class:active={selectedPhyla.includes(phylum)}
                 class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
+                data-idx={i}
                 style="background:{color}; color:{textColor};"
-                onclick={() => togglePhylum(phylum)}
               >
                 <span>{phylum.replace(/_/g, ' ')}</span>
               </button>
@@ -838,6 +873,7 @@
     white-space: nowrap;
     box-sizing: border-box;
     user-select: none;
+    touch-action: none;
     opacity: 0.92;
     transition: opacity 0.15s ease;
   }
