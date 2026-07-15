@@ -370,27 +370,6 @@
       .attr('class', 'hit')
       .attr('d', arcHit)
       .attr('data-key', d => `${d.year}__${d.label}`)
-      .on('mousemove', function(event, d) {
-        if (panelPinned) return;
-        connectorStart = { x: event.clientX, y: event.clientY };
-        const { html, meta } = createTooltipData(d);
-        showPanel(html, event.clientX, event.clientY, false, meta);
-      })
-      .on('mouseover', function(event, d) {
-        const key = `${d.year}__${d.label}`;
-        d3.selectAll(`[data-key="${key}"]`).classed('is-hover', true);
-        if (!panelPinned) {
-          const { html, meta } = createTooltipData(d);
-          showPanel(html, event.clientX, event.clientY, false, meta);
-        }
-      })
-      .on('mouseout', function(event, d) {
-        const key = `${d.year}__${d.label}`;
-        d3.selectAll(`[data-key="${key}"]`).classed('is-hover', false);
-        if (!panelPinned) {
-          showPanel('');
-        }
-      })
       .on('click', function(_event, d) {
         if (cellIsolated) {
           closePanel();
@@ -572,8 +551,8 @@
     const handleBaseR = radius + HANDLE_OFFSET;
 
     // r_dome = semicircle radius whose diameter spans the year's chord at handleBaseR
-    // ↓ adjust this multiplier to resize the dome
-    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.075;
+    // ↓ adjust this multiplier to resize the dome (MoMA: enlarged for touch grab target)
+    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.6;
 
     // Base endpoints on the handle base circle
     const px_s = Math.sin(startAngle) * handleBaseR;
@@ -616,7 +595,7 @@
     svg.select('.year-drag-handle').attr('transform', null);
     svg.select('.year-handle-arc')
       .attr('d', handlePath)
-      .attr('stroke-width', 15); // SVG user units — matches year bracket thickness (radius+22 − radius+4)
+      .attr('stroke-width', 26); // SVG user units — MoMA: thicker for a bigger touch grab target
   }
 
   function startYearDrag(event) {
@@ -910,11 +889,6 @@
     pointer-events: all;
   }
 
-  :global(.segment.is-hover) {
-    opacity: 1;
-    filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
-  }
-
   :global(.segment.is-selected) {
     opacity: 1;
     filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5));
@@ -972,7 +946,6 @@
     transition: fill 0.18s ease;
   }
 
-  :global(.year-drag-handle:hover .year-handle-arc),
   :global(.year-drag-handle:active .year-handle-arc) {
     fill: rgba(255, 255, 255, 0.15);
   }
@@ -1066,11 +1039,6 @@
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .reset-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.35);
   }
 
 </style>

@@ -11,6 +11,7 @@
   const MIN_DIAM_3COL = 180; // below this circle size, drop to 2 columns
   const INFO_H      = 56;   // px reserved below each circle for title + shift + desc
   const HEADER_H    = 100;  // px for the sort-by header area (includes intro + desc line)
+  const MAX_VIEWS   = 3;    // MoMA: show only the first 3 views (selected sites / top computed)
 
   let panelEl  = $state(null);
   let gridEl   = $state(null);
@@ -195,17 +196,26 @@
     const layout = calcLayout(panelW, panelH);
     if (!layout || layout.diam <= 0) return;
 
+    // MoMA: cap to the first MAX_VIEWS and size the grid for just those rows,
+    // so the circles fill the panel instead of leaving empty trailing rows.
+    const count = Math.min(MAX_VIEWS, layout.total);
+    const rows  = Math.max(1, Math.ceil(count / cols));
+    const availH = panelH - HEADER_H;
+    const wDiam = (panelW - GAP * (cols - 1)) / cols;
+    const hDiam = (availH + GAP - rows * (INFO_H + GAP)) / rows;
+    const diam  = Math.max(20, Math.min(wDiam, hDiam));
+
     // Parallel data fetch
     const [geo, changeYears, locations] = await Promise.all([
       loadTopo(),
       loadChangeYears(),
-      loadLocations(sortBy, layout.total),
+      loadLocations(sortBy, count),
     ]);
 
     if (gen !== renderGen) { rendering = false; return; } // stale
 
     // Pass layout metrics as CSS vars so the grid uses them
-    gridEl.style.setProperty('--zp-diam', `${layout.diam}px`);
+    gridEl.style.setProperty('--zp-diam', `${diam}px`);
     gridEl.style.setProperty('--zp-info', `${INFO_H}px`);
     gridEl.style.setProperty('--zp-gap',  `${GAP}px`);
     gridEl.style.setProperty('--zp-cols', `${cols}`);
@@ -233,7 +243,7 @@
       wrapper.appendChild(info);
       gridEl.appendChild(wrapper);
 
-      renderCanvas(circle, loc, layout.diam, geo, changeYears);
+      renderCanvas(circle, loc, diam, geo, changeYears);
     }
 
     if (gen === renderGen) rendering = false;
@@ -404,10 +414,6 @@
     flex-shrink: 0;
     padding: 0;
     transition: border-color 0.15s, opacity 0.15s;
-  }
-
-  .zp-zoom-btn:hover:not(:disabled) {
-    border-color: var(--accent);
   }
 
   .zp-zoom-btn:disabled {

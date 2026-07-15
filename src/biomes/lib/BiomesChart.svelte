@@ -23,7 +23,6 @@
     taxonomyTree = null,
     selectedPhyla = $bindable([]),
     unknownFilter = $bindable('all'), // 'all' | 'unknown' | 'known'
-    westernFilter = $bindable('any'),
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
     studyKey = $bindable(null),
@@ -628,50 +627,19 @@
     `;
   }
 
-  // Attach tooltip handlers
+  // Attach tap handlers (touch build: no hover — tap selects, tap again clears)
   function attachTooltipHandlers(selection, accessor = (d) => d) {
     selection
       .classed('hover-target', true)
-      .on('mousemove', function (event, d) {
-        if (tooltipPinned) return;
-        const datum = accessor(d);
-        tooltipX = event.clientX;
-        tooltipY = event.clientY;
-        connectorStart = { x: event.clientX, y: event.clientY };
-        showPanel(createTooltipHTML(datum));
-        currentTooltipDatum = datum; // Track current datum
-        updateConnector();
-      })
-      .on('mouseover', function (event, d) {
-        d3.select(this).classed('is-hover', true);
-        const lid = this.getAttribute('data-leaf-id');
-        if (lid) toggleClassForLeaf(lid, 'is-hover', true);
-        if (!tooltipPinned) {
-          const datum = accessor(d);
-          showPanel(createTooltipHTML(datum));
-          currentTooltipDatum = datum; // Track current datum
-          connectorStart = { x: event.clientX, y: event.clientY };
-          updateConnector();
-        }
-      })
-      .on('mouseout', function () {
-        d3.select(this).classed('is-hover', false);
-        const lid = this.getAttribute('data-leaf-id');
-        if (lid) toggleClassForLeaf(lid, 'is-hover', false);
-        if (!tooltipPinned) {
-          showPanel('');
-          currentTooltipDatum = null; // Clear datum when hiding
-          connectorStart = null;
-          connectorEnd = null;
-        }
-      })
       .on('click', function (event, d) {
         const datum = accessor(d);
         const lid = this.getAttribute('data-leaf-id');
 
+        // Tap the already-selected mark again → clear selection + close panel
         if (tooltipPinned && currentTooltipDatum === datum) {
           tooltipPinned = false;
           clearSelected();
+          closePanel();
           event.stopPropagation();
           return;
         }
@@ -679,10 +647,9 @@
         tooltipPinned = true;
         tooltipX = event.clientX;
         tooltipY = event.clientY;
-        showPanel(createTooltipHTML(datum));
-        currentTooltipDatum = datum; // Track current datum
         connectorStart = { x: event.clientX, y: event.clientY };
-        updateConnector();
+        showPanel(createTooltipHTML(datum));
+        currentTooltipDatum = datum;
 
         if (lid) {
           clearSelected();
@@ -729,11 +696,6 @@
     } else if (unknownFilter === 'known') {
       if (parseUSGB(leaf.data.metadata) !== 'No') return false;
     }
-    if (westernFilter === 'western') {
-      if (!isWesternYes(leaf.data.metadata)) return false;
-    } else if (westernFilter === 'nonwestern') {
-      if (!isWesternNo(leaf.data.metadata)) return false;
-    }
     // Body site filter (best-effort; expects metadata.body_site)
     if (bodySiteFilter.size > 0) {
       const bs = (leaf.data?.metadata?.body_site || '').toLowerCase();
@@ -761,7 +723,6 @@
     const anyActive =
       selectedPhyla.length > 0 ||
       unknownFilter !== 'all' ||
-      westernFilter !== 'any' ||
       bodySiteFilter.size > 0 ||
       !!proxyKey ||
       !!studyKey;
@@ -851,7 +812,7 @@
   // Handle window click (unpin, clear selection, clear highlight)
   function handleWindowClick(event) {
     const target = event.target;
-    if (target.closest('#info-panel') || target.closest('.zoom-controls') || target.closest('.filter-rail') || target.closest('.control-circles')) return;
+    if (target.closest('#info-panel') || target.closest('.zoom-controls') || target.closest('.rail') || target.closest('.control-circles') || target.closest('.detail-modal') || target.closest('.info-modal')) return;
 
     closePanel();
     clearSelected();
@@ -894,7 +855,6 @@
     // Track dependencies
     selectedPhyla.length;
     unknownFilter;
-    westernFilter;
     bodySiteFilter.size;
     proxyKey;
     studyKey;
@@ -1092,143 +1052,6 @@
     margin: 0 auto;
   }
 
-  .circle-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .circle-btn.active {
-    background: var(--accent, rgba(255, 255, 255, 0.2));
-    border-color: var(--accent, rgba(255, 255, 255, 0.35));
-  }
-
-  .preset-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-  }
-
-  .chip {
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    padding: 6px 10px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease;
-  }
-
-  .chip:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.28);
-  }
-
-
-  .filter-stack {
-    position: absolute;
-    top: 72px;
-    right: 16px;
-    width: 28vw;
-    max-width: 340px;
-    min-width: 220px;
-    max-height: 72vh;
-    background: rgba(14, 11, 22, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 14px;
-    padding: 10px 12px;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
-    box-shadow: var(--shadow);
-    z-index: 11;
-    overflow: auto;
-  }
-
-  .panel-toggle {
-    position: absolute;
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: rgba(14, 11, 22, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: var(--fg);
-    font-weight: 700;
-    cursor: pointer;
-    z-index: 1001;
-    box-shadow: var(--shadow);
-  }
-
-  .panel-toggle.fab {
-    right: 24px;
-    bottom: 120px; /* stack above existing filter circle */
-  }
-
-  .filter-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 10px;
-  }
-
-  .card-title {
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .pill-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: flex-start;
-  }
-
-  .pill-row.wrap {
-    flex-wrap: wrap;
-  }
-
-  .pill {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--fg);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 999px;
-    padding: 10px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    letter-spacing: 0.02em;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
-  }
-
-  .pill:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.28);
-    transform: translateY(-1px);
-  }
-
-  .pill.small {
-    padding: 6px 8px;
-    font-size: 11px;
-  }
-
-  .pill.active {
-    background: var(--accent, #8af);
-    color: var(--bg);
-    border-color: var(--accent, #8af);
-  }
-
-  .proxy-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 6px;
-    margin-top: 8px;
-  }
-
   :global(.region-path) {
     fill-opacity: 1;
     stroke: none;
@@ -1289,26 +1112,14 @@
     font-size: 10px;
   }
 
+  /* Touch build: no hover cursor, no hover-only states — selection is by tap */
   :global(.hover-target) {
-    cursor: crosshair;
+    cursor: pointer;
   }
 
-  :global(.is-hover.link),
   :global(.is-selected.link) {
     stroke-opacity: 1;
-  }
-
-  :global(.is-hover.link) {
-    stroke-width: 1.2;
-  }
-
-  :global(.is-selected.link) {
     stroke-width: 2;
-  }
-
-  :global(.is-hover.sgb-line) {
-    stroke-width: 1.2;
-    opacity: 1;
   }
 
   :global(.is-selected.sgb-line) {
@@ -1316,20 +1127,9 @@
     opacity: 1;
   }
 
-  :global(.is-hover .node circle),
-  :global(.node.is-hover circle) {
-    r: 4;
-  }
-
   :global(.node.is-selected circle) {
     r: 5;
     stroke-width: 1;
-  }
-
-  :global(.bar.is-hover),
-  :global(.usgb.is-hover),
-  :global(.western.is-hover) {
-    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.7));
   }
 
   :global(.bar.is-selected),
@@ -1338,28 +1138,7 @@
     filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.9));
   }
 
-  /* Biomes-specific tooltip styles */
-  .biomes-tooltip {
-    position: fixed;
-    left: 0;
-    top: 0;
-    pointer-events: auto;
-    z-index: 10;
-    background: var(--panel);
-    color: var(--fg);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    max-width: 380px;
-    min-width: 260px;
-    padding: 12px 14px;
-    line-height: 1.45;
-  }
-
-  .biomes-tooltip.hidden {
-    display: none;
-  }
-
+  /* Detail-panel content styles (createTooltipHTML output, rendered in App .panel-content) */
 :global(.biomes-tooltip .tip-header) {
   display: flex;
   align-items: flex-start;

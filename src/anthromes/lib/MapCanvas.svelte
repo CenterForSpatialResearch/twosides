@@ -1202,8 +1202,6 @@
   <canvas
     bind:this={canvasEl}
     aria-label="Anthromes map"
-    onpointermove={handlePointerMove}
-    onpointerleave={handlePointerLeave}
     onclick={handleCanvasClick}
   ></canvas>
 

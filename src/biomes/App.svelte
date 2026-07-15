@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import BiomesChart from './lib/BiomesChart.svelte';
-  import { prepareBiomesData, colorMapping, pickTextColor, getPhylum } from './lib/dataAdapter.js';
+  import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
 
   // State
@@ -13,7 +13,6 @@
   // UI State
   let selectedPhyla = $state([]);
   let unknownFilter = $state('all'); // 'all' | 'unknown' | 'known'
-  let westernFilter = $state('any');
   let viewSize = $state('full'); // 'full' or 'preview'
   let tension = $state(0.95);
   let settingsOpen = $state(false);
@@ -29,6 +28,34 @@
     { key: 'Castro-NallarE_2015', label: 'USA' }
   ];
   let studyKeys = $state(cohortOptions.map(c => c.key));
+
+  // MoMA: cohort diversity ranking
+  let rankMetric = $state('total'); // 'total' (distinct SGBs) | 'percapita' (SGBs per sample)
+  let cohortStats = $state({}); // key -> { sgbs, samples }
+
+  // Ranked + sized cohort bubbles for the active metric
+  const BUBBLE_MIN = 120;  // px diameter floor (finger-tappable)
+  const BUBBLE_MAX = 250;  // px diameter cap
+  let rankedCohorts = $derived.by(() => {
+    const scored = cohortOptions.map(c => {
+      const s = cohortStats[c.key] || {};
+      const total = s.sgbs || 0;
+      const percap = (s.sgbs && s.samples) ? s.sgbs / s.samples : 0;
+      return { ...c, total, percap, value: rankMetric === 'total' ? total : percap };
+    });
+    scored.sort((a, b) => b.value - a.value);
+    const maxV = Math.max(1, ...scored.map(d => d.value));
+    scored.forEach(d => {
+      const t = maxV > 0 ? Math.sqrt(d.value) / Math.sqrt(maxV) : 0; // area ∝ value
+      d.size = Math.round(BUBBLE_MIN + t * (BUBBLE_MAX - BUBBLE_MIN));
+    });
+    return scored;
+  });
+
+  // MoMA: known / unknown percentages (computed from leaves on mount)
+  let knownPct = $state(0);
+  let unknownPct = $state(0);
+
   // Panel state
   let infoOpen = $state(false);
 
@@ -58,11 +85,26 @@
         .sort((a, b) => b[1] - a[1])
         .map(([phylum]) => phylum);
 
-      // Load study keys from study_index
+      // Known / Unknown percentages (uSGB === 'Yes' means unknown)
+      let known = 0, unknown = 0;
+      for (const l of leaves) {
+        if (parseUSGB(l.data.metadata) === 'Yes') unknown++; else known++;
+      }
+      const totalLeaves = (known + unknown) || 1;
+      knownPct = Math.round((known / totalLeaves) * 100);
+      unknownPct = Math.round((unknown / totalLeaves) * 100);
+
+      // Cohort diversity stats (distinct SGBs + sample size) for the curated cohorts
       try {
-        const studyRes = await fetch('/data/study_index.json');
+        const studyRes = await fetch(`${import.meta.env.BASE_URL}data/study_index.json`);
         if (studyRes.ok) {
-          await studyRes.json(); // already have curated cohorts; nothing else required
+          const sj = await studyRes.json();
+          const stats = {};
+          for (const c of cohortOptions) {
+            const r = sj[c.key];
+            if (r) stats[c.key] = { sgbs: (r.sgbs || []).length, samples: r.samples_total ?? 0 };
+          }
+          cohortStats = stats;
         }
       } catch (e) {
         console.warn('Failed to load study index', e);
@@ -85,7 +127,6 @@
   function handleClear() {
     selectedPhyla = [];
     unknownFilter = 'all';
-    westernFilter = 'any';
   }
 
   // Handle phylum chip toggle
@@ -121,7 +162,13 @@
   // Handle click outside to close panel
   function handleWindowClick(e) {
     const target = e.target;
-    if (target.closest('.filter-rail') || target.closest('#settings') || target.closest('#menuToggle')) {
+    // Never close things when interacting inside the modals
+    if (target.closest('.detail-modal') || target.closest('.info-modal')) {
+      return;
+    }
+    // Rail interactions (filters/controls) keep the detail panel open
+    if (target.closest('.rail') || target.closest('#settings') || target.closest('#menuToggle')) {
+      openPanel = null;
       return;
     }
     openPanel = null;
@@ -140,18 +187,6 @@
     if (openPanel && detailContent) {
       detailContent = null;
       detailPoint = null;
-    }
-  });
-
-  $effect(() => {
-    if (detailPanelEl && detailPoint) {
-      const rect = detailPanelEl.getBoundingClientRect();
-      detailPanelAnchor = {
-        x: rect.left + 2,
-        y: rect.top + rect.height / 2
-      };
-    } else {
-      detailPanelAnchor = null;
     }
   });
 
@@ -288,7 +323,6 @@
           {taxonomyTree}
           bind:selectedPhyla
           bind:unknownFilter
-          bind:westernFilter
           size={viewSize}
           {tension}
           bodySiteFilter={selectedBodySites}
@@ -300,192 +334,120 @@
         />
       </div>
 
-      <div class="filter-rail" bind:this={filterRailEl}>
+      <div class="rail">
+        <!-- Top tier: largest control circles -->
         <div class="control-circles">
-          <button class="circle-btn" title="Info" onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-          <button class="circle-btn" title="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
-          <button class="circle-btn" title="Reset" onclick={() => biomesChartRef?.resetControl?.()}>◎</button>
-          <button class="circle-btn" title="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
-          <button class="circle-btn" title="Rotate left" onclick={() => biomesChartRef?.rotateLeftControl?.()}>⟲</button>
-          <button class="circle-btn" title="Rotate right" onclick={() => biomesChartRef?.rotateRightControl?.()}>⟳</button>
+          <button class="ctl-btn" title="Rotate left" aria-label="Rotate left" onclick={() => biomesChartRef?.rotateLeftControl?.()}>⟲</button>
+          <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
+          <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={() => biomesChartRef?.resetControl?.()}>◎</button>
+          <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
+          <button class="ctl-btn" title="Rotate right" aria-label="Rotate right" onclick={() => biomesChartRef?.rotateRightControl?.()}>⟳</button>
+          <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
         </div>
 
-        <div class="filter-grid">
-          <button class="mini-circle" class:active={openPanel === 'phylum'} onclick={() => openPanel = openPanel === 'phylum' ? null : 'phylum'} aria-label="Phylum filters">
-            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
-              <defs><path id="arc-phylum" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
-              <text class="arc-text"><textPath href="#arc-phylum" startOffset="0%" text-anchor="start">Phylum</textPath></text>
-            </svg>
-          </button>
-          <button class="mini-circle" class:active={openPanel === 'geo'} onclick={() => openPanel = openPanel === 'geo' ? null : 'geo'} aria-label="Geography filters">
-            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
-              <defs><path id="arc-geo" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
-              <text class="arc-text"><textPath href="#arc-geo" startOffset="0%" text-anchor="start">NON/WESTERN</textPath></text>
-            </svg>
-          </button>
-          <button class="mini-circle" class:active={openPanel === 'status'} onclick={() => openPanel = openPanel === 'status' ? null : 'status'} aria-label="Status filters">
-            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
-              <defs><path id="arc-status" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
-              <text class="arc-text"><textPath href="#arc-status" startOffset="0%" text-anchor="start">UN/KNOWN</textPath></text>
-            </svg>
-          </button>
-          <button class="mini-circle" class:active={openPanel === 'study'} onclick={() => openPanel = openPanel === 'study' ? null : 'study'} aria-label="Cohort filters">
-            <svg class="mini-arc" viewBox="0 0 140 140" aria-hidden="true">
-              <defs><path id="arc-cohort" d="M70 10 A60 60 0 1 1 69.9 10" /></defs>
-              <text class="arc-text"><textPath href="#arc-cohort" startOffset="0%" text-anchor="start">Cohort</textPath></text>
-            </svg>
-          </button>
-        </div>
-
-        <div class="overlay-slot">
-          {#if openPanel}
-            {@const overlayTitle =
-              openPanel === 'info' ? 'Biomes Overview' :
-              openPanel === 'phylum' ? 'Phylum' :
-              openPanel === 'geo' ? 'NON/WESTERN' :
-              openPanel === 'status' ? 'UN/KNOWN' :
-              openPanel === 'study' ? 'Cohort' : ''}
-            <div class="filter-overlay" aria-live="polite">
-              <div class="overlay-head">
-                <div class="overlay-title">{overlayTitle}</div>
-                <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
-              </div>
-              {#if openPanel === 'info'}
-                <div class="info-body">
-                  <p><strong>5000 Lines 5000 Species</strong></p>
-                  <p>This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
-                  <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
-                  <p><strong>Known / Unknown:</strong> within this study, 77% of bacteria species visualized and analyzed were previously unknown.</p>
-                  <p><strong>Western / Non Western:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
-                  <div class="info-citations">
-                    <div class="info-citations-title">Citations</div>
-                    <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. "Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle." <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
-                    <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
-                  </div>
-                </div>
-              {:else}
-              {#if openPanel === 'phylum'}
-                <p class="overlay-desc">Filter the tree to only the selected phyla, evolutionary lineages that shape how biological diversity is organized and understood.</p>
-              {:else if openPanel === 'geo'}
-                <div class="overlay-desc">
-                  <p><strong>Westernized</strong><br />Study-defined category referring to industrialized, urban populations with high exposure to modern medical and food systems.</p>
-                  <p><strong>Non-Westernized</strong><br />Study-defined category referring to populations with limited industrialization and lower exposure to modern medical and food systems.</p>
-                </div>
-              {:else if openPanel === 'status'}
-                <div class="overlay-desc">
-                  <p><strong>Unknown (uSGB)</strong><br />Genome-defined species-level group newly identified in this study — not previously represented in reference databases.</p>
-                  <p><strong>Unknown (uSGB)</strong><br />Previously uncharacterized microbial lineage revealed through large-scale metagenomic assembly.</p>
-                </div>
-              {:else if openPanel === 'study'}
-                <p class="overlay-desc"><strong>Cohort</strong><br />A defined group of study participants whose samples were collected and analyzed together.</p>
-              {/if}
-
-              {#if openPanel === 'phylum'}
-                <div class="overlay-actions">
-                  <button class="btn" onclick={handleSelectAll} title="Select all phyla">Select all</button>
-                  <button class="btn" onclick={() => selectedPhyla = []} title="Clear phyla">Clear</button>
-                </div>
-                <section class="section">
-                  <div class="chips">
-                    {#each allPhyla as phylum}
-                      {@const color = colorMapping[phylum] || colorMapping.Other}
-                      {@const textColor = pickTextColor(color)}
-                      <button
-                        class="chip"
-                        class:active={selectedPhyla.includes(phylum)}
-                        style="background: {color}; color: {textColor};"
-                        onclick={() => togglePhylum(phylum)}
-                      >
-                        {phylum.replace(/_/g, ' ')}
-                      </button>
-                    {/each}
-                  </div>
-                </section>
-              {:else if openPanel === 'geo'}
-                <section class="section">
-                  <div class="pills">
-                    <label class="pill">
-                      <input type="radio" name="western" value="any" bind:group={westernFilter} />
-                      All
-                    </label>
-                    <label class="pill">
-                      <input type="radio" name="western" value="western" bind:group={westernFilter} />
-                      Westernized
-                    </label>
-                    <label class="pill">
-                      <input type="radio" name="western" value="nonwestern" bind:group={westernFilter} />
-                      Non-Westernized
-                    </label>
-                  </div>
-                </section>
-              {:else if openPanel === 'status'}
-                <section class="section">
-                  <div class="pills">
-                    <label class="pill">
-                      <input type="radio" name="usgb" value="all" bind:group={unknownFilter} />
-                      All
-                    </label>
-                    <label class="pill">
-                      <input type="radio" name="usgb" value="known" bind:group={unknownFilter} />
-                      Known (ref. databases)
-                    </label>
-                    <label class="pill">
-                      <input type="radio" name="usgb" value="unknown" bind:group={unknownFilter} />
-                      Unknown (uSGB)
-                    </label>
-                  </div>
-                </section>
-              {:else if openPanel === 'study'}
-                <div class="overlay-actions">
-                  <button class="btn" onclick={() => selectedStudyKey = null}>All</button>
-                  <button class="btn" onclick={() => selectedStudyKey = null}>Clear</button>
-                </div>
-                <section class="section">
-                  <div class="chips proxy-grid">
-                    {#each cohortOptions as c}
-                      <button
-                        class="chip"
-                        class:active={selectedStudyKey === c.key}
-                        onclick={() => selectStudyKey(c.key)}
-                      >
-                        {c.label}
-                      </button>
-                    {/each}
-                  </div>
-                </section>
-              {/if}
-              {/if}
+        <!-- Middle tier: always-visible filter blocks -->
+        <div class="filter-blocks">
+          <section class="fblock">
+            <h3 class="fblock-title">Known / Unknown</h3>
+            <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
+            <div class="sel-buttons">
+              <button class="sel-btn" class:active={unknownFilter === 'all'} onclick={() => unknownFilter = 'all'}>All</button>
+              <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => unknownFilter = 'known'}>Known ({knownPct}%)</button>
+              <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => unknownFilter = 'unknown'}>Unknown ({unknownPct}%)</button>
             </div>
-          {/if}
+          </section>
 
-          {#if detailContent}
-            <div class="filter-overlay detail-overlay" aria-live="polite" bind:this={detailPanelEl}>
-              <div class="overlay-head">
-                <div class="overlay-title">Details</div>
-                <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
-              </div>
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="panel-content" onclick={handleDetailPanelClick}>
-                {@html detailContent}
+          <section class="fblock">
+            <div class="fblock-headrow">
+              <h3 class="fblock-title">Cohort</h3>
+              <div class="rank-toggle">
+                <button class:active={rankMetric === 'total'} onclick={() => rankMetric = 'total'}>Total</button>
+                <button class:active={rankMetric === 'percapita'} onclick={() => rankMetric = 'percapita'}>Per-capita</button>
               </div>
             </div>
-          {/if}
+            <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the bacterial diversity observed in each population, most to least{rankMetric === 'percapita' ? ', adjusted per sample.' : '.'}</p>
+            <div class="cohort-bubbles">
+              {#each rankedCohorts as c (c.key)}
+                <button
+                  class="bubble"
+                  class:active={selectedStudyKey === c.key}
+                  style="width:{c.size}px; height:{c.size}px;"
+                  title={rankMetric === 'total' ? `${c.total} distinct SGBs` : `${c.percap.toFixed(2)} SGBs / sample`}
+                  onclick={() => selectStudyKey(c.key)}
+                >
+                  <span class="bubble-label">{c.label}</span>
+                </button>
+              {/each}
+            </div>
+          </section>
         </div>
 
-        {#if detailContent && detailPoint && detailPanelAnchor}
-          <svg
-            class="leader-overlay"
-            aria-hidden="true"
-            width={viewportW}
-            height={viewportH}
-            viewBox={`0 0 ${viewportW} ${viewportH}`}
-          >
-            <line x1={detailPoint.x} y1={detailPoint.y} x2={detailPanelAnchor.x} y2={detailPanelAnchor.y} />
-          </svg>
-        {/if}
+        <!-- Bottom tier: phylum key -->
+        <section class="phylum-band">
+          <div class="phylum-band-head">
+            <span class="phylum-band-title">Phylum</span>
+            <div class="phylum-band-actions">
+              <button class="mini-link" onclick={handleSelectAll}>All</button>
+              <button class="mini-link" onclick={() => selectedPhyla = []}>Clear</button>
+            </div>
+          </div>
+          <div class="phylum-key">
+            {#each allPhyla as phylum}
+              {@const color = colorMapping[phylum] || colorMapping.Other}
+              {@const textColor = pickTextColor(color)}
+              <button
+                class="phylum-dot"
+                class:active={selectedPhyla.includes(phylum)}
+                class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
+                style="background:{color}; color:{textColor};"
+                onclick={() => togglePhylum(phylum)}
+              >
+                <span>{phylum.replace(/_/g, ' ')}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
       </div>
     </div>
+
+    <!-- Center-docked detail panel (scales outward from center) -->
+    {#if detailContent}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="detail-modal" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
+        <div class="overlay-head">
+          <div class="overlay-title">Details</div>
+          <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
+        </div>
+        <div class="panel-content" onclick={handleDetailPanelClick}>
+          {@html detailContent}
+        </div>
+      </div>
+    {/if}
+
+    <!-- Info modal -->
+    {#if openPanel === 'info'}
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="detail-modal info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
+        <div class="overlay-head">
+          <div class="overlay-title">Biomes Overview</div>
+          <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
+        </div>
+        <div class="info-body">
+          <p><strong>5000 Lines 5000 Species</strong></p>
+          <p>This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
+          <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
+          <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
+          <p><strong>Western / Non Western:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
+          <div class="info-citations">
+            <div class="info-citations-title">Citations</div>
+            <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. "Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle." <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
+            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -514,27 +476,23 @@
 
   .layout {
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
     height: 100vh;
     align-items: stretch;
     gap: 0;
   }
 
-  .filter-rail {
-    --circle-gap: 14px;
-    --circle-col-min: 120px;
-    --mini-size: 100px;
-    --mini-arc-size: 88px;
-    --mini-font: 16px;
-    --row-gap-between-controls: 10px;
-    --control-col-min: 72px;
-    --control-gap: 10px;
+  /* MoMA circle-size tiers (sized for a ~3840px exhibition display) */
+  .rail {
+    --tier-top: 118px;     /* biggest: controls */
+    --tier-mid: 150px;     /* medium: filter/select */
+    --tier-key: 118px;     /* smallest: phylum key */
     grid-column: 2;
-    padding: 18px 28px;
+    padding: 44px 48px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 40px;
     height: 100%;
     overflow: hidden;
     position: relative;
@@ -550,13 +508,13 @@
 
   .nav-circle {
     position: fixed;
-    bottom: 16px;
-    left: 16px;
-    width: 124px;
-    height: 124px;
+    bottom: 20px;
+    left: 20px;
+    width: 248px;
+    height: 248px;
     border-radius: 50%;
     background: var(--bg);
-    border: 2px solid rgba(255, 255, 255, 0.85);
+    border: 3px solid rgba(255, 255, 255, 0.85);
     box-shadow: var(--shadow);
     display: grid;
     place-items: center;
@@ -570,16 +528,16 @@
   .nav-circle__outer {
     display: grid;
     place-items: center;
-    width: 110px;
-    height: 110px;
+    width: 220px;
+    height: 220px;
     border-radius: 50%;
     text-decoration: none;
     pointer-events: auto;
   }
 
   .nav-circle svg {
-    width: 110px;
-    height: 110px;
+    width: 220px;
+    height: 220px;
     overflow: visible;
   }
 
@@ -589,7 +547,7 @@
   }
 
   .nav-circle__text {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 800;
     letter-spacing: 0.02em;
     fill: rgba(255, 255, 255, 0.65);
@@ -604,12 +562,6 @@
     text-decoration: underline;
   }
 
-  /* Leader overlay uses fixed viewport coords */
-
-  .nav-circle:hover .nav-circle__text {
-    fill: #fff;
-  }
-
   .nav-circle__text--link {
     pointer-events: auto;
   }
@@ -619,242 +571,334 @@
     text-decoration: none;
   }
 
-  .nav-circle__text--link a:hover textPath,
-  .nav-circle__text--link a:hover {
-    text-decoration: underline;
-    fill: #fff;
-  }
-
   .nav-circle__home {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 32px;
-    height: 32px;
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
-    border: 1px solid transparent;
+    border: 1px solid rgba(255, 255, 255, 0.4);
     background: transparent;
     color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
-    font-size: 15px;
+    font-size: 28px;
     line-height: 1;
     font-weight: 800;
     text-decoration: none;
-    transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
     pointer-events: auto;
   }
 
-  .nav-circle__home:hover {
+
+  /* ===== MoMA rail: top control circles (biggest tier) ===== */
+  .control-circles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .ctl-btn {
+    width: var(--tier-top);
+    height: var(--tier-top);
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid rgba(255, 255, 255, 0.85);
+    color: var(--fg);
+    font-weight: 700;
+    font-size: 44px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    box-shadow: var(--shadow);
+  }
+
+  .ctl-btn.active {
     background: #fff;
     color: var(--bg);
     border-color: #fff;
-    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08);
-    transform: translate(-50%, -50%) scale(1.05);
   }
 
-
-  .settings-toggle {
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    z-index: 8;
-    background: var(--panel);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: var(--shadow);
-    font-size: 18px;
-    color: var(--muted);
+  .ctl-btn:active {
+    transform: scale(0.95);
   }
 
-  .settings-toggle:hover {
-    color: var(--fg);
-  }
-
-  .settings-panel {
-    position: fixed;
-    top: 64px;
-    right: 12px;
-    z-index: 7;
-    background: linear-gradient(180deg, rgba(20, 18, 38, 0.97), rgba(20, 18, 38, 0.9));
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    padding: 12px 14px;
-    width: 320px;
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(6px);
-    display: none;
-  }
-
-  .settings-panel.open {
-    display: block;
-  }
-
-  .settings-panel label {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    color: var(--muted);
-    font-size: 13px;
-    margin: 8px 0;
-  }
-
-  .settings-panel select,
-  .settings-panel button {
-    background: var(--panel);
-    color: var(--fg);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
-    padding: 6px 10px;
-  }
-
-  .tension-slider {
-    width: 100%;
-    accent-color: var(--accent);
-    margin: 0 0 8px 0;
-  }
-
-  .tension-value {
-    color: var(--fg);
-    font-weight: 600;
-  }
-
-  .export-btn {
-    display: none;
-  }
-
-  .tip {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 8px;
-    line-height: 1.45;
-  }
-
-  /* Filter rail internals */
-  .overlay-slot {
-    position: relative;
-    width: 100%;
-    overflow: hidden;
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    align-items: flex-start;
-  }
-
-  .leader-overlay {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9;
-  }
-
-  .leader-overlay line {
-    stroke: rgba(255, 255, 255, 0.65);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 3;
-  }
-
-  .detail-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 8;
-    pointer-events: auto;
-    display: flex;
-    width: 100%;
-  }
-
-  .control-circles {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
-    grid-template-columns: repeat(6, max-content);
-    column-gap: var(--control-gap);
-    row-gap: 0;
-    justify-items: start;
-    width: fit-content;
-    max-width: none;
-    justify-self: end;
-    margin-left: auto;
-    justify-content: end;
-    margin-bottom: var(--row-gap-between-controls);
-  }
-
-  @media (max-width: 1180px) {
-    .filter-grid {
-      grid-template-columns: repeat(auto-fit, minmax(var(--mini-size), 1fr));
-    }
-  }
-
-  .circle-btn {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 2px solid rgba(255, 255, 255, 0.85);
-    color: var(--fg);
-    font-weight: 700;
-    font-size: 18px;
-    cursor: pointer;
-    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-    box-shadow: var(--shadow);
-  }
-
-  .circle-btn:hover {
-    transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.12);
-    border-color: #fff;
-    color: #fff;
-  }
-
-  .circle-btn:disabled,
-  .circle-btn[aria-disabled="true"] {
-    opacity: 0.4;
+  .ctl-btn:disabled,
+  .ctl-btn[aria-disabled="true"] {
+    opacity: 0.35;
     cursor: not-allowed;
     pointer-events: none;
     filter: grayscale(0.3);
   }
 
-  .info-panel {
-    background: var(--panel);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 12px;
-    padding: 10px 12px;
-    box-shadow: var(--shadow);
-    font-size: 12px;
-    color: var(--fg);
+  /* ===== Middle tier: filter blocks ===== */
+  .filter-blocks {
     display: grid;
-    gap: 6px;
+    grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr);
+    gap: 44px;
+    align-items: start;
   }
 
-  .info-head {
+  .fblock {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+
+  .fblock-headrow {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 18px;
+    flex-wrap: wrap;
   }
 
-  .info-title {
+  .fblock-title {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+
+  .fblock-desc {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .fblock-desc strong {
+    color: #fff;
+  }
+
+  /* Known / Unknown: medium circular select buttons */
+  .sel-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .sel-btn {
+    width: var(--tier-mid);
+    height: var(--tier-mid);
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid rgba(255, 255, 255, 0.85);
+    color: var(--fg);
     font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    font-size: 11px;
+    font-size: 22px;
+    line-height: 1.15;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 10px;
+    box-sizing: border-box;
+    box-shadow: var(--shadow);
+  }
+
+  .sel-btn.active {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
+  }
+
+  .sel-btn:active {
+    transform: scale(0.96);
+  }
+
+  /* Cohort rank toggle */
+  .rank-toggle {
+    display: inline-flex;
+    border: 2px solid rgba(255, 255, 255, 0.7);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .rank-toggle button {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    padding: 12px 24px;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .rank-toggle button.active {
+    background: #fff;
+    color: var(--bg);
+  }
+
+  /* Cohort ranked bubbles */
+  .cohort-bubbles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+    padding-top: 6px;
+  }
+
+  .bubble {
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid rgba(255, 255, 255, 0.85);
+    color: var(--fg);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 6px;
+    box-sizing: border-box;
+    box-shadow: var(--shadow);
+    transition: width 0.35s ease, height 0.35s ease;
+  }
+
+  .bubble-label {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  .bubble.active {
+    background: #fff;
+    color: var(--bg);
+    border-color: #fff;
+  }
+
+  .bubble:active {
+    transform: scale(0.96);
+  }
+
+  /* ===== Bottom tier: phylum key ===== */
+  .phylum-band {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .phylum-band-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .phylum-band-title {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .phylum-band-actions {
+    display: flex;
+    gap: 12px;
+  }
+
+  .mini-link {
+    background: transparent;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 10px 22px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .phylum-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    overflow: auto;
+    align-content: flex-start;
+  }
+
+  .phylum-dot {
+    width: var(--tier-key);
+    height: var(--tier-key);
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 6px;
+    box-sizing: border-box;
+    opacity: 0.92;
+  }
+
+  .phylum-dot span {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: 0.01em;
+  }
+
+  .phylum-dot.active {
+    border-color: #fff;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+    opacity: 1;
+  }
+
+  .phylum-dot.dim {
+    opacity: 0.32;
+  }
+
+  /* ===== Detail panel: docked in the right sidebar, vertically centered ===== */
+  .detail-modal {
+    position: fixed;
+    top: 50%;
+    right: 48px;
+    /* span the full sidebar column: disk column is 1.3fr of 2.3fr = 56.52vw */
+    left: calc(56.52vw + 48px);
+    transform: translateY(-50%);
+    max-height: 82vh;
+    overflow: auto;
+    background: var(--bg);
+    border: 3px solid rgba(255, 255, 255, 0.85);
+    border-radius: 26px;
+    padding: 30px 34px;
+    box-shadow: var(--shadow);
+    z-index: 20;
+    pointer-events: auto;
+    transform-origin: center right;
+    animation: modal-pop-side 0.18s ease;
+  }
+
+  /* Info stays centered on screen (longer read) */
+  .info-modal {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    width: min(52vw, 760px);
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+    animation: modal-pop-center 0.18s ease;
+  }
+
+  @keyframes modal-pop-side {
+    from { transform: translateY(-50%) scale(0.85); opacity: 0; }
+    to   { transform: translateY(-50%) scale(1); opacity: 1; }
+  }
+
+  @keyframes modal-pop-center {
+    from { transform: translate(-50%, -50%) scale(0.85); opacity: 0; }
+    to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   }
 
   .info-body {
     display: grid;
-    gap: 10px;
-    font-size: 12px;
-    line-height: 1.55;
+    gap: 14px;
+    font-size: 17px;
+    line-height: 1.6;
     color: var(--muted);
   }
 
@@ -871,121 +915,31 @@
     letter-spacing: 0.02em;
   }
 
-  .info-body u {
-    text-decoration-thickness: 2px;
-    text-decoration-color: rgba(255, 255, 255, 0.35);
-    text-underline-offset: 3px;
-  }
-
   .info-body em {
     color: #e7e9f1;
-  }
-
-  .filter-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(var(--mini-size), 1fr));
-    column-gap: var(--circle-gap);
-    row-gap: var(--circle-gap);
-    width: 100%;
-    justify-items: start;
-    align-items: center;
-    justify-content: start;
-    margin-bottom: 10px;
-  }
-
-  .mini-circle {
-    width: var(--mini-size);
-    height: var(--mini-size);
-    border-radius: 50%;
-    background: var(--bg);
-    border: 2px solid rgba(255, 255, 255, 0.85);
-    display: grid;
-    place-items: center;
-    color: var(--fg);
-    cursor: pointer;
-    box-shadow: var(--shadow);
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease, color 0.2s ease;
-  }
-
-  .mini-arc {
-    width: var(--mini-arc-size);
-    height: var(--mini-arc-size);
-    overflow: visible;
-  }
-
-  .arc-text {
-    font-size: var(--mini-font);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    fill: currentColor;
-    text-transform: uppercase;
-    dominant-baseline: middle;
-  }
-
-  .mini-circle:hover {
-    transform: translateY(-1px);
-    background: rgba(255, 255, 255, 0.12);
-    border-color: #fff;
-    color: #fff;
-  }
-
-  .mini-circle.active {
-    background: #fff;
-    color: var(--bg);
-    border-color: #fff;
-  }
-
-  .filter-overlay {
-    background: var(--bg);
-    border: 2px solid rgba(255, 255, 255, 0.85);
-    border-radius: 20px;
-    padding: 12px 14px;
-    box-shadow: var(--shadow);
-    width: 100%;
-    overflow: auto;
-    max-height: 100%;
-    flex: 1 1 auto;
-    min-height: 0;
-    position: relative;
-    z-index: 6;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
   }
 
   .overlay-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 10px;
+    gap: 12px;
+    margin-bottom: 18px;
   }
 
   .overlay-title {
     font-weight: 700;
     letter-spacing: 0.04em;
+    font-size: 26px;
   }
 
   .panel-content {
-    font-size: 13px;
+    font-size: 18px;
     color: var(--muted);
-    line-height: 1.5;
+    line-height: 1.55;
     display: grid;
-    gap: 10px;
+    gap: 14px;
     overflow: auto;
-  }
-
-  .panel-content p {
-    margin: 0;
-  }
-
-  .panel-content p + p {
-    margin-top: 16px;
-  }
-
-  .panel-content strong {
-    color: #fff;
-    letter-spacing: 0.02em;
   }
 
   .info-citations {
@@ -1025,20 +979,20 @@
 
   /* Detail panel typography */
   :global(.panel-content .title) {
-    font-size: 16px;
+    font-size: 24px;
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #fff;
   }
 
   :global(.panel-content .subtitle) {
-    font-size: 12px;
+    font-size: 16px;
     color: #cfd3e0;
     letter-spacing: 0.02em;
   }
 
   :global(.panel-content .summary) {
-    font-size: 13px;
+    font-size: 18px;
     color: #e7e9f1;
   }
 
@@ -1051,7 +1005,7 @@
   }
 
   :global(.panel-content .kv .k) {
-    font-size: 11px;
+    font-size: 15px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #9ba3c0;
@@ -1060,6 +1014,7 @@
   :global(.panel-content .kv .v) {
     color: #f6f7fb;
     font-weight: 600;
+    font-size: 17px;
   }
 
   :global(.panel-content .swatch) {
@@ -1097,10 +1052,10 @@
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.18);
     color: #fff;
-    border-radius: 10px;
-    padding: 8px 10px;
+    border-radius: 12px;
+    padding: 14px 16px;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 17px;
     cursor: pointer;
   }
 
@@ -1109,106 +1064,19 @@
     border-color: rgba(255,255,255,0.26);
   }
 
-  .overlay-desc {
-    margin: 4px 0 10px;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-
-  .overlay-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: var(--fg);
-    border-radius: 999px;
-    padding: 6px 10px;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
   .chevron {
     background: var(--bg);
     border: 2px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     border-radius: 50%;
-    width: 28px;
-    height: 28px;
+    width: 48px;
+    height: 48px;
+    font-size: 22px;
     display: grid;
     place-items: center;
     font-weight: 800;
     cursor: pointer;
+    flex: none;
   }
 
-  .section {
-    margin: 10px 0;
-  }
-
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .chip {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: var(--fg);
-    border-radius: 999px;
-    padding: 8px 12px;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    transition: transform 0.12s ease, background 0.2s ease, border-color 0.2s ease;
-  }
-
-  .chip:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.22);
-    transform: translateY(-1px);
-  }
-
-  .chip.active {
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
-  }
-
-  .pills {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 999px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-
-  .pill input {
-    accent-color: var(--accent, #8af);
-  }
-
-  .proxy-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 6px;
-    margin-top: 4px;
-  }
-
-  .placeholder {
-    color: var(--muted);
-    font-size: 13px;
-  }
 </style>
