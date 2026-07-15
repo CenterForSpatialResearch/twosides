@@ -10,7 +10,7 @@
   const GAP         = 10;   // px gap between grid cells
   const MIN_DIAM_3COL = 180; // below this circle size, drop to 2 columns
   const INFO_H      = 56;   // px reserved below each circle for title + shift + desc
-  const HEADER_H    = 100;  // px for the sort-by header area (includes intro + desc line)
+  const HEADER_H    = 150;  // px for the sort-by header area (includes intro + desc line)
   const MAX_VIEWS   = 3;    // MoMA: show only the first 3 views (selected sites / top computed)
 
   let panelEl  = $state(null);
@@ -328,7 +328,7 @@
 
   /* ── Header ── */
   .zp-header {
-    height: 100px;
+    height: 150px;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
@@ -339,9 +339,9 @@
 
   .zp-intro {
     margin: 0 0 2px;
-    font-size: 11px;
+    font-size: 19px;
     color: var(--muted);
-    line-height: 1.4;
+    line-height: 1.5;
   }
 
   .zp-controls {
@@ -352,7 +352,7 @@
   }
 
   .zp-controls label {
-    font-size: 10px;
+    font-size: 13px;
     text-transform: uppercase;
     color: var(--muted);
     letter-spacing: 0.06em;
@@ -361,12 +361,12 @@
   }
 
   .zp-controls select {
-    padding: 4px 8px;
+    padding: 6px 10px;
     border-radius: 6px;
     border: 1px solid rgba(255, 255, 255, 0.18);
     background: #1a1625;
     color: var(--fg);
-    font-size: 11px;
+    font-size: 15px;
     cursor: pointer;
     min-width: 0;
     flex: 1 1 auto;
@@ -391,7 +391,7 @@
   }
 
   .zp-zoom-label {
-    font-size: 10px;
+    font-size: 13px;
     text-transform: uppercase;
     color: var(--muted);
     letter-spacing: 0.06em;
@@ -399,8 +399,8 @@
   }
 
   .zp-zoom-btn {
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -408,7 +408,7 @@
     border: 1px solid rgba(255, 255, 255, 0.18);
     background: #1a1625;
     color: var(--fg);
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1;
     cursor: pointer;
     flex-shrink: 0;
@@ -425,7 +425,7 @@
   .zp-loading {
     position: absolute;
     inset: 0;
-    top: 100px; /* below header */
+    top: 150px; /* below header */
     display: flex;
     flex-direction: column;
     align-items: center;

@@ -18,9 +18,6 @@
       --ring:#ffffff;
       --ringWidth: 3px;
       --disk: min(70vmin, 860px);
-      --diskR: calc(var(--disk) / 2);
-      --captionSize: clamp(14px, 1.6vw, 22px);
-      --period: 10s;
     }
 
     html, body {
@@ -32,7 +29,7 @@
       overflow: hidden;
     }
 
-    /* Fixed vertical side labels — always clickable */
+    /* Fixed vertical side labels — always clickable; opacity tracks the coin's rotation */
     .sideLink {
       position: fixed;
       top: 50%;
@@ -46,7 +43,7 @@
       user-select: none;
       text-decoration: none;
       z-index: 5;
-      transition: opacity .4s ease;
+      will-change: opacity;
     }
     #leftLink  { left: 24px; }
     #rightLink { right: 24px; }
@@ -58,20 +55,24 @@
       place-items: center;
     }
 
-    /* Central clickable target (disk + surrounding caption area) */
+    .disk-area {
+      position: relative;
+      width: var(--disk);
+      height: var(--disk);
+    }
+
+    /* Central clickable target: disk + the radial caption ring around it */
     .enter {
       position: absolute;
-      inset: 0;
-      display: grid;
-      place-items: center;
+      inset: -24%;
       cursor: pointer;
       z-index: 2;
     }
 
     /* ---- Coin ---- */
     .coin-wrap {
-      width: var(--disk);
-      height: var(--disk);
+      position: absolute;
+      inset: 0;
       perspective: 2200px;
     }
     .coin {
@@ -102,36 +103,25 @@
       -webkit-user-drag: none;
     }
 
-    /* ---- Captions outside the ring (two cross-fading layers) ---- */
-    .caption-layer {
+    /* ---- Radial captions, curved along the ring outside the disk ---- */
+    .caption-svg {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
       pointer-events: none;
       z-index: 3;
-      opacity: 0;
+    }
+    .caption-svg text {
+      fill: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
       will-change: opacity;
     }
-    .cap {
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 20vw;
-      max-width: 320px;
-      font-size: var(--captionSize);
-      font-weight: 500;
-      letter-spacing: 0.06em;
-      line-height: 1.35;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-    .cap--left  { right: calc(50% + var(--diskR) + 2.5vw); text-align: right; }
-    .cap--right { left:  calc(50% + var(--diskR) + 2.5vw); text-align: left;  }
-    .cap--enter { color: var(--fg); font-weight: 700; }
-
-    @media (max-width: 720px) {
-      .cap { width: 30vw; }
-      .cap--left  { right: calc(50% + var(--diskR) + 12px); }
-      .cap--right { left:  calc(50% + var(--diskR) + 12px); }
+    .caption-svg text.enter-text {
+      fill: var(--fg);
+      font-weight: 700;
     }
   </style>
 </head>
@@ -140,77 +130,92 @@
   <a id="rightLink" class="sideLink" href="src/anthromes/">ANTHROMES</a>
 
   <div class="stage">
-    <!-- Biomes caption set -->
-    <div class="caption-layer" id="cap-biomes">
-      <div class="cap cap--left">AN EXTENSIVE HUMAN MICROBIOME</div>
-      <div class="cap cap--right cap--enter">CLICK TO ENTER</div>
-    </div>
-    <!-- Anthromes caption set -->
-    <div class="caption-layer" id="cap-anthromes">
-      <div class="cap cap--left cap--enter">CLICK TO ENTER</div>
-      <div class="cap cap--right">MODELING 12,025 YEARS OF LAND USE</div>
-    </div>
+    <div class="disk-area">
+      <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+        <defs>
+          <path id="arc-left"  d="M 0 -575 A 575 575 0 0 0 0 575" />
+          <path id="arc-right" d="M 0 575 A 575 575 0 0 0 0 -575" />
+        </defs>
 
-    <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization">
+        <!-- Biomes face captions -->
+        <text id="cap-biomes-left" font-size="30">
+          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">AN EXTENSIVE HUMAN MICROBIOME</textPath>
+        </text>
+        <text id="cap-biomes-right" class="enter-text" font-size="30">
+          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
+        </text>
+
+        <!-- Anthromes face captions -->
+        <text id="cap-anthromes-left" class="enter-text" font-size="30">
+          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
+        </text>
+        <text id="cap-anthromes-right" font-size="30">
+          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">MODELING 12,025 YEARS OF LAND USE</textPath>
+        </text>
+      </svg>
+
       <div class="coin-wrap">
         <div class="coin" id="coin">
           <div class="face face--biomes"><img src="splash/biomes.webp" alt="Biomes visualization" /></div>
           <div class="face face--anthromes"><img src="splash/anthromes.webp" alt="Anthromes visualization" /></div>
         </div>
       </div>
+
+      <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization"></div>
     </div>
   </div>
 
   <script>
     const URLS = { biomes: 'src/biomes/', anthromes: 'src/anthromes/' };
 
-    const coin       = document.getElementById('coin');
-    const capBiomes  = document.getElementById('cap-biomes');
-    const capAnthro  = document.getElementById('cap-anthromes');
-    const leftLink   = document.getElementById('leftLink');   // BIOMES
-    const rightLink  = document.getElementById('rightLink');  // ANTHROMES
-    const enter      = document.getElementById('enter');
+    const coin           = document.getElementById('coin');
+    const capBiomesLeft   = document.getElementById('cap-biomes-left');
+    const capBiomesRight  = document.getElementById('cap-biomes-right');
+    const capAnthroLeft   = document.getElementById('cap-anthromes-left');
+    const capAnthroRight  = document.getElementById('cap-anthromes-right');
+    const leftLink        = document.getElementById('leftLink');   // BIOMES
+    const rightLink       = document.getElementById('rightLink');  // ANTHROMES
+    const enter           = document.getElementById('enter');
 
-    const PERIOD = 10000;            // ms for a full 360° turn (5s per face)
+    const PERIOD = 10000; // ms for a full 360° turn (5s per face)
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     let currentFace = 'biomes';
-    let faceStart = performance.now();
     let startT = performance.now();
-
-    // V-shaped dip for the non-showing side label: 100% → 50% (first ~1.5s) → 100%.
-    function dip(p) {
-      const OUT = 0.3; // fraction of the 5s spent fading out
-      return p < OUT ? 1 - 0.5 * (p / OUT) : 0.5 + 0.5 * ((p - OUT) / (1 - OUT));
-    }
+    let rafId;
 
     function render(now) {
       const t = (now - startT) % PERIOD;
       const angle = (t / PERIOD) * 360;
       coin.style.transform = `rotateY(${angle}deg)`;
 
-      const c = Math.cos(angle * Math.PI / 180);   // >0 → biomes faces viewer
-      const face = c >= 0 ? 'biomes' : 'anthromes';
-      if (face !== currentFace) { currentFace = face; faceStart = now; }
+      const c = Math.cos(angle * Math.PI / 180); // 1 = biomes facing, -1 = anthromes facing
+      currentFace = c >= 0 ? 'biomes' : 'anthromes';
 
-      // Captions cross-fade with the flip (sharpened so they're readable most of the face)
+      // Captions cross-fade with the flip (sharpened so they're readable across most of the face)
       const sharpen = x => Math.min(1, Math.max(0, x) * 1.8);
-      capBiomes.style.opacity = sharpen(c);
-      capAnthro.style.opacity = sharpen(-c);
+      const biomesOpacity = sharpen(c);
+      const anthromesOpacity = sharpen(-c);
+      capBiomesLeft.style.opacity = biomesOpacity;
+      capBiomesRight.style.opacity = biomesOpacity;
+      capAnthroLeft.style.opacity = anthromesOpacity;
+      capAnthroRight.style.opacity = anthromesOpacity;
 
-      // Side labels: showing side full, non-showing dips to 50% then recovers
-      const p = Math.min(1, (now - faceStart) / (PERIOD / 2));
-      if (face === 'biomes') { leftLink.style.opacity = 1; rightLink.style.opacity = dip(p); }
-      else                   { rightLink.style.opacity = 1; leftLink.style.opacity = dip(p); }
+      // Side labels fade continuously with rotation: 1 when that side is facing,
+      // dropping to 0.75 at the opposite extreme (when the other face is fully shown).
+      leftLink.style.opacity  = 0.7 + 0.3 * c;
+      rightLink.style.opacity = 0.7 - 0.3 * c;
 
       rafId = requestAnimationFrame(render);
     }
 
-    let rafId;
     if (reduce) {
-      // Hold on the biomes face; side labels remain usable
+      // Hold on the biomes face; side labels remain fully visible
       coin.style.transform = 'rotateY(0deg)';
-      capBiomes.style.opacity = 1;
+      capBiomesLeft.style.opacity = 1;
+      capBiomesRight.style.opacity = 1;
+      capAnthroLeft.style.opacity = 0;
+      capAnthroRight.style.opacity = 0;
       currentFace = 'biomes';
     } else {
       rafId = requestAnimationFrame(render);
@@ -218,7 +223,7 @@
 
     function go(which) { window.location.href = URLS[which]; }
 
-    // Click the disk / caption area → whichever viz is currently facing us
+    // Click the disk / caption ring → whichever viz is currently facing us
     enter.addEventListener('click', () => go(currentFace));
     enter.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(currentFace); }

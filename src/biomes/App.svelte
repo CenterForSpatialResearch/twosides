@@ -371,7 +371,7 @@
                 <button
                   class="bubble"
                   class:active={selectedStudyKey === c.key}
-                  style="width:{c.size}px; height:{c.size}px;"
+                  style="width:calc({c.size} * var(--ui)); height:calc({c.size} * var(--ui));"
                   title={rankMetric === 'total' ? `${c.total} distinct SGBs` : `${c.percap.toFixed(2)} SGBs / sample`}
                   onclick={() => selectStudyKey(c.key)}
                 >
@@ -468,6 +468,8 @@
   }
 
   .app {
+    /* fluid scale: 1 at 3840px (exhibition), ~0.67 at 2560px, floor 0.62 for laptop touch targets */
+    --ui: clamp(0.62px, calc(100vw / 3840), 1px);
     width: 100%;
     height: 100vh;
     position: relative;
@@ -476,7 +478,7 @@
 
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
     height: 100vh;
     align-items: stretch;
     gap: 0;
@@ -484,9 +486,9 @@
 
   /* MoMA circle-size tiers (sized for a ~3840px exhibition display) */
   .rail {
-    --tier-top: 118px;     /* biggest: controls */
-    --tier-mid: 150px;     /* medium: filter/select */
-    --tier-key: 118px;     /* smallest: phylum key */
+    --tier-top: calc(118 * var(--ui));     /* biggest: controls */
+    --tier-mid: calc(150 * var(--ui));     /* medium: filter/select */
+    --tier-key: calc(118 * var(--ui));     /* smallest: phylum key */
     grid-column: 2;
     padding: 44px 48px;
     box-sizing: border-box;
@@ -510,8 +512,8 @@
     position: fixed;
     bottom: 20px;
     left: 20px;
-    width: 248px;
-    height: 248px;
+    width: calc(248 * var(--ui));
+    height: calc(248 * var(--ui));
     border-radius: 50%;
     background: var(--bg);
     border: 3px solid rgba(255, 255, 255, 0.85);
@@ -528,16 +530,16 @@
   .nav-circle__outer {
     display: grid;
     place-items: center;
-    width: 220px;
-    height: 220px;
+    width: calc(220 * var(--ui));
+    height: calc(220 * var(--ui));
     border-radius: 50%;
     text-decoration: none;
     pointer-events: auto;
   }
 
   .nav-circle svg {
-    width: 220px;
-    height: 220px;
+    width: calc(220 * var(--ui));
+    height: calc(220 * var(--ui));
     overflow: visible;
   }
 
@@ -576,15 +578,15 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
+    width: calc(60 * var(--ui));
+    height: calc(60 * var(--ui));
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.4);
     background: transparent;
     color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
-    font-size: 28px;
+    font-size: calc(28 * var(--ui));
     line-height: 1;
     font-weight: 800;
     text-decoration: none;
@@ -609,7 +611,7 @@
     border: 3px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 700;
-    font-size: 44px;
+    font-size: calc(44 * var(--ui));
     cursor: pointer;
     display: grid;
     place-items: center;
@@ -659,7 +661,7 @@
 
   .fblock-title {
     margin: 0;
-    font-size: 30px;
+    font-size: calc(30 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--fg);
@@ -691,7 +693,7 @@
     border: 3px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 700;
-    font-size: 22px;
+    font-size: calc(22 * var(--ui));
     line-height: 1.15;
     cursor: pointer;
     display: grid;
@@ -712,27 +714,30 @@
     transform: scale(0.96);
   }
 
-  /* Cohort rank toggle */
+  /* Cohort rank toggle — underline + opacity select (no pill, keeps headrow short) */
   .rank-toggle {
     display: inline-flex;
-    border: 2px solid rgba(255, 255, 255, 0.7);
-    border-radius: 999px;
-    overflow: hidden;
+    gap: 18px;
+    align-items: baseline;
   }
 
   .rank-toggle button {
     background: transparent;
-    color: var(--muted);
+    color: var(--fg);
     border: none;
-    padding: 12px 24px;
-    font-size: 20px;
+    border-bottom: 2px solid transparent;
+    padding: 0 0 2px;
+    font-size: 18px;
     font-weight: 700;
+    line-height: 1.2;
     cursor: pointer;
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
   }
 
   .rank-toggle button.active {
-    background: #fff;
-    color: var(--bg);
+    opacity: 1;
+    border-bottom-color: currentColor;
   }
 
   /* Cohort ranked bubbles */
@@ -760,7 +765,7 @@
   }
 
   .bubble-label {
-    font-size: 22px;
+    font-size: calc(22 * var(--ui));
     font-weight: 700;
     line-height: 1.1;
   }
@@ -792,7 +797,7 @@
   }
 
   .phylum-band-title {
-    font-size: 28px;
+    font-size: calc(28 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
   }
@@ -821,24 +826,26 @@
     align-content: flex-start;
   }
 
+  /* Pill sizes to its label; colour = phylum, tap to toggle (mirrors anthromes key-pill) */
   .phylum-dot {
-    width: var(--tier-key);
-    height: var(--tier-key);
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.25);
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.18);
     cursor: pointer;
-    display: grid;
-    place-items: center;
-    text-align: center;
-    padding: 6px;
+    white-space: nowrap;
     box-sizing: border-box;
+    user-select: none;
     opacity: 0.92;
+    transition: opacity 0.15s ease;
   }
 
   .phylum-dot span {
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1.05;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
     letter-spacing: 0.01em;
   }
 

@@ -568,6 +568,8 @@
   }
 
   .app {
+    /* fluid scale: 1 at 3840px (exhibition), ~0.67 at 2560px, floor 0.62 for laptop touch targets */
+    --ui: clamp(0.62px, calc(100vw / 3840), 1px);
     width: 100%;
     height: 100vh;
     position: relative;
@@ -578,8 +580,8 @@
     position: fixed;
     bottom: 20px;
     right: 20px;
-    width: 248px;
-    height: 248px;
+    width: calc(248 * var(--ui));
+    height: calc(248 * var(--ui));
     border-radius: 50%;
     background: var(--bg);
     border: 3px solid rgba(255, 255, 255, 0.85);
@@ -596,16 +598,16 @@
   .nav-circle__outer {
     display: grid;
     place-items: center;
-    width: 220px;
-    height: 220px;
+    width: calc(220 * var(--ui));
+    height: calc(220 * var(--ui));
     border-radius: 50%;
     text-decoration: none;
     pointer-events: auto;
   }
 
   .nav-circle svg {
-    width: 220px;
-    height: 220px;
+    width: calc(220 * var(--ui));
+    height: calc(220 * var(--ui));
     overflow: visible;
   }
 
@@ -644,15 +646,15 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
+    width: calc(60 * var(--ui));
+    height: calc(60 * var(--ui));
     border-radius: 50%;
     border: 1px solid rgba(255, 255, 255, 0.4);
     background: transparent;
     color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
-    font-size: 28px;
+    font-size: calc(28 * var(--ui));
     line-height: 1;
     font-weight: 800;
     text-decoration: none;
@@ -713,14 +715,14 @@
   }
 
   .ctl-btn {
-    width: 118px;
-    height: 118px;
+    width: calc(118 * var(--ui));
+    height: calc(118 * var(--ui));
     border-radius: 50%;
     background: var(--bg);
     border: 3px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 700;
-    font-size: 44px;
+    font-size: calc(44 * var(--ui));
     cursor: pointer;
     display: grid;
     place-items: center;
@@ -755,7 +757,7 @@
   }
 
   .views-head {
-    font-size: 28px;
+    font-size: calc(28 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--fg);
@@ -778,7 +780,7 @@
   }
 
   .anthrome-key-title {
-    font-size: 28px;
+    font-size: calc(28 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
   }
