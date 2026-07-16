@@ -90,6 +90,7 @@
   // ── Canvas spin engine (Mode C) ──────────────────────────────────────────
   let vizAreaEl = $state(null);
   let canvasEl = $state(null);
+  let lastMarkerX = -1, lastMarkerY = -1;  // last reported marker screen pos (leader line)
   let cctx = null;                 // 2D context
   let dpr = 1;
   let boxW = 0, boxH = 0, sBase = 0; // viewBox→css mapping (S_css/dim, plus center = box/2)
@@ -616,6 +617,16 @@
     cctx.lineTo(mx + 16 * dpr, my + 9 * dpr);
     cctx.closePath();
     cctx.fill();
+
+    // Report the marker's screen position so App can draw a leader to the details panel.
+    // (Marker is rotation-invariant, so only emit when it actually moves — zoom/pan/resize.)
+    const cr = canvasEl.getBoundingClientRect();
+    const markX = cr.left + (mx + 16 * dpr) / dpr;
+    const markY = cr.top + my / dpr;
+    if (Math.abs(markX - lastMarkerX) > 0.5 || Math.abs(markY - lastMarkerY) > 0.5) {
+      lastMarkerX = markX; lastMarkerY = markY;
+      dispatch('marker', { x: markX, y: markY });
+    }
   }
 
   function requestDraw() {
@@ -1130,6 +1141,13 @@
       ro = new ResizeObserver(() => { resizeCanvas(); requestDraw(); });
       ro.observe(vizAreaEl);
     }
+
+    // Re-emit the marker position once the initial layout has fully settled
+    // (fonts/labels/rail content load after first draw), so App's leader starts correct.
+    requestAnimationFrame(() => {
+      lastMarkerX = -1; lastMarkerY = -1;
+      requestDraw();
+    });
 
     // Add event listeners
     window.addEventListener('click', handleWindowClick);

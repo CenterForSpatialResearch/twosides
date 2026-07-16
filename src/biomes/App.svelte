@@ -34,8 +34,8 @@
   let cohortStats = $state({}); // key -> { sgbs, samples }
 
   // Ranked + sized cohort bubbles for the active metric
-  const BUBBLE_MIN = 120;  // px diameter floor (finger-tappable)
-  const BUBBLE_MAX = 250;  // px diameter cap
+  const BUBBLE_MIN = 80;   // px diameter floor (finger-tappable)
+  const BUBBLE_MAX = 160;  // px diameter cap (kept small so all 6 fit one row)
   let rankedCohorts = $derived.by(() => {
     const scored = cohortOptions.map(c => {
       const s = cohortStats[c.key] || {};
@@ -69,6 +69,34 @@
   let detailPanelAnchor = $state(null);
   let viewportW = $state(0);
   let viewportH = $state(0);
+
+  // Leader line: from the chart's selection marker to the details panel
+  let leaderFrom = $state(null); // {x, y} screen px (marker, reported by chart)
+  let leaderTo = $state(null);   // {x, y} screen px (panel left edge, mid-height)
+
+  function updateLeaderTo() {
+    if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
+    const r = detailPanelEl.getBoundingClientRect();
+    leaderTo = { x: r.left, y: r.top + r.height / 2 };
+  }
+
+  function handleMarker(event) {
+    leaderFrom = event.detail || null;
+    updateLeaderTo();
+  }
+
+  // Recompute the panel endpoint when the panel appears/changes or the window resizes.
+  // The panel is flex:1, so async rail content (bubbles/phyla) reflows it after load —
+  // observe its box so the leader endpoint tracks those late layout shifts.
+  $effect(() => {
+    const el = detailPanelEl;
+    detailContent; viewportW; viewportH;
+    updateLeaderTo();
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => updateLeaderTo());
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   // Load data on mount
   onMount(async () => {
@@ -199,7 +227,7 @@
   function handleWindowClick(e) {
     const target = e.target;
     // Never close things when interacting inside the modals
-    if (target.closest('.detail-modal') || target.closest('.info-modal')) {
+    if (target.closest('.detail-rail') || target.closest('.info-modal')) {
       return;
     }
     // Rail interactions (filters/controls) keep the detail panel open
@@ -367,6 +395,7 @@
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
           on:zoomchange={handleZoomChange}
+          on:marker={handleMarker}
         />
       </div>
 
@@ -379,42 +408,55 @@
           <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
         </div>
 
-        <!-- Middle tier: always-visible filter blocks -->
-        <div class="filter-blocks">
-          <section class="fblock">
-            <h3 class="fblock-title">Known / Unknown</h3>
-            <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
-            <div class="sel-buttons">
-              <button class="sel-btn" class:active={unknownFilter === 'all'} onclick={() => unknownFilter = 'all'}>All</button>
-              <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => unknownFilter = 'known'}>Known ({knownPct}%)</button>
-              <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => unknownFilter = 'unknown'}>Unknown ({unknownPct}%)</button>
-            </div>
-          </section>
+        <!-- Middle tier: always-visible menu items -->
+        <section class="fblock">
+          <h3 class="fblock-title">Known / Unknown</h3>
+          <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
+          <div class="sel-buttons">
+            <button class="sel-btn" class:active={unknownFilter === 'all'} onclick={() => unknownFilter = 'all'}>All</button>
+            <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => unknownFilter = 'known'}>Known ({knownPct}%)</button>
+            <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => unknownFilter = 'unknown'}>Unknown ({unknownPct}%)</button>
+          </div>
+        </section>
 
-          <section class="fblock">
-            <div class="fblock-headrow">
-              <h3 class="fblock-title">Cohort</h3>
-              <div class="rank-toggle">
-                <button class:active={rankMetric === 'total'} onclick={() => rankMetric = 'total'}>Total</button>
-                <button class:active={rankMetric === 'percapita'} onclick={() => rankMetric = 'percapita'}>Per-capita</button>
-              </div>
+        <section class="fblock">
+          <div class="fblock-headrow">
+            <h3 class="fblock-title">Cohort</h3>
+            <div class="rank-toggle">
+              <button class:active={rankMetric === 'total'} onclick={() => rankMetric = 'total'}>Total</button>
+              <button class:active={rankMetric === 'percapita'} onclick={() => rankMetric = 'percapita'}>Per-capita</button>
             </div>
-            <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the bacterial diversity observed in each population, most to least{rankMetric === 'percapita' ? ', adjusted per sample.' : '.'}</p>
-            <div class="cohort-bubbles">
-              {#each rankedCohorts as c (c.key)}
-                <button
-                  class="bubble"
-                  class:active={selectedStudyKey === c.key}
-                  style="width:calc({c.size} * var(--ui)); height:calc({c.size} * var(--ui));"
-                  title={rankMetric === 'total' ? `${c.total} distinct SGBs` : `${c.percap.toFixed(2)} SGBs / sample`}
-                  onclick={() => selectStudyKey(c.key)}
-                >
-                  <span class="bubble-label">{c.label}</span>
-                </button>
-              {/each}
-            </div>
-          </section>
-        </div>
+          </div>
+          <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the bacterial diversity observed in each population, most to least{rankMetric === 'percapita' ? ', adjusted per sample.' : '.'}</p>
+          <div class="cohort-bubbles">
+            {#each rankedCohorts as c (c.key)}
+              <button
+                class="bubble"
+                class:active={selectedStudyKey === c.key}
+                style="width:calc({c.size} * var(--ui)); height:calc({c.size} * var(--ui));"
+                title={rankMetric === 'total' ? `${c.total} distinct SGBs` : `${c.percap.toFixed(2)} SGBs / sample`}
+                onclick={() => selectStudyKey(c.key)}
+              >
+                <span class="bubble-label">{c.label}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+
+        <!-- Details: another menu item, occupying the flexible middle band -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
+          <h3 class="fblock-title">Details</h3>
+          <p class="fblock-desc">The evolutionary lineage and genome profile of the species at the marker.</p>
+          <div class="panel-content detail-scroll" onclick={handleDetailPanelClick}>
+            {#if detailContent}
+              {@html detailContent}
+            {:else}
+              <p class="detail-hint">Spin the disk to inspect a species.</p>
+            {/if}
+          </div>
+        </section>
 
         <!-- Bottom tier: phylum key -->
         <section class="phylum-band">
@@ -445,26 +487,23 @@
       </div>
     </div>
 
-    <!-- Center-docked detail panel (scales outward from center) -->
-    {#if detailContent}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="detail-modal" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-        <div class="overlay-head">
-          <div class="overlay-title">Details</div>
-          <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
-        </div>
-        <div class="panel-content" onclick={handleDetailPanelClick}>
-          {@html detailContent}
-        </div>
-      </div>
+    <!-- Leader line: chart selection marker → details panel -->
+    {#if detailContent && leaderFrom && leaderTo}
+      <svg class="leader-overlay" aria-hidden="true">
+        <!-- Straight horizontal run from the marker to just shy of the rail edge -->
+        <line
+          class="leader-line"
+          x1={leaderFrom.x} y1={leaderFrom.y}
+          x2={leaderTo.x - 8} y2={leaderFrom.y}
+        />
+      </svg>
     {/if}
 
     <!-- Info modal -->
     {#if openPanel === 'info'}
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="detail-modal info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
+      <div class="info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
         <div class="overlay-head">
           <div class="overlay-title">Biomes Overview</div>
           <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
@@ -525,15 +564,33 @@
     --tier-mid: calc(150 * var(--ui));     /* medium: filter/select */
     --tier-key: calc(118 * var(--ui));     /* smallest: phylum key */
     grid-column: 2;
-    padding: 44px 48px;
+    padding: 40px 48px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    gap: 0;
     height: 100%;
     overflow: hidden;
     position: relative;
     z-index: 5;
+  }
+
+  /* Thin gray divider between every menu item (details reads as just another one) */
+  .rail > * + * {
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    margin-top: 18px;
+    padding-top: 18px;
+  }
+
+  .control-circles,
+  .fblock,
+  .phylum-band {
+    flex: 0 0 auto;
+  }
+
+  .detail-block {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .viz-area {
@@ -671,18 +728,11 @@
     filter: grayscale(0.3);
   }
 
-  /* ===== Middle tier: filter blocks ===== */
-  .filter-blocks {
-    display: grid;
-    grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr);
-    gap: 44px;
-    align-items: start;
-  }
-
+  /* ===== Middle tier: menu items ===== */
   .fblock {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 10px;
     min-width: 0;
   }
 
@@ -696,7 +746,7 @@
 
   .fblock-title {
     margin: 0;
-    font-size: calc(30 * var(--ui));
+    font-size: calc(24 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--fg);
@@ -704,8 +754,8 @@
 
   .fblock-desc {
     margin: 0;
-    font-size: 19px;
-    line-height: 1.5;
+    font-size: 13px;
+    line-height: 1.45;
     color: var(--muted);
   }
 
@@ -716,7 +766,7 @@
   /* Known / Unknown: medium circular select buttons */
   .sel-buttons {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 20px;
   }
 
@@ -778,9 +828,9 @@
   /* Cohort ranked bubbles */
   .cohort-bubbles {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
     padding-top: 6px;
   }
 
@@ -817,10 +867,9 @@
 
   /* ===== Bottom tier: phylum key ===== */
   .phylum-band {
-    margin-top: auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     min-height: 0;
   }
 
@@ -832,7 +881,7 @@
   }
 
   .phylum-band-title {
-    font-size: calc(28 * var(--ui));
+    font-size: calc(22 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
   }
@@ -856,18 +905,18 @@
   .phylum-key {
     display: flex;
     flex-wrap: wrap;
-    gap: 14px;
+    gap: 11px;
     overflow: auto;
     align-content: flex-start;
   }
 
-  /* Pill sizes to its label; colour = phylum, tap to toggle (mirrors anthromes key-pill) */
+  /* Compact key pill; colour = phylum, tap to toggle (mirrors anthromes key-pill) */
   .phylum-dot {
     display: inline-flex;
     align-items: center;
-    height: 36px;
-    padding: 0 16px;
-    border-radius: 10px;
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 9px;
     border: 1px solid rgba(0, 0, 0, 0.18);
     cursor: pointer;
     white-space: nowrap;
@@ -879,7 +928,7 @@
   }
 
   .phylum-dot span {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.01em;
@@ -895,16 +944,56 @@
     opacity: 0.32;
   }
 
-  /* ===== Detail panel: docked in the right sidebar, vertically centered ===== */
-  .detail-modal {
+  /* ===== Leader line from the chart selection marker to the details panel ===== */
+  .leader-overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 6;
+    overflow: visible;
+  }
+
+  .leader-line {
+    stroke: rgba(255, 255, 255, 0.85);
+    stroke-width: 1.5;
+    stroke-dasharray: 2 6;
+    stroke-linecap: round;
+  }
+
+  /* ===== Details: styled exactly like the other menu items (no card) ===== */
+  .detail-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .detail-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .detail-hint {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+    opacity: 0.85;
+  }
+
+  /* Info stays a centered on-screen overlay (longer read) */
+  .info-modal {
     position: fixed;
     top: 50%;
-    right: 48px;
-    /* span the full sidebar column: disk column is 1.3fr of 2.3fr = 56.52vw */
-    left: calc(56.52vw + 48px);
-    transform: translateY(-50%);
+    left: 50%;
+    width: min(52vw, 760px);
     max-height: 82vh;
     overflow: auto;
+    transform: translate(-50%, -50%);
     background: var(--bg);
     border: 3px solid rgba(255, 255, 255, 0.85);
     border-radius: 26px;
@@ -912,24 +1001,8 @@
     box-shadow: var(--shadow);
     z-index: 20;
     pointer-events: auto;
-    transform-origin: center right;
-    animation: modal-pop-side 0.18s ease;
-  }
-
-  /* Info stays centered on screen (longer read) */
-  .info-modal {
-    top: 50%;
-    left: 50%;
-    right: auto;
-    width: min(52vw, 760px);
-    transform: translate(-50%, -50%);
     transform-origin: center center;
     animation: modal-pop-center 0.18s ease;
-  }
-
-  @keyframes modal-pop-side {
-    from { transform: translateY(-50%) scale(0.85); opacity: 0; }
-    to   { transform: translateY(-50%) scale(1); opacity: 1; }
   }
 
   @keyframes modal-pop-center {
@@ -977,11 +1050,11 @@
   }
 
   .panel-content {
-    font-size: 18px;
+    font-size: 13px;
     color: var(--muted);
-    line-height: 1.55;
+    line-height: 1.5;
     display: grid;
-    gap: 14px;
+    gap: 12px;
     overflow: auto;
   }
 
@@ -1022,20 +1095,20 @@
 
   /* Detail panel typography */
   :global(.panel-content .title) {
-    font-size: 24px;
+    font-size: 18px;
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #fff;
   }
 
   :global(.panel-content .subtitle) {
-    font-size: 16px;
+    font-size: 13px;
     color: #cfd3e0;
     letter-spacing: 0.02em;
   }
 
   :global(.panel-content .summary) {
-    font-size: 18px;
+    font-size: 14px;
     color: #e7e9f1;
   }
 
@@ -1048,7 +1121,7 @@
   }
 
   :global(.panel-content .kv .k) {
-    font-size: 15px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #9ba3c0;
@@ -1057,7 +1130,7 @@
   :global(.panel-content .kv .v) {
     color: #f6f7fb;
     font-weight: 600;
-    font-size: 17px;
+    font-size: 13px;
   }
 
   :global(.panel-content .swatch) {
@@ -1096,9 +1169,9 @@
     border: 1px solid rgba(255,255,255,0.18);
     color: #fff;
     border-radius: 12px;
-    padding: 14px 16px;
+    padding: 11px 14px;
     font-weight: 700;
-    font-size: 17px;
+    font-size: 13px;
     cursor: pointer;
   }
 

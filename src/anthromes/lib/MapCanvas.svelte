@@ -756,13 +756,12 @@
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
+      ${countryISO3 || crosswalk ? `
       <div class="kv">
-        <div class="k">${label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
-        <div class="k">${label} share in ${yearLabel}</div><div>${percentDisplay}</div>
         ${countryISO3 ? `<div class="k">Present Day Country</div><div>${iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3}</div>` : ''}
         ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
         ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
-      </div>
+      </div>` : ''}
       ${crosswalk && crosswalk.sgbs && crosswalk.sgbs.length > 0 ? `
         <div class="actions">
           <button data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">

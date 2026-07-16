@@ -2,7 +2,6 @@
   import { onMount, untrack } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
   import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
-  import ZoomsPanel from './lib/ZoomsPanel.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
 
   const LEGEND_CATEGORIES = [
@@ -137,8 +136,10 @@
     const update = () => {
       const h = historyChartEl.clientHeight;
       const w = historyChartEl.clientWidth;
-      // Square chart — fit the smaller dimension with a small gutter
-      historyChartSize = Math.max(60, Math.min(h - 24, w - 24));
+      // Square chart. Height must also leave room for the "Cell History" title
+      // above the SVG (~20px incl. gap), or the section overflows and the panel scrolls.
+      // Width only needs a hairline gutter.
+      historyChartSize = Math.max(60, Math.min(h - 20, w - 6));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -387,11 +388,36 @@
           <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
         </div>
 
-        <!-- Middle: always-visible Views (site zooms) filling the open rail space -->
-        <div class="views-slot">
-          <div class="views-head">Views</div>
-          <ZoomsPanel legend={legend} />
-        </div>
+        <!-- Middle: always-visible details menu item, where Views used to be -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
+          <h3 class="menu-title">Details</h3>
+          <p class="menu-desc">The history of anthropogenic land use for an area</p>
+          <div class="detail-body">
+            {#if detailContent}
+              {#if detailMeta?.label}
+                <div class="detail-subhead">
+                  {#if detailMeta?.color}
+                    <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
+                  {/if}
+                  <span>{detailMeta.label}</span>
+                </div>
+              {/if}
+              <div class="panel-content" onclick={handleDetailPanelClick}>
+                {@html detailContent}
+              </div>
+              {#if barChartData?.length}
+                <div class="history-chart-section" bind:this={historyChartEl}>
+                  <div class="history-chart-title">Cell History</div>
+                  <HistoryCircleChart periods={barChartData} size={historyChartSize} />
+                </div>
+              {/if}
+            {:else}
+              <p class="detail-hint">Select an area on the map</p>
+            {/if}
+          </div>
+        </section>
 
         <!-- Bottom tier: always-visible anthrome filter key. Click to isolate one, drag across to select a range. -->
         <section class="anthrome-key">
@@ -459,34 +485,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Side-docked detail panel (left rail area, vertically centered); history chart always shown -->
-  {#if detailContent}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-      <div class="overlay-head">
-        <div class="overlay-title detail-title">
-          {#if detailMeta?.color}
-            <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
-          {/if}
-          <span>{detailMeta?.label ?? 'Details'}</span>
-        </div>
-        <button class="chevron" onclick={handleDetailClose} aria-label="Close">✕</button>
-      </div>
-      <div class="detail-body">
-        <div class="panel-content" onclick={handleDetailPanelClick}>
-          {@html detailContent}
-        </div>
-        {#if barChartData?.length}
-          <div class="history-chart-section" bind:this={historyChartEl}>
-            <div class="history-chart-title">Cell History</div>
-            <HistoryCircleChart periods={barChartData} size={historyChartSize} />
-          </div>
-        {/if}
-      </div>
-    </div>
-  {/if}
 
   <!-- Info modal (center-docked) -->
   {#if openPanel === 'info'}
@@ -697,13 +695,27 @@
 
   .filter-rail {
     grid-column: 1;
-    padding: 18px 28px;
+    padding: 40px 48px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 0;
     height: 100%;
     overflow: hidden;
+    position: relative;
+    z-index: 5;
+  }
+
+  /* Thin gray divider between every menu item (details reads as just another one) */
+  .filter-rail > * + * {
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    margin-top: 18px;
+    padding-top: 18px;
+  }
+
+  .control-circles,
+  .anthrome-key {
+    flex: 0 0 auto;
   }
 
   /* ===== MoMA: top control circles (largest tier) ===== */
@@ -747,29 +759,14 @@
     filter: grayscale(0.3);
   }
 
-  /* ===== MoMA: always-visible Views panel filling the open rail space ===== */
-  .views-slot {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .views-head {
-    font-size: calc(28 * var(--ui));
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: var(--fg);
-  }
-
   /* ===== MoMA: bottom anthrome filter key (always visible) ===== */
   .anthrome-key {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     min-height: 0;
+    max-height: 40%;
   }
 
   .anthrome-key-head {
@@ -780,7 +777,7 @@
   }
 
   .anthrome-key-title {
-    font-size: calc(28 * var(--ui));
+    font-size: calc(22 * var(--ui));
     font-weight: 800;
     letter-spacing: 0.02em;
   }
@@ -804,7 +801,7 @@
   /* Bar-legend (mirrors the info-panel legend): vertical intensity axis + multi-column swatch grid */
   .key-legend {
     display: flex;
-    gap: 20px;
+    gap: 14px;
     align-items: stretch;
     min-height: 0;
     overflow: auto;
@@ -865,18 +862,18 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
     align-content: start;
   }
 
   .key-family {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 3px;
   }
 
   .key-cat-name {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -886,7 +883,7 @@
   .key-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
   }
 
@@ -894,11 +891,11 @@
   .key-pill {
     display: inline-flex;
     align-items: center;
-    height: 36px;
-    padding: 0 16px;
-    border-radius: 10px;
+    height: 30px;
+    padding: 0 11px;
+    border-radius: 8px;
     border: 1px solid rgba(0, 0, 0, 0.18);
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
@@ -912,31 +909,58 @@
     opacity: 0.35;
   }
 
-  /* ===== MoMA: side-docked detail panel (left rail area, vertically centered) ===== */
+  /* ===== MoMA: details — styled exactly like the other menu items (no card) ===== */
   .detail-dock {
-    position: fixed;
-    top: 50%;
-    left: 32px;
-    /* span the left rail column (1fr of 1fr 2fr = 33.33vw) */
-    right: calc(66.67vw + 32px);
-    transform: translateY(-50%);
-    height: 50vh;
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
-    border-radius: 26px;
-    padding: 26px 30px;
-    box-shadow: var(--shadow);
-    z-index: 20;
+    gap: 10px;
+    box-sizing: border-box;
     pointer-events: auto;
-    transform-origin: center left;
-    animation: dock-pop-side 0.18s ease;
   }
 
-  @keyframes dock-pop-side {
-    from { transform: translateY(-50%) scale(0.9); opacity: 0; }
-    to   { transform: translateY(-50%) scale(1); opacity: 1; }
+  /* Menu item title/description — shared look with the other rail sections */
+  .menu-title {
+    margin: 0;
+    font-size: calc(22 * var(--ui));
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+
+  .menu-desc {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+
+  /* Selected-cell subheading (swatch + anthrome name) inside the details body */
+  .detail-subhead {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #fff;
+  }
+
+  .detail-hint {
+    margin: 0;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+    opacity: 0.85;
   }
 
   .detail-body {
@@ -944,20 +968,22 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
     overflow: auto;
   }
 
-  /* Text takes the remaining space and scrolls; history chart is a fixed 75% of the body */
+  /* Text shows at its natural height (no scroll); the chart yields to it */
   .detail-body .panel-content {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  /* Chart grows into the leftover space, but never past 75% of the body and
+     never enough to push the text above into a scroll */
+  .detail-dock .history-chart-section {
     flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
-  }
-
-  .detail-dock .history-chart-section {
-    flex: 0 0 75%;
-    min-height: 0;
+    max-height: 75%;
     justify-content: flex-start;
   }
 
@@ -1035,12 +1061,6 @@
     letter-spacing: 0.04em;
   }
 
-  .detail-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
   .overlay-swatch {
     width: 14px;
     height: 14px;
@@ -1061,22 +1081,28 @@
     min-height: 0;
   }
 
+  /* The detail subhead (swatch + anthrome name) already covers the head,
+     so drop the content's redundant title/"Year …" block inside the panel. */
+  :global(.detail-body .panel-content .tip-head) {
+    display: none;
+  }
+
   /* Detail panel typography */
   :global(.panel-content .title) {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #fff;
   }
 
   :global(.panel-content .subtitle) {
-    font-size: 12px;
+    font-size: 13px;
     color: #cfd3e0;
     letter-spacing: 0.02em;
   }
 
   :global(.panel-content .summary) {
-    font-size: 13px;
+    font-size: 14px;
     color: #e7e9f1;
   }
 
@@ -1098,6 +1124,7 @@
   :global(.panel-content .kv .v) {
     color: #f6f7fb;
     font-weight: 600;
+    font-size: 13px;
   }
 
   :global(.panel-content .swatch) {
@@ -1135,10 +1162,10 @@
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(255,255,255,0.18);
     color: #fff;
-    border-radius: 10px;
-    padding: 8px 10px;
+    border-radius: 12px;
+    padding: 11px 14px;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 13px;
     cursor: pointer;
   }
 

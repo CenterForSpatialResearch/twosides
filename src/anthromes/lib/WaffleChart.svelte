@@ -277,10 +277,6 @@
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${d.label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
-      <div class="kv">
-        <div class="k">${d.label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
-        <div class="k">${d.label} share in ${yearLabel}</div><div>${percentDisplay}</div>
-      </div>
     `;
     return {
       html,
