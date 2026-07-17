@@ -1,8 +1,20 @@
-name: Deploy to GitHub Pages
+name: Deploy site (combined)
+
+# Builds every published branch into ONE GitHub Pages artifact:
+#   main -> dist/      -> twosides.earth
+#   dev  -> dist/dev/  -> twosides.earth/dev
+#
+# This file is the single source of truth and lives only on `main`.
+# `repository_dispatch` and `workflow_dispatch` always run the workflow file
+# from the default branch, so a push to `dev` fires the ping in
+# .github/workflows/trigger-deploy.yml (on `dev`) and this file does the work.
+# Branch app code is never merged into main — each ref is checked out fresh.
 
 on:
   push:
     branches: [main]
+  repository_dispatch:
+    types: [deploy-preview]
   workflow_dispatch:
 
 permissions:
@@ -18,21 +30,54 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
-        run: npm ci
+      # ---- main -> dist/ (root) ----
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          lfs: true
+          path: src-main
 
-      - name: Build
-        run: npm run build
+      - name: Build main (root base)
+        working-directory: src-main
+        run: |
+          npm ci
+          BASE_PATH=/ npm run build
+
+      - name: Stage main at dist/
+        run: |
+          mkdir -p dist
+          cp -R src-main/dist/. dist/
+
+      # ---- dev -> dist/dev/ ----
+      - name: Checkout dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          lfs: true
+          path: src-dev
+
+      - name: Build dev (/dev/ base)
+        working-directory: src-dev
+        run: |
+          npm ci
+          BASE_PATH=/dev/ npm run build
+
+      - name: Stage dev at dist/dev/
+        run: |
+          mkdir -p dist/dev
+          cp -R src-dev/dist/. dist/dev/
+
+      # ---- custom domain + upload ----
+      # Required: the CNAME is held in Pages settings today, and a combined
+      # artifact deploy would otherwise wipe the twosides.earth domain.
+      - name: Write CNAME
+        run: echo "twosides.earth" > dist/CNAME
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
