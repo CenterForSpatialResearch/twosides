@@ -367,7 +367,7 @@
               <textPath href="#nav-arc-top-left" startOffset="50%" text-anchor="middle"><tspan class="here">BIOMES</tspan></textPath>
             </text>
             <text class="nav-circle__text nav-circle__text--link">
-              <a href="/src/anthromes/" aria-label="Go to Anthromes">
+              <a href="{import.meta.env.BASE_URL}src/anthromes/" aria-label="Go to Anthromes">
                 <textPath href="#nav-arc-bottom-right" startOffset="50%" text-anchor="middle">ANTHROMES →</textPath>
               </a>
             </text>

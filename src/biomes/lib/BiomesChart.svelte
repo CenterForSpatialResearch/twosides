@@ -1021,7 +1021,7 @@
   // Lazy-load study SGB map only when a study filter is requested
   $effect(() => {
     if (!studyKey || studyLoaded) return;
-    fetch('/data/study_index.json')
+    fetch(`${import.meta.env.BASE_URL}data/study_index.json`)
       .then(res => res.ok ? res.json() : null)
       .then(json => {
         if (json) {
@@ -1037,7 +1037,7 @@
 
   onMount(() => {
     // Lazy-load proxy SGB map from public JSON
-    fetch('/data/proxy_samples.json')
+    fetch(`${import.meta.env.BASE_URL}data/proxy_samples.json`)
       .then(res => res.ok ? res.json() : null)
       .then(json => {
         if (json?.proxies) {
