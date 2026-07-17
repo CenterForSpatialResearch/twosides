@@ -783,13 +783,9 @@
         ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
         ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>` : ''}
-      ${crosswalk && crosswalk.sgbs && crosswalk.sgbs.length > 0 ? `
-        <div class="actions">
-          <button data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">
-            Highlight gut microbes found in this country →
-          </button>
-        </div>
-      ` : ''}
+      ${crosswalk && crosswalk.sgbs && crosswalk.sgbs.length > 0
+        ? `<a class="detail-link" data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">Highlight gut microbes found in this country →</a>`
+        : ''}
     `;
     tooltipVisible = true;
   }

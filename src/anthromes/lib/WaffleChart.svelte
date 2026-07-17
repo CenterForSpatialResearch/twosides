@@ -178,7 +178,8 @@
   }
 
   export function handlePanelAction(event) {
-    const btn = event.target.closest('button[data-act]');
+    // Match both old <button> actions and the new inline <a class="detail-link">.
+    const btn = event.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.getAttribute('data-act');
     if (act === 'highlight-biomes') {

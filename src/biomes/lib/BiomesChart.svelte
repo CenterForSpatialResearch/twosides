@@ -1,3 +1,15 @@
+<script module>
+  // Prevalence thresholds (against leaf.data.metadata; derived from the live
+  // sgb_taxonomy_tree.json, 4,931 leaves). In a `module` block so App.svelte can
+  // import them for its live captions — one source of truth for both the filter
+  // logic here and the percentages there. "abundant"/"rare" are sample-count
+  // axes; "widespread"/"concentrated" are country-count axes — don't cross them.
+  export const ABUNDANT_MIN_SAMPLES = 8;       // Sample_ID_Count >= 8  (~27% of SGBs)
+  export const RARE_MAX_SAMPLES = 1;           // Sample_ID_Count <= 1  (~40% of SGBs)
+  export const WIDESPREAD_MIN_COUNTRIES = 4;   // Country_Count >= 4   (~25% of SGBs)
+  export const CONCENTRATED_MAX_COUNTRIES = 1; // Country_Count <= 1   (~54% of SGBs)
+</script>
+
 <script>
   import { onMount, untrack } from 'svelte';
   import * as d3 from 'd3';
@@ -25,6 +37,8 @@
     selectedPhyla = $bindable([]),
     unknownFilter = $bindable('all'), // 'all' | 'unknown' | 'known'
     westernFilter = $bindable('any'), // 'any' | 'western' | 'nonwestern'
+    abundanceFilter = $bindable('any'), // 'any' | 'abundant' | 'rare'
+    geoFilter = $bindable('any'),       // 'any' | 'widespread' | 'concentrated'
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
     studyKey = $bindable(null),
@@ -882,23 +896,17 @@
       .radius(n => (yMax === yMin ? (rMin + rMax) / 2 : rMin + (n.y - yMin) / (yMax - yMin) * (rMax - rMin)));
     const glyphPath = glyphLine(chain);
 
-    // Summary text
+    // Summary text. The genome count already lives here ("includes N genomes"),
+    // so the old standalone "N genomes identified" meter was redundant and is
+    // dropped. The country-highlight action is an inline link right after the
+    // locations, so it reads as one sentence and keeps the panel compact.
     const loc = locationsFromMeta(meta, iso3ToName);
     const sgb = sgbLabel(d);
-    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> genomes within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.`;
-
-    // Genome meter ticks
-    const maxTicks = 20;
-    const denom = Math.max(1, tickDenom);
-    const fraction = Math.min(1, rec / denom);
-    const targetTicks = Math.max((rec > 0 ? 1 : 0), fraction * maxTicks);
-    const ticksInt = Math.min(maxTicks, Math.round(targetTicks));
-
-    let ticksHTML = '';
-    for (let i = 0; i < maxTicks; i++) {
-      const filled = i < ticksInt ? 'filled' : '';
-      ticksHTML += `<span class="tick ${filled}" style="--tickColor: ${color}"></span>`;
-    }
+    const recWord = rec === 1 ? 'genome' : 'genomes';
+    const highlightLink = (leaf && meta?.SGB_ID)
+      ? ` <a class="detail-link" data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</a>`
+      : '';
+    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> ${recWord} within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.${highlightLink}`;
 
     return `
       <div class="tip-header">
@@ -916,19 +924,10 @@
 
       <div class="summary">${summary}</div>
 
-      <div class="genome-meter">
-        <div class="ticks">${ticksHTML}</div>
-        <div class="num"><span class="val">${rec.toLocaleString()}</span> genomes identified</div>
-      </div>
-
       <div class="kv">
         <div class="k">Status</div><div>${safe(status)}</div>
         <div class="k">Geography</div><div>${safe(geo)}</div>
       </div>
-
-      ${leaf && meta?.SGB_ID ? `<div class="actions">
-        <button data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</button>
-      </div>` : ''}
     `;
   }
 
@@ -961,6 +960,16 @@
     } else if (westernFilter === 'nonwestern') {
       if (parseWestern(leaf.data.metadata) !== 'nonwestern') return false;
     }
+    if (abundanceFilter === 'abundant') {
+      if (Number(leaf.data.metadata?.Sample_ID_Count) < ABUNDANT_MIN_SAMPLES) return false;
+    } else if (abundanceFilter === 'rare') {
+      if (Number(leaf.data.metadata?.Sample_ID_Count) > RARE_MAX_SAMPLES) return false;
+    }
+    if (geoFilter === 'widespread') {
+      if (Number(leaf.data.metadata?.Country_Count) < WIDESPREAD_MIN_COUNTRIES) return false;
+    } else if (geoFilter === 'concentrated') {
+      if (Number(leaf.data.metadata?.Country_Count) > CONCENTRATED_MAX_COUNTRIES) return false;
+    }
     // Body site filter (best-effort; expects metadata.body_site)
     if (bodySiteFilter.size > 0) {
       const bs = (leaf.data?.metadata?.body_site || '').toLowerCase();
@@ -989,6 +998,8 @@
       selectedPhyla.length > 0 ||
       unknownFilter !== 'all' ||
       westernFilter !== 'any' ||
+      abundanceFilter !== 'any' ||
+      geoFilter !== 'any' ||
       bodySiteFilter.size > 0 ||
       !!proxyKey ||
       !!studyKey;
@@ -1055,7 +1066,8 @@
 
   // Handle tooltip actions
   export function handleTooltipAction(event) {
-    const btn = event.target.closest('button');
+    // Match both the old <button> actions and the new inline <a class="detail-link">.
+    const btn = event.target.closest('[data-act]');
     if (!btn) return;
 
     const act = btn.getAttribute('data-act');
@@ -1113,6 +1125,8 @@
     selectedPhyla.length;
     unknownFilter;
     westernFilter;
+    abundanceFilter;
+    geoFilter;
     bodySiteFilter.size;
     proxyKey;
     studyKey;

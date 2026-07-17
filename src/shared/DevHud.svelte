@@ -5,6 +5,7 @@
   // Mount inside .viewport but OUTSIDE .stage so it never gets scaled.
   import { onMount } from 'svelte';
   import { DESIGN_W, DESIGN_H, stageScale, getStageEl, screenToDesign } from './stage.svelte.js';
+  import { uiOption, setUiOption } from './uiOption.svelte.js';
 
   const LENS_W = 420;
   const LENS_H = 280;
@@ -132,6 +133,13 @@
       <div class="hud-row">DPR:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; {dpr.toFixed(2)}</div>
       <button class="hud-btn" class:on={lensOn} onclick={() => (lensOn = !lensOn)}>
         {lensOn ? '■' : '□'} 1:1 LENS
+      </button>
+      <button
+        class="hud-btn"
+        class:on={uiOption() === 2}
+        onclick={() => setUiOption(uiOption() === 1 ? 2 : 1)}
+      >
+        UI OPTION: {uiOption()}
       </button>
     </div>
   {/if}

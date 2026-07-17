@@ -1,10 +1,16 @@
 <script>
   import { onMount } from 'svelte';
-  import BiomesChart from './lib/BiomesChart.svelte';
+  import BiomesChart, {
+    ABUNDANT_MIN_SAMPLES,
+    RARE_MAX_SAMPLES,
+    WIDESPREAD_MIN_COUNTRIES,
+    CONCENTRATED_MAX_COUNTRIES
+  } from './lib/BiomesChart.svelte';
   import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB, parseWestern } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
   import DevHud from '../shared/DevHud.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
+  import { uiOption } from '../shared/uiOption.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -23,6 +29,8 @@
   let selectedPhyla = $state([]);
   let unknownFilter = $state('all'); // 'all' | 'unknown' | 'known'
   let westernFilter = $state('any'); // 'any' | 'western' | 'nonwestern'
+  let abundanceFilter = $state('any'); // 'any' | 'abundant' | 'rare' (Sample_ID_Count)
+  let geoFilter = $state('any');       // 'any' | 'widespread' | 'concentrated' (Country_Count)
   let viewSize = $state('full'); // 'full' or 'preview'
   let tension = $state(0.95);
   let settingsOpen = $state(false);
@@ -80,6 +88,14 @@
   // MoMA: western / non-western percentages (computed from leaves on mount)
   let westernPct = $state(0);
   let nonwesternPct = $state(0);
+
+  // Prevalence percentages — share of all SGBs clearing each threshold constant
+  // (computed from leaves on mount, same pass as known/unknown). abundantPct
+  // doubles as the "top X% by sample count" figure in the compound-button caption.
+  let abundantPct = $state(0);
+  let rarePct = $state(0);
+  let widespreadPct = $state(0);
+  let concentratedPct = $state(0);
 
   // Panel state
   let infoOpen = $state(false);
@@ -143,6 +159,8 @@
       let known = 0, unknown = 0;
       // Western / Non-western percentages (some leaves are neither)
       let western = 0, nonwestern = 0;
+      // Prevalence counts (Sample_ID_Count / Country_Count thresholds)
+      let abundant = 0, rare = 0, widespread = 0, concentrated = 0;
       // Set of unknown (uSGB) SGB IDs, for the cohort "% unknown" ranking
       const unknownSgbIds = new Set();
       for (const l of leaves) {
@@ -154,12 +172,22 @@
         }
         const w = parseWestern(l.data.metadata);
         if (w === 'western') western++; else if (w === 'nonwestern') nonwestern++;
+        const samples = Number(l.data.metadata?.Sample_ID_Count);
+        if (samples >= ABUNDANT_MIN_SAMPLES) abundant++;
+        else if (samples <= RARE_MAX_SAMPLES) rare++;
+        const countries = Number(l.data.metadata?.Country_Count);
+        if (countries >= WIDESPREAD_MIN_COUNTRIES) widespread++;
+        else if (countries <= CONCENTRATED_MAX_COUNTRIES) concentrated++;
       }
       const totalLeaves = (known + unknown) || 1;
       knownPct = Math.round((known / totalLeaves) * 100);
       unknownPct = Math.round((unknown / totalLeaves) * 100);
       westernPct = Math.round((western / totalLeaves) * 100);
       nonwesternPct = Math.round((nonwestern / totalLeaves) * 100);
+      abundantPct = Math.round((abundant / totalLeaves) * 100);
+      rarePct = Math.round((rare / totalLeaves) * 100);
+      widespreadPct = Math.round((widespread / totalLeaves) * 100);
+      concentratedPct = Math.round((concentrated / totalLeaves) * 100);
 
       // Cohort diversity stats (distinct SGBs + sample size) for the curated cohorts
       try {
@@ -201,6 +229,8 @@
     selectedPhyla = [];
     unknownFilter = 'all';
     westernFilter = 'any';
+    abundanceFilter = 'any';
+    geoFilter = 'any';
     selectedStudyKey = null;
     openPanel = null;
     detailContent = null;
@@ -216,6 +246,58 @@
   function toggleWestern(value) {
     westernFilter = westernFilter === value ? 'any' : value;
   }
+
+  // ── Option 1 Prevalence filters (Block A) ──
+  // Three axes — 'western' (Westernized_Mode), 'abundance' (Sample_ID_Count),
+  // 'geo' (Country_Count) — behave as one isolate-group: tapping any button
+  // clears all three axes, then sets its own. Tapping the active one resets.
+  // (The .active classes still check a single dimension each, so a Block B
+  // compound that sets several of these lights every button it implies.)
+  function togglePrevalence(axis, value) {
+    const current =
+      axis === 'western' ? westernFilter : axis === 'abundance' ? abundanceFilter : geoFilter;
+    const wasActive = current === value;
+    westernFilter = 'any';
+    abundanceFilter = 'any';
+    geoFilter = 'any';
+    if (wasActive) return; // re-tap of the active button = reset
+    if (axis === 'western') westernFilter = value;
+    else if (axis === 'abundance') abundanceFilter = value;
+    else geoFilter = value;
+  }
+
+  // Option 1 Block B "Known/Unknown" row. Every button first resets all four
+  // dimensions, then applies its own — so compound buttons never leave a stray
+  // filter behind, and re-tapping an active button is a clean full reset.
+  function selectKnownRow(next) {
+    const active =
+      unknownFilter === (next.unknownFilter ?? 'all') &&
+      abundanceFilter === (next.abundanceFilter ?? 'any') &&
+      geoFilter === (next.geoFilter ?? 'any') &&
+      westernFilter === (next.westernFilter ?? 'any');
+    unknownFilter = 'all';
+    abundanceFilter = 'any';
+    geoFilter = 'any';
+    westernFilter = 'any';
+    if (active) return; // re-tap of the already-active button = reset
+    if (next.unknownFilter) unknownFilter = next.unknownFilter;
+    if (next.abundanceFilter) abundanceFilter = next.abundanceFilter;
+    if (next.geoFilter) geoFilter = next.geoFilter;
+    if (next.westernFilter) westernFilter = next.westernFilter;
+  }
+
+  // Active-state helpers for Block B buttons. Known/Unknown light on their single
+  // dimension alone — same shared-state reflection as Block A's Abundant/Concentrated
+  // — so a compound selection (which also sets unknownFilter) lights Unknown too.
+  // The compound buttons still require every claimed dimension to be set.
+  const knownActive = $derived(unknownFilter === 'known');
+  const unknownActive = $derived(unknownFilter === 'unknown');
+  const unknownAbundantActive = $derived(
+    unknownFilter === 'unknown' && abundanceFilter === 'abundant' && geoFilter === 'any' && westernFilter === 'any'
+  );
+  const unknownConcNonWestActive = $derived(
+    unknownFilter === 'unknown' && geoFilter === 'concentrated' && westernFilter === 'nonwestern' && abundanceFilter === 'any'
+  );
 
   // Handle phylum chip toggle
   function togglePhylum(phylum) {
@@ -452,6 +534,8 @@
           bind:selectedPhyla
           bind:unknownFilter
           bind:westernFilter
+          bind:abundanceFilter
+          bind:geoFilter
           size={viewSize}
           {tension}
           bodySiteFilter={selectedBodySites}
@@ -473,8 +557,9 @@
           <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
         </div>
 
-        <!-- Middle tier: Known/Unknown and Non/Western share a row. No "All"
-             button — like Cohort, all are shown by default; tap to isolate,
+        {#if uiOption() === 2}
+        <!-- Option 2 (unchanged): Known/Unknown and Non/Western share a row. No
+             "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
         <div class="filter-row">
           <section class="fblock">
@@ -526,8 +611,69 @@
             {/each}
           </div>
         </section>
+        {:else}
+        <!-- Option 1: two stacked blocks — Prevalence (population type / samples /
+             countries) then Known/Unknown with two compound buttons. Same
+             tap-to-isolate / tap-again-to-reset pattern; each Block A button
+             isolates its one dimension (clearing the other two axes). Cohort is
+             intentionally omitted here to give the details panel room. -->
+        <section class="fblock">
+          <h3 class="fblock-title">Prevalence</h3>
+          <p class="fblock-desc">How often bacteria are found in human populations, and where.</p>
+          <div class="sel-buttons sel-buttons--stack">
+            <!-- Three axis-pairs, each a vertical stack; row 1 / row 2 across:
+                 Western  Abundant  Widespread  /  Non-Western  Rare  Concentrated -->
+            <div class="sel-col">
+              <button class="sel-btn" class:active={westernFilter === 'western'} onclick={() => togglePrevalence('western', 'western')}>
+                <span class="sel-name">Western</span>
+                <span class="sel-pct">{westernPct}%</span>
+              </button>
+              <span class="sel-caption">From industrialized, urban populations.</span>
+            </div>
+            <div class="sel-col">
+              <button class="sel-btn" class:active={abundanceFilter === 'abundant'} onclick={() => togglePrevalence('abundance', 'abundant')}>
+                <span class="sel-name">Abundant</span>
+                <span class="sel-pct">{abundantPct}%</span>
+              </button>
+              <span class="sel-caption">Found in many samples across the dataset.</span>
+            </div>
+            <div class="sel-col">
+              <button class="sel-btn" class:active={geoFilter === 'widespread'} onclick={() => togglePrevalence('geo', 'widespread')}>
+                <span class="sel-name">Widespread</span>
+                <span class="sel-pct">{widespreadPct}%</span>
+              </button>
+              <span class="sel-caption">Present across several countries.</span>
+            </div>
+            <div class="sel-col">
+              <button class="sel-btn" class:active={westernFilter === 'nonwestern'} onclick={() => togglePrevalence('western', 'nonwestern')}>
+                <span class="sel-name">Non-Western</span>
+                <span class="sel-pct">{nonwesternPct}%</span>
+              </button>
+              <span class="sel-caption">From populations with limited industrialization.</span>
+            </div>
+            <div class="sel-col">
+              <button class="sel-btn" class:active={abundanceFilter === 'rare'} onclick={() => togglePrevalence('abundance', 'rare')}>
+                <span class="sel-name">Rare</span>
+                <span class="sel-pct">{rarePct}%</span>
+              </button>
+              <span class="sel-caption">Found in only one sample so far.</span>
+            </div>
+            <div class="sel-col">
+              <button class="sel-btn" class:active={geoFilter === 'concentrated'} onclick={() => togglePrevalence('geo', 'concentrated')}>
+                <span class="sel-name">Concentrated</span>
+                <span class="sel-pct">{concentratedPct}%</span>
+              </button>
+              <span class="sel-caption">Found in only one country.</span>
+            </div>
+          </div>
+        </section>
 
-        <!-- Details: another menu item, occupying the flexible middle band -->
+        {/if}
+
+        <!-- Details: shared by both options, occupying the flexible middle band.
+             Option 1 places it ABOVE Known/Unknown so the horizontal marker
+             leader lines up with the panel; Option 2 has it after Cohort. The
+             leader endpoint tracks its box, so it follows the move. -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
@@ -541,6 +687,47 @@
             {/if}
           </div>
         </section>
+
+        {#if uiOption() === 1}
+        <!-- Known/Unknown sits below the details panel in Option 1 (swapped so
+             the marker leader aligns with the panel). Option-1-only content. -->
+        <section class="fblock">
+          <h3 class="fblock-title">Known / Unknown</h3>
+          <p class="fblock-desc">Which bacteria species were already known before this study, and how the newly-identified ones break down by prevalence.</p>
+          <div class="sel-buttons sel-buttons--pairs">
+            <div class="sel-pair">
+              <div class="sel-col">
+                <button class="sel-btn" class:active={knownActive} onclick={() => selectKnownRow({ unknownFilter: 'known' })}>
+                  <span class="sel-name">Known</span>
+                  <span class="sel-pct">{knownPct}%</span>
+                </button>
+                <span class="sel-caption">Bacteria species known before this study.</span>
+              </div>
+              <div class="sel-col">
+                <button class="sel-btn" class:active={unknownActive} onclick={() => selectKnownRow({ unknownFilter: 'unknown' })}>
+                  <span class="sel-name">Unknown</span>
+                  <span class="sel-pct">{unknownPct}%</span>
+                </button>
+                <span class="sel-caption">Bacteria species newly identified in this study.</span>
+              </div>
+            </div>
+            <div class="sel-pair">
+              <div class="sel-col">
+                <button class="sel-btn" class:active={unknownAbundantActive} onclick={() => selectKnownRow({ unknownFilter: 'unknown', abundanceFilter: 'abundant' })}>
+                  <span class="sel-name">Unknown + Abundant</span>
+                </button>
+                <span class="sel-caption">Unknown bacteria species that are also common — found in the top {abundantPct}% of species by sample count.</span>
+              </div>
+              <div class="sel-col">
+                <button class="sel-btn" class:active={unknownConcNonWestActive} onclick={() => selectKnownRow({ unknownFilter: 'unknown', geoFilter: 'concentrated', westernFilter: 'nonwestern' })}>
+                  <span class="sel-name">Unknown + Concentrated + Non-Western</span>
+                </button>
+                <span class="sel-caption">Unknown species found concentrated in a single country, with limited exposure to industrialized systems.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        {/if}
 
         <!-- Bottom tier: phylum key -->
         <section class="phylum-band">
@@ -908,6 +1095,63 @@
     transform: scale(0.96);
   }
 
+  /* ===== Option 1: nested-pair button rows + per-button captions =====
+     Two visually-grouped pairs: a small gap within each pair, a larger gap
+     between the two pairs. Each button carries a short caption beneath it. */
+  .sel-buttons--pairs {
+    width: 100%;
+    gap: 60px;               /* the larger space that separates the two pairs */
+    align-items: flex-start;
+  }
+
+  .sel-pair {
+    flex: 1 1 0;             /* each pair fills half the row */
+    display: flex;
+    gap: 22px;               /* the small space within a pair */
+    align-items: flex-start;
+  }
+
+  .sel-col {
+    flex: 1 1 0;             /* two equal columns per pair — captions get the full
+                               available width, so they wrap to fewer lines */
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 11px;
+  }
+
+  /* Stacked variant (Prevalence, 6 buttons): a 3-column grid, two rows. Column
+     gap is the larger between-pair space, row gap the small within-pair space.
+     Grid keeps the second row of buttons aligned across columns even when the
+     first-row captions differ in height. */
+  .sel-buttons--stack {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    column-gap: 60px;
+    row-gap: 18px;
+    width: 100%;
+    align-items: start;
+  }
+
+  /* Prevalence circles are smaller than the standard --tier-mid select buttons:
+     six of them in two rows, so the extra height matters for the details panel. */
+  .sel-buttons--stack .sel-btn {
+    width: 140px;
+    height: 140px;
+  }
+
+  .sel-buttons--stack .sel-name {
+    font-size: 15.5px;
+  }
+
+  .sel-caption {
+    font-size: 13px;
+    line-height: 1.3;
+    color: var(--muted);
+    text-align: center;
+  }
+
   /* Cohort ranked bubbles */
   .cohort-bubbles {
     display: flex;
@@ -1147,7 +1391,7 @@
     color: var(--muted);
     line-height: 1.5;
     display: grid;
-    gap: 15px;
+    gap: 11px;              /* unified with the anthromes detail panel */
     overflow: auto;
   }
 
@@ -1201,8 +1445,19 @@
   }
 
   :global(.panel-content .summary) {
-    font-size: 18px;
+    font-size: 16.6px;
     color: #e7e9f1;
+  }
+
+  /* Inline, clickable action link that lives at the end of the summary sentence
+     (e.g. "Highlight countries … →") — underline + arrow signal it's tappable.
+     Unified across biomes + anthromes; replaces the old boxed .actions button. */
+  :global(.panel-content .detail-link) {
+    color: var(--accent, #7dd3fc);
+    text-decoration: underline;
+    text-underline-offset: 2.6px;
+    cursor: pointer;
+    pointer-events: auto;
   }
 
   :global(.panel-content .kv) {

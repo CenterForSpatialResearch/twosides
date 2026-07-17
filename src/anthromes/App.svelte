@@ -1110,7 +1110,7 @@
     line-height: 1.5;
     display: flex;
     flex-direction: column;
-    gap: 13px;
+    gap: 11px;              /* unified with the biomes detail panel */
     overflow: hidden;
     flex: 1;
     min-height: 0;
@@ -1137,8 +1137,19 @@
   }
 
   :global(.panel-content .summary) {
-    font-size: 18px;
+    font-size: 16.6px;
     color: #e7e9f1;
+  }
+
+  /* Inline, clickable action link (e.g. "Highlight gut microbes … →") — underline
+     + arrow signal it's tappable. Unified with the biomes detail panel; replaces
+     the old boxed .actions button. */
+  :global(.panel-content .detail-link) {
+    color: var(--accent, #7dd3fc);
+    text-decoration: underline;
+    text-underline-offset: 2.6px;
+    cursor: pointer;
+    pointer-events: auto;
   }
 
   :global(.panel-content .kv) {
