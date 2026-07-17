@@ -5,7 +5,38 @@
   --muted: #cfd3e0;
   --panel: #141226;
   --accent: #7ad7ff;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow: 0 13px 38px rgba(0, 0, 0, 0.35);
+
+  /* Fixed design canvas — see src/shared/stage.svelte.js */
+  --design-w: 3000;
+  --design-h: 2000;
+  /* Set from JS on load + resize; CSS can't divide length/length to a factor. */
+  --stage-scale: 1;
+}
+
+/* ===== Fixed-canvas scaling =====
+   .viewport fills the real window and supplies the letterbox background.
+   .stage is the 1:1 design canvas; one transform scales all app content.
+   Everything inside .stage is authored in design px and must use
+   position: absolute, never fixed. */
+.viewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  /* DevHud swaps this for blue when we're off-target. */
+  background: var(--letterbox-bg, var(--bg));
+}
+
+.stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--design-w) * 1px);
+  height: calc(var(--design-h) * 1px);
+  background: var(--bg);
+  overflow: hidden;
+  transform: translate(-50%, -50%) scale(var(--stage-scale));
+  transform-origin: center center;
 }
 
 /* ABCPelikan font declarations */
@@ -42,10 +73,11 @@ body {
   overflow: hidden;
 }
 
-/* Common UI elements */
+/* Common UI elements. These live inside .stage, so they are positioned
+   absolutely in design px against the 3000x2000 canvas. */
 .side-title {
-  position: fixed;
-  right: 14px;
+  position: absolute;
+  right: 18px;
   top: 50%;
   transform: translateY(-50%);
   writing-mode: vertical-rl;
@@ -55,7 +87,7 @@ body {
   overflow: visible;
   letter-spacing: 0.08em;
   font-weight: 600;
-  font-size: 20px;
+  font-size: 26px;
   color: var(--muted);
   opacity: 0.9;
   user-select: none;
@@ -63,21 +95,21 @@ body {
 }
 
 .zooms-link {
-  position: fixed;
-  top: 12px;
-  right: 60px;
+  position: absolute;
+  top: 15px;
+  right: 77px;
   z-index: 8;
   background: var(--panel);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  height: 40px;
-  padding: 0 14px;
-  border-radius: 12px;
+  border: 1.3px solid rgba(255, 255, 255, 0.14);
+  height: 51px;
+  padding: 0 18px;
+  border-radius: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   box-shadow: var(--shadow);
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 600;
   color: var(--muted);
   text-decoration: none;
@@ -90,21 +122,21 @@ body {
 }
 
 .settings-toggle {
-  position: fixed;
-  top: 12px;
-  right: 12px;
+  position: absolute;
+  top: 15px;
+  right: 15px;
   z-index: 8;
   background: var(--panel);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  border: 1.3px solid rgba(255, 255, 255, 0.14);
+  width: 51px;
+  height: 51px;
+  border-radius: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   box-shadow: var(--shadow);
-  font-size: 18px;
+  font-size: 23px;
   color: var(--muted);
   transition: color 0.2s ease;
 }
@@ -114,17 +146,17 @@ body {
 }
 
 .settings-panel {
-  position: fixed;
-  top: 64px;
-  right: 12px;
+  position: absolute;
+  top: 82px;
+  right: 15px;
   z-index: 7;
   background: linear-gradient(180deg, rgba(20, 18, 38, 0.97), rgba(20, 18, 38, 0.9));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  padding: 10px 12px;
-  width: 300px;
+  border: 1.3px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 13px 15px;
+  width: 384px;
   box-shadow: var(--shadow);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
   display: none;
 }
 
@@ -136,25 +168,26 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 13px;
   color: var(--muted);
-  font-size: 12px;
-  margin: 6px 0;
+  font-size: 15px;
+  margin: 8px 0;
 }
 
 .settings-panel select,
 .settings-panel button {
   background: var(--panel);
   color: var(--fg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  padding: 6px 10px;
+  border: 1.3px solid rgba(255, 255, 255, 0.12);
+  border-radius: 13px;
+  padding: 8px 13px;
+  font-size: 15px;
   cursor: pointer;
 }
 
 .settings-panel .tip {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--muted);
-  margin-top: 6px;
+  margin-top: 8px;
   line-height: 1.35;
 }

@@ -3,6 +3,7 @@
   import * as d3 from 'd3';
   import Tooltip from '../../shared/Tooltip.svelte';
   import { createEventDispatcher } from 'svelte';
+  import { screenToDesign, elementScale } from '../../shared/stage.svelte.js';
   import {
     colorMapping,
     pickTextColor,
@@ -23,6 +24,7 @@
     taxonomyTree = null,
     selectedPhyla = $bindable([]),
     unknownFilter = $bindable('all'), // 'all' | 'unknown' | 'known'
+    westernFilter = $bindable('any'), // 'any' | 'western' | 'nonwestern'
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
     studyKey = $bindable(null),
@@ -100,9 +102,15 @@
   let keepBatches = null, dimBatches = null; // partitioned when a filter/highlight is active
   let bandList = [];               // region gradient bands (drawn on canvas): {path, color, innerR, outerR, keyNode}
   let leavesByAngle = [];          // leaves sorted by .x for center-leaf binary search
+  let selectableByAngle = [];      // subset of leavesByAngle eligible for center selection
+                                   // (= leavesByAngle when no filter; only kept leaves when filtered)
   let keepSet = null;              // null = no filter (everything kept)
-  let selIndex = -1;               // index into leavesByAngle of the center-selected leaf
+  let selIndex = -1;               // index into selectableByAngle of the center-selected leaf
   let selLeaf = null;
+  // Cached Path2D of the selected leaf's branch line (root → leaf), so the
+  // per-frame highlight during a spin only rebuilds when the selection changes.
+  let selLinkPath = null;
+  let selLinkLeafId = null;
 
   // rotation / momentum
   let angVel = 0;                  // deg/frame
@@ -121,7 +129,9 @@
   const MIN_ANGVEL = 0.05;         // deg/frame → settle
   const MOTION_DPR_CAP = 1.25;     // cap backing scale during motion (Surface hardening)
   const LIVE_COMMIT_MS = 90;       // throttle for live details-panel updates while spinning
+  const FINISH_DELAY = 90;         // ms after the wheel stops before the heavy finish (full-DPR + labels)
   let lastCommitT = 0;
+  let finishTimer = 0;
 
   function closePanel() {
     panelVisible = false;
@@ -193,8 +203,9 @@
     }
 
     if (k === 7) {
-      // Position so the rightmost content (bars) is visible with a small margin
-      const targetX = rect.width - outerScreen - edgeMarginPx;
+      // Position so the rightmost content (bars) is visible with a small margin.
+      // This function works in screen px (rect), so scale the design-px margin up.
+      const targetX = rect.width - outerScreen - edgeMarginPx * elementScale(svgElement, rect);
       return { x: targetX, y: base.y };
     }
 
@@ -255,7 +266,13 @@
   // Expose controls for parent rail
   export function zoomInControl() { zoomIn(); }
   export function zoomOutControl() { zoomOut(); }
-  export function resetControl() { resetView(); }
+  export function resetControl() {
+    // Full reset to page-load state: drop any URL cross-highlight, close the
+    // details panel, and reset zoom + rotation. (Filters live in App.)
+    clearHighlight();
+    closePanel();
+    resetView();
+  }
   export function rotateLeftControl() { rotateBy(-rotateStepDeg); }
   export function rotateRightControl() { rotateBy(rotateStepDeg); }
 
@@ -406,11 +423,14 @@
 
     // Leaves sorted by angle → binary-search for the center-selected leaf
     leavesByAngle = leaves.slice().sort((a, b) => a.x - b.x);
+    selectableByAngle = leavesByAngle; // no filter yet on (re)build
 
     // Build canvas Path2D batches for all leaves
     fullBatches = buildBatches(leaves);
     keepSet = null; keepBatches = null; dimBatches = null;
     lastCommittedLeafId = null;
+    // geom.line coords changed — invalidate the selected-leaf path cache
+    selLinkLeafId = null; selLinkPath = null;
 
     // Overlay selections that dim via opacity when filtered
     handles.selections = {
@@ -503,8 +523,9 @@
 
   function resizeCanvas() {
     if (!canvasEl || !vizAreaEl) return;
-    const rect = vizAreaEl.getBoundingClientRect();
-    boxW = rect.width; boxH = rect.height;
+    // Layout px, not getBoundingClientRect() — the latter reports the
+    // stage-transformed box, which would size the disk to the scaled view.
+    boxW = vizAreaEl.clientWidth; boxH = vizAreaEl.clientHeight;
     const dimv = geom ? geom.dim : (size === 'full' ? fullSize : previewSize);
     sBase = Math.min(boxW, boxH) / dimv;
     dpr = inMotion ? Math.min(realDpr(), MOTION_DPR_CAP) : realDpr();
@@ -587,21 +608,45 @@
     cctx.globalAlpha = 1; cctx.strokeStyle = '#fff'; cctx.lineWidth = 2;
     cctx.beginPath(); cctx.arc(0, 0, (geom.westInner + geom.westOuter) / 2, 0, Math.PI * 2); cctx.stroke();
 
-    // 8) selected-leaf emphasis
+    // 8) selected-leaf emphasis. Drawn every frame (not gated on inMotion) so the
+    //    selected species stays lit while the wheel spins.
     if (selLeaf) {
       const theta = selLeaf.x - Math.PI / 2;
       const cos = Math.cos(theta), sin = Math.sin(theta);
       const cnt = selLeaf.data.metadata?.["#_Reconstructed_genomes"] || 0;
       const rOut = geom.barInner + geom.barScale(cnt);
+      const px = 1 / (sBase * (m.k || 1)); // one CSS px in user units
+
+      // Full branch line (root → leaf), rebuilt only when the selection changes.
+      if (selLeaf.leafId !== selLinkLeafId) {
+        selLinkLeafId = selLeaf.leafId;
+        selLinkPath = geom.line ? new Path2D(geom.line(selLeaf.ancestors().reverse())) : null;
+      }
+
+      // Spoke path (leaf node → bar tip), extending the branch outward.
+      const spoke = new Path2D();
+      spoke.moveTo(cos * selLeaf.y, sin * selLeaf.y);
+      spoke.lineTo(cos * rOut, sin * rOut);
+
+      // Line casing: a dark halo separates the highlight from the surrounding
+      // pale links so the selected species reads clearly even in a dense bundle.
       cctx.globalAlpha = 1;
+      cctx.strokeStyle = backgroundColor;
+      cctx.lineWidth = 5 * px;
+      if (selLinkPath) cctx.stroke(selLinkPath);
+      cctx.stroke(spoke);
+
+      // Bright core on top.
       cctx.strokeStyle = '#fff';
-      cctx.lineWidth = 2 / (sBase * (m.k || 1));
-      cctx.beginPath();
-      cctx.moveTo(cos * selLeaf.y, sin * selLeaf.y);
-      cctx.lineTo(cos * rOut, sin * rOut);
-      cctx.stroke();
-      cctx.fillStyle = '#fff';
-      cctx.beginPath(); cctx.arc(cos * selLeaf.y, sin * selLeaf.y, 5, 0, Math.PI * 2); cctx.fill();
+      cctx.lineWidth = 2 * px;
+      if (selLinkPath) cctx.stroke(selLinkPath);
+      cctx.stroke(spoke);
+
+      // Leaf node dot with a dark ring, matching the casing treatment.
+      const nx = cos * selLeaf.y, ny = sin * selLeaf.y;
+      cctx.beginPath(); cctx.arc(nx, ny, 5, 0, Math.PI * 2);
+      cctx.fillStyle = '#fff'; cctx.fill();
+      cctx.lineWidth = 1.5 * px; cctx.strokeStyle = backgroundColor; cctx.stroke();
     }
 
     // 9) fixed selection marker at screen right-center (3 o'clock from disk centre)
@@ -618,11 +663,14 @@
     cctx.closePath();
     cctx.fill();
 
-    // Report the marker's screen position so App can draw a leader to the details panel.
+    // Report the marker's design-space position so App can draw a leader to the
+    // details panel. mx/my are device px; /dpr puts them in the canvas's own
+    // design px, and screenToDesign rebases the canvas origin onto the stage.
     // (Marker is rotation-invariant, so only emit when it actually moves — zoom/pan/resize.)
     const cr = canvasEl.getBoundingClientRect();
-    const markX = cr.left + (mx + 16 * dpr) / dpr;
-    const markY = cr.top + my / dpr;
+    const origin = screenToDesign(cr.left, cr.top);
+    const markX = origin.x + (mx + 16 * dpr) / dpr;
+    const markY = origin.y + my / dpr;
     if (Math.abs(markX - lastMarkerX) > 0.5 || Math.abs(markY - lastMarkerY) > 0.5) {
       lastMarkerX = markX; lastMarkerY = markY;
       dispatch('marker', { x: markX, y: markY });
@@ -659,16 +707,49 @@
 
   function settle() {
     inMotion = false;
-    resizeCanvas();
-    showOverlay(true);
-    commitSelectionToPanel();
+    // Paint the final resting frame cheaply — at the current (motion) DPR and with
+    // the overlay still hidden — so the last frames of the spin stay smooth.
     requestDraw();
+    commitSelectionToPanel();
+    // Defer the expensive finish (full-DPR re-render + label reveal/fade) until the
+    // wheel is visibly at rest. Doing it inline stutters the landing frame, and a
+    // brief post-stop load reads far better than jerky rotation.
+    scheduleFinish();
   }
 
-  function showOverlay(v) {
+  function scheduleFinish() {
+    cancelFinish();
+    finishTimer = setTimeout(finishSettle, FINISH_DELAY);
+  }
+
+  function cancelFinish() {
+    if (finishTimer) { clearTimeout(finishTimer); finishTimer = 0; }
+  }
+
+  function finishSettle() {
+    finishTimer = 0;
+    if (inMotion) return;      // a new spin/drag began during the delay — skip
+    resizeCanvas();            // upgrade the backing store to full DPR
+    requestDraw();             // sharp re-render now that we're at rest
+    showOverlay(true, true);   // labels/axis fade in (0.5s), no longer during motion
+  }
+
+  // The overlay (region/internal labels + bar axis) is hidden during motion. On
+  // settle, `fade` ramps its opacity 0→1 over 0.5s so labels don't pop in — most
+  // noticeable when zoomed in, where labels are dense.
+  function showOverlay(v, fade = false) {
     if (!svgElement) return;
     const g = d3.select(svgElement).select('g.zoom-container');
-    if (!g.empty()) g.style('display', v ? null : 'none');
+    if (g.empty()) return;
+    g.interrupt(); // cancel any in-flight fade before re-hiding/re-showing
+    if (!v) {
+      g.style('display', 'none').style('opacity', null);
+    } else if (fade) {
+      g.style('display', null).style('opacity', 0)
+        .transition().duration(500).style('opacity', 1);
+    } else {
+      g.style('display', null).style('opacity', null);
+    }
   }
 
   // Phylum + internal labels only at the closest zoom — keeps them from popping on rotate.
@@ -682,7 +763,7 @@
 
   // ── Center-leaf selection (angle math) ────────────────────────────────────
   function nearestLeafByAngle(target) {
-    const arr = leavesByAngle;
+    const arr = selectableByAngle;
     const n = arr.length;
     if (!n) return -1;
     // binary search for first .x >= target
@@ -695,13 +776,13 @@
   function angDist(a, b) { let d = Math.abs(a - b) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d; return d; }
 
   function updateSelectionFromAngle() {
-    if (!leavesByAngle.length) return;
+    if (!selectableByAngle.length) return;
     const rot = (rotationDeg || 0) * Math.PI / 180;
     // a leaf at .x is drawn toward screen angle (.x - π/2 + rot); we want that = 0 (screen right)
     let target = (Math.PI / 2 - rot) % (2 * Math.PI);
     if (target < 0) target += 2 * Math.PI;
     selIndex = nearestLeafByAngle(target);
-    selLeaf = leavesByAngle[selIndex] || null;
+    selLeaf = selectableByAngle[selIndex] || null;
   }
 
   function commitSelectionToPanel() {
@@ -716,16 +797,22 @@
 
   // ── Drag-to-spin + momentum ───────────────────────────────────────────────
   function pointerAngleDeg(ev) {
+    // boxW/boxH and sBase are design px, so bring the pointer into that space
+    // first rather than mixing it with the screen-space rect.
     const rect = vizAreaEl.getBoundingClientRect();
-    const cx = rect.left + boxW / 2 + sBase * (currentTransform.x || 0);
-    const cy = rect.top + boxH / 2 + sBase * (currentTransform.y || 0);
-    return Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+    const s = elementScale(vizAreaEl, rect);
+    const px = (ev.clientX - rect.left) / s;
+    const py = (ev.clientY - rect.top) / s;
+    const cx = boxW / 2 + sBase * (currentTransform.x || 0);
+    const cy = boxH / 2 + sBase * (currentTransform.y || 0);
+    return Math.atan2(py - cy, px - cx) * 180 / Math.PI;
   }
 
   function onSpinPointerDown(ev) {
     if (!geom) return;
     if (ev.button != null && ev.button !== 0) return;
     dragging = true; spinning = false; angVel = 0;
+    cancelFinish();  // abort any pending post-stop finish from a prior settle
     inMotion = true; resizeCanvas(); showOverlay(false);
     dragSamples = [{ a: pointerAngleDeg(ev), t: performance.now() }];
     try { vizAreaEl.setPointerCapture?.(ev.pointerId); } catch {}
@@ -869,6 +956,11 @@
     } else if (unknownFilter === 'known') {
       if (parseUSGB(leaf.data.metadata) !== 'No') return false;
     }
+    if (westernFilter === 'western') {
+      if (parseWestern(leaf.data.metadata) !== 'western') return false;
+    } else if (westernFilter === 'nonwestern') {
+      if (parseWestern(leaf.data.metadata) !== 'nonwestern') return false;
+    }
     // Body site filter (best-effort; expects metadata.body_site)
     if (bodySiteFilter.size > 0) {
       const bs = (leaf.data?.metadata?.body_site || '').toLowerCase();
@@ -896,6 +988,7 @@
     const anyActive =
       selectedPhyla.length > 0 ||
       unknownFilter !== 'all' ||
+      westernFilter !== 'any' ||
       bodySiteFilter.size > 0 ||
       !!proxyKey ||
       !!studyKey;
@@ -921,6 +1014,10 @@
 
       const keep = computeKeepSet(root);
       applyKeepSet(keep, selections);
+      // Selection is now restricted to the filter — re-snap the center leaf so a
+      // previously-selected (now excluded) leaf doesn't stay highlighted.
+      updateSelectionFromAngle();
+      commitSelectionToPanel();
       requestDraw();
     } catch (err) {
       console.error('Failed to apply filters', err);
@@ -931,11 +1028,15 @@
   function applyKeepSet(keep, selections = handles.selections) {
     keepSet = keep;
     if (keep === null) {
+      // No filter: every leaf is selectable again.
+      selectableByAngle = leavesByAngle;
       keepBatches = null; dimBatches = null;
       if (selections?.internals) selections.internals.attr('opacity', null);
       if (selections?.labels) selections.labels.attr('opacity', null);
       return;
     }
+    // Restrict center selection (rotation snapping) to leaves in the filter.
+    selectableByAngle = leavesByAngle.filter(l => keep.has(l));
     const leaves = cachedLeaves || handles.root.leaves();
     keepBatches = buildBatches(leaves.filter(l => keep.has(l)));
     dimBatches = buildBatches(leaves.filter(l => !keep.has(l)));
@@ -1011,6 +1112,7 @@
     // Track dependencies
     selectedPhyla.length;
     unknownFilter;
+    westernFilter;
     bodySiteFilter.size;
     proxyKey;
     studyKey;
@@ -1160,6 +1262,7 @@
       window.removeEventListener('pointermove', onSpinPointerMove);
       if (ro) ro.disconnect();
       if (rafId) cancelAnimationFrame(rafId);
+      cancelFinish();
     };
   });
 </script>
@@ -1195,7 +1298,7 @@
     overflow: visible;
     background: var(--bg);
     z-index: 1;
-    padding: 0 8px;
+    padding: 0 10px;
     box-sizing: border-box;
     touch-action: none; /* let drag-to-spin own the gesture */
   }
@@ -1315,26 +1418,26 @@
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10.2px;
+  margin-bottom: 10.2px;
 }
 
 :global(.biomes-tooltip .h-left) {
   display: flex;
-  gap: 8px;
+  gap: 10.2px;
   align-items: center;
 }
 
 :global(.biomes-tooltip .swatch) {
-  width: 12px;
-  height: 12px;
+  width: 15.4px;
+  height: 15.4px;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    margin-top: 4px;
+    border: 1.3px solid rgba(255, 255, 255, 0.45);
+    margin-top: 5.1px;
   }
 
 :global(.biomes-tooltip .title) {
-  font-size: 16px;
+  font-size: 20.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -1342,21 +1445,21 @@
 :global(.biomes-tooltip .title-row) {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7.7px;
   min-width: 0;
 }
 
 :global(.biomes-tooltip .subtitle) {
-  font-size: 12px;
+  font-size: 15.4px;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 2.6px;
 }
 
 :global(.biomes-tooltip .title-block.two-col) {
   display: grid;
   grid-template-columns: 1fr auto;
-  column-gap: 8px;
-  row-gap: 2px;
+  column-gap: 10.2px;
+  row-gap: 2.6px;
   min-width: 0;
   align-items: center;
 }
@@ -1380,8 +1483,8 @@
 }
 
   :global(.biomes-tooltip .summary) {
-    font-size: 13px;
-    margin: 8px 0 6px;
+    font-size: 16.6px;
+    margin: 10.2px 0 7.7px;
   }
 
   :global(.biomes-tooltip .summary b) {
@@ -1391,11 +1494,11 @@
   :global(.biomes-tooltip .kv) {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 6px 12px;
-    margin-top: 6px;
-    font-size: 12px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.12);
-    padding-top: 8px;
+    gap: 7.7px 15.4px;
+    margin-top: 7.7px;
+    font-size: 15.4px;
+    border-top: 1.3px dashed rgba(255, 255, 255, 0.12);
+    padding-top: 10.2px;
   }
 
   :global(.biomes-tooltip .kv .k) {
@@ -1405,41 +1508,41 @@
   :global(.biomes-tooltip .actions) {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 8px;
+    gap: 10.2px;
+    margin-top: 10.2px;
   }
 
   :global(.biomes-tooltip button) {
     pointer-events: auto;
     background: #1d1a33;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1.3px solid rgba(255, 255, 255, 0.12);
     color: var(--fg);
-    border-radius: 8px;
-    padding: 6px 8px;
-    font-size: 12px;
+    border-radius: 10.2px;
+    padding: 7.7px 10.2px;
+    font-size: 15.4px;
     cursor: pointer;
   }
 
   :global(.biomes-tooltip .genome-meter) {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 6px;
+    gap: 10.2px;
+    margin-top: 7.7px;
   }
 
   :global(.biomes-tooltip .genome-meter .ticks) {
     display: flex;
-    gap: 2px;
+    gap: 2.6px;
     align-items: flex-end;
     flex-wrap: nowrap;
   }
 
   :global(.biomes-tooltip .genome-meter .tick) {
-    width: 6px;
-    height: 12px;
+    width: 7.7px;
+    height: 15.4px;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 2px;
+    border: 1.3px solid rgba(255, 255, 255, 0.25);
+    border-radius: 2.6px;
   }
 
   :global(.biomes-tooltip .genome-meter .tick.filled) {
@@ -1448,7 +1551,7 @@
   }
 
   :global(.biomes-tooltip .genome-meter .num) {
-    font-size: 12px;
+    font-size: 15.4px;
     color: var(--muted);
     white-space: nowrap;
   }

@@ -3,6 +3,15 @@
   import WaffleChart from './lib/WaffleChart.svelte';
   import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
+  import DevHud from '../shared/DevHud.svelte';
+  import { initStage, screenToDesign } from '../shared/stage.svelte.js';
+
+  // The fixed design canvas; everything below is authored in design px inside it.
+  let stageEl = $state(null);
+  $effect(() => {
+    if (!stageEl) return;
+    return initStage(stageEl);
+  });
 
   const LEGEND_CATEGORIES = [
     { name: 'Dense Settlements', codes: [11, 12] },
@@ -55,7 +64,7 @@
 
   // History chart section sizing
   let historyChartEl = $state(null);
-  let historyChartSize = $state(220);
+  let historyChartSize = $state(282);
 
   // Current-year land-cover percentages (drives the bottom filter key sizing)
   let currentPercentages = $derived.by(() => {
@@ -134,12 +143,14 @@
   $effect(() => {
     if (!historyChartEl) return;
     const update = () => {
+      // clientWidth/Height are layout px, so they stay in design space even
+      // though the stage transform scales the rendered box.
       const h = historyChartEl.clientHeight;
       const w = historyChartEl.clientWidth;
       // Square chart. Height must also leave room for the "Cell History" title
-      // above the SVG (~20px incl. gap), or the section overflows and the panel scrolls.
+      // above the SVG (~26px incl. gap), or the section overflows and the panel scrolls.
       // Width only needs a hairline gutter.
-      historyChartSize = Math.max(60, Math.min(h - 20, w - 6));
+      historyChartSize = Math.max(77, Math.min(h - 26, w - 8));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -159,8 +170,9 @@
     untrack(() => {
       if (!panel || !start || !open) { connectorEnd = null; return; }
       const rect = panel.getBoundingClientRect();
-      // Panel docks on the left; leader ends at its right edge, vertically centered
-      connectorEnd = { x: rect.right, y: (rect.top + rect.bottom) / 2 };
+      // Panel docks on the left; leader ends at its right edge, vertically centered.
+      // getBoundingClientRect is in screen px but the overlay draws in design px.
+      connectorEnd = screenToDesign(rect.right, (rect.top + rect.bottom) / 2);
     });
   });
 
@@ -227,10 +239,12 @@
     isolationReset++;
     panelCloseSignal++;
     openPanel = null;
+    detailContent = null;
+    detailMeta = null;
   }
 
-  // Clear restores the filter to all anthromes (the default, everything shown)
-  function handleClear() {
+  // "All" restores the filter to every anthrome (the default, everything shown)
+  function handleSelectAll() {
     selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
   }
 
@@ -304,6 +318,10 @@
 
 <svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} />
 
+<!-- .viewport fills the window and shows the letterbox; .stage is the fixed
+     3000x2000 canvas that everything below is authored against. -->
+<div class="viewport">
+<div class="stage" bind:this={stageEl}>
 {#if error}
   <div class="error">
     <h2>Error</h2>
@@ -424,7 +442,7 @@
           <div class="anthrome-key-head">
             <span class="anthrome-key-title">Anthromes in {formatYear(selectedYear)}</span>
             <div class="anthrome-key-actions">
-              <button class="mini-link" onclick={handleClear}>Clear</button>
+              <button class="mini-link" class:active={selectedAnthromes.length === orderedCodes.length} onclick={handleSelectAll}>All</button>
             </div>
           </div>
           <div class="key-legend">
@@ -534,13 +552,17 @@
     </div>
   {/if}
 
-  <!-- Leader line: isolated cell → docked detail panel -->
+  <!-- Leader line: isolated cell → docked detail panel. Endpoints are design px. -->
   {#if detailContent && connectorStart && connectorEnd}
     <svg class="connector-overlay" aria-hidden="true">
       <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
     </svg>
   {/if}
 {/if}
+</div>
+<!-- Outside .stage so it renders at true screen px, unscaled -->
+<DevHud />
+</div>
 
 <style>
   .loading-overlay,
@@ -548,13 +570,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100vh;
+    height: 100%;
     text-align: center;
+    font-size: 21px;
     color: var(--fg);
   }
 
   .loading-overlay {
-    position: fixed;
+    position: absolute;
     inset: 0;
     background: var(--bg);
     z-index: 10000;
@@ -562,27 +585,25 @@
 
   .error h2 {
     color: #ff6b6b;
-    margin-bottom: 1rem;
+    margin-bottom: 20px;
   }
 
   .app {
-    /* fluid scale: 1 at 3840px (exhibition), ~0.67 at 2560px, floor 0.62 for laptop touch targets */
-    --ui: clamp(0.62px, calc(100vw / 3840), 1px);
     width: 100%;
-    height: 100vh;
+    height: 100%;
     position: relative;
     overflow: hidden;
   }
 
   .nav-circle {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: calc(248 * var(--ui));
-    height: calc(248 * var(--ui));
+    position: absolute;
+    bottom: 26px;
+    right: 26px;
+    width: 248px;
+    height: 248px;
     border-radius: 50%;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
     box-shadow: var(--shadow);
     display: grid;
     place-items: center;
@@ -596,16 +617,16 @@
   .nav-circle__outer {
     display: grid;
     place-items: center;
-    width: calc(220 * var(--ui));
-    height: calc(220 * var(--ui));
+    width: 220px;
+    height: 220px;
     border-radius: 50%;
     text-decoration: none;
     pointer-events: auto;
   }
 
   .nav-circle svg {
-    width: calc(220 * var(--ui));
-    height: calc(220 * var(--ui));
+    width: 220px;
+    height: 220px;
     overflow: visible;
   }
 
@@ -614,6 +635,7 @@
     stroke: none;
   }
 
+  /* In SVG user units (viewBox is 120 wide), not px — scales with the svg box. */
   .nav-circle__text {
     font-size: 15px;
     font-weight: 800;
@@ -644,15 +666,15 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: calc(60 * var(--ui));
-    height: calc(60 * var(--ui));
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1.3px solid rgba(255, 255, 255, 0.4);
     background: transparent;
     color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
-    font-size: calc(28 * var(--ui));
+    font-size: 28px;
     line-height: 1;
     font-weight: 800;
     text-decoration: none;
@@ -662,9 +684,9 @@
   .checkbox-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     cursor: pointer;
-    margin-top: 8px;
+    margin-top: 10px;
   }
 
   .checkbox-label input[type="checkbox"] {
@@ -673,12 +695,12 @@
 
   .export-btn {
     width: 100%;
-    margin-top: 10px;
-    padding: 8px;
+    margin-top: 13px;
+    padding: 10px;
     background: var(--accent);
     color: var(--bg);
     border: none;
-    border-radius: 10px;
+    border-radius: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: opacity 0.2s ease;
@@ -695,7 +717,7 @@
 
   .filter-rail {
     grid-column: 1;
-    padding: 40px 48px;
+    padding: 51px 61px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -708,9 +730,9 @@
 
   /* Thin gray divider between every menu item (details reads as just another one) */
   .filter-rail > * + * {
-    border-top: 1px solid rgba(255, 255, 255, 0.14);
-    margin-top: 18px;
-    padding-top: 18px;
+    border-top: 1.3px solid rgba(255, 255, 255, 0.14);
+    margin-top: 23px;
+    padding-top: 23px;
   }
 
   .control-circles,
@@ -722,19 +744,19 @@
   .control-circles {
     display: flex;
     flex-wrap: wrap;
-    gap: 22px;
+    gap: 28px;
     align-items: center;
   }
 
   .ctl-btn {
-    width: calc(118 * var(--ui));
-    height: calc(118 * var(--ui));
+    width: 118px;
+    height: 118px;
     border-radius: 50%;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 700;
-    font-size: calc(44 * var(--ui));
+    font-size: 44px;
     cursor: pointer;
     display: grid;
     place-items: center;
@@ -764,7 +786,7 @@
     flex: 0 1 auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     min-height: 0;
     max-height: 40%;
   }
@@ -773,35 +795,45 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 15px;
   }
 
   .anthrome-key-title {
-    font-size: calc(22 * var(--ui));
+    font-size: 22px;
     font-weight: 800;
     letter-spacing: 0.02em;
   }
 
   .anthrome-key-actions {
     display: flex;
-    gap: 12px;
+    gap: 15px;
   }
 
+  /* Matches the biomes cohort Total/Per-capita toggle: text with an underline on
+     the active state. "All" is active when every anthrome is shown (the default). */
   .mini-link {
     background: transparent;
-    border: 2px solid rgba(255, 255, 255, 0.5);
-    color: var(--muted);
-    border-radius: 999px;
-    padding: 10px 22px;
-    font-size: 18px;
+    color: var(--fg);
+    border: none;
+    border-bottom: 2.6px solid transparent;
+    padding: 0 0 2.6px;
+    font-size: 23px;
     font-weight: 700;
+    line-height: 1.2;
     cursor: pointer;
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
+  }
+
+  .mini-link.active {
+    opacity: 1;
+    border-bottom-color: currentColor;
   }
 
   /* Bar-legend (mirrors the info-panel legend): vertical intensity axis + multi-column swatch grid */
   .key-legend {
     display: flex;
-    gap: 14px;
+    gap: 18px;
     align-items: stretch;
     min-height: 0;
     overflow: auto;
@@ -811,31 +843,31 @@
   /* Line + arrowhead sit on the right edge; the rotated label is offset to their left */
   .key-axis {
     position: relative;
-    width: 26px;
+    width: 33px;
     flex-shrink: 0;
   }
 
   .key-axis::before {
     content: '';
     position: absolute;
-    left: 22px;
-    top: 8px;
+    left: 28px;
+    top: 10px;
     bottom: 0;
-    width: 1px;
+    width: 1.3px;
     background: rgba(255, 255, 255, 0.3);
   }
 
   .key-axis::after {
     content: '';
     position: absolute;
-    left: 22px;
+    left: 28px;
     top: 0;
     transform: translateX(-50%);
     width: 0;
     height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-bottom: 6px solid rgba(255, 255, 255, 0.3);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 7.7px solid rgba(255, 255, 255, 0.3);
   }
 
   .key-axis-label {
@@ -843,13 +875,13 @@
     top: 0;
     bottom: 0;
     left: 0;
-    right: 10px;
+    right: 13px;
     display: flex;
     align-items: center;
     justify-content: center;
     writing-mode: vertical-rl;
     transform: rotate(180deg);
-    font-size: 11px;
+    font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: rgba(255, 255, 255, 0.4);
@@ -862,18 +894,18 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     align-content: start;
   }
 
   .key-family {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 3.8px;
   }
 
   .key-cat-name {
-    font-size: 11px;
+    font-size: 14px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -883,7 +915,7 @@
   .key-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 7.7px;
     align-items: center;
   }
 
@@ -891,11 +923,11 @@
   .key-pill {
     display: inline-flex;
     align-items: center;
-    height: 30px;
-    padding: 0 11px;
-    border-radius: 8px;
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    font-size: 12px;
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 10px;
+    border: 1.3px solid rgba(0, 0, 0, 0.18);
+    font-size: 15px;
     font-weight: 600;
     white-space: nowrap;
     cursor: pointer;
@@ -916,7 +948,7 @@
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 13px;
     box-sizing: border-box;
     pointer-events: auto;
   }
@@ -924,7 +956,7 @@
   /* Menu item title/description — shared look with the other rail sections */
   .menu-title {
     margin: 0;
-    font-size: calc(22 * var(--ui));
+    font-size: 22px;
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--fg);
@@ -932,7 +964,7 @@
 
   .menu-desc {
     margin: 0;
-    font-size: 13px;
+    font-size: 16.6px;
     line-height: 1.45;
     color: var(--muted);
   }
@@ -941,8 +973,8 @@
   .detail-subhead {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    font-size: 15px;
+    gap: 10px;
+    font-size: 19px;
     font-weight: 700;
     letter-spacing: 0.02em;
     color: #fff;
@@ -956,7 +988,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    font-size: 13px;
+    font-size: 16.6px;
     font-weight: 700;
     letter-spacing: 0.02em;
     color: var(--fg);
@@ -968,7 +1000,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 15px;
     overflow: auto;
   }
 
@@ -987,21 +1019,22 @@
     justify-content: flex-start;
   }
 
-  /* Info modal: centered on screen (longer read) */
+  /* Info modal: centered on the design canvas (longer read).
+     Percentages resolve against .stage, i.e. the 3000x2000 canvas. */
   .info-modal {
-    position: fixed;
+    position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: min(64vw, 960px);
-    max-width: calc(100vw - 96px);
-    max-height: 84vh;
+    width: 1229px;
+    max-width: calc(100% - 123px);
+    max-height: 84%;
     display: flex;
     flex-direction: column;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
-    border-radius: 26px;
-    padding: 26px 30px;
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
+    border-radius: 33px;
+    padding: 33px 38px;
     box-shadow: var(--shadow);
     z-index: 20;
     pointer-events: auto;
@@ -1014,12 +1047,13 @@
     to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   }
 
-  /* Leader line from isolated cell to the docked detail panel */
+  /* Leader line from isolated cell to the docked detail panel.
+     Spans the design canvas; its SVG user units are design px. */
   .connector-overlay {
-    position: fixed;
+    position: absolute;
     inset: 0;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
     z-index: 15;
     overflow: visible;
@@ -1027,21 +1061,21 @@
 
   .connector-overlay line {
     stroke: rgba(255, 255, 255, 0.5);
-    stroke-width: 1.5;
-    stroke-dasharray: 4 3;
+    stroke-width: 1.9;
+    stroke-dasharray: 5 3.8;
   }
 
   .history-chart-section {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 7.7px;
     width: 100%;
     box-sizing: border-box;
   }
 
   .history-chart-title {
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -1052,30 +1086,31 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 10px;
+    gap: 10px;
+    margin-bottom: 13px;
   }
 
   .overlay-title {
+    font-size: 20.5px;
     font-weight: 700;
     letter-spacing: 0.04em;
   }
 
   .overlay-swatch {
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1.3px solid rgba(255, 255, 255, 0.25);
     flex: 0 0 auto;
   }
 
   .panel-content {
-    font-size: 13px;
+    font-size: 16.6px;
     color: var(--muted);
     line-height: 1.5;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 13px;
     overflow: hidden;
     flex: 1;
     min-height: 0;
@@ -1089,33 +1124,33 @@
 
   /* Detail panel typography */
   :global(.panel-content .title) {
-    font-size: 18px;
+    font-size: 23px;
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #fff;
   }
 
   :global(.panel-content .subtitle) {
-    font-size: 13px;
+    font-size: 16.6px;
     color: #cfd3e0;
     letter-spacing: 0.02em;
   }
 
   :global(.panel-content .summary) {
-    font-size: 14px;
+    font-size: 18px;
     color: #e7e9f1;
   }
 
   :global(.panel-content .kv) {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 4px 10px;
-    padding: 6px 0;
-    border-top: 1px dashed rgba(255,255,255,0.12);
+    gap: 5px 13px;
+    padding: 7.7px 0;
+    border-top: 1.3px dashed rgba(255,255,255,0.12);
   }
 
   :global(.panel-content .kv .k) {
-    font-size: 11px;
+    font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #9ba3c0;
@@ -1124,16 +1159,16 @@
   :global(.panel-content .kv .v) {
     color: #f6f7fb;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 16.6px;
   }
 
   :global(.panel-content .swatch) {
     display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.25);
-    margin-right: 6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1.3px solid rgba(255,255,255,0.25);
+    margin-right: 7.7px;
     vertical-align: middle;
   }
 
@@ -1141,38 +1176,38 @@
   :global(.panel-content .badge) {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
+    gap: 7.7px;
+    padding: 7.7px 13px;
     border-radius: 999px;
     background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.16);
+    border: 1.3px solid rgba(255,255,255,0.16);
     color: #fff;
-    font-size: 11px;
+    font-size: 14px;
     letter-spacing: 0.03em;
   }
 
   :global(.panel-content .actions) {
     display: grid;
-    gap: 8px;
-    margin-top: 2px;
+    gap: 10px;
+    margin-top: 2.6px;
   }
 
   :global(.panel-content .actions button) {
     text-align: left;
     background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
+    border: 1.3px solid rgba(255,255,255,0.18);
     color: #fff;
-    border-radius: 12px;
-    padding: 11px 14px;
+    border-radius: 15px;
+    padding: 14px 18px;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 16.6px;
     cursor: pointer;
   }
 
   .info-body {
     display: grid;
-    gap: 10px;
-    font-size: 12px;
+    gap: 13px;
+    font-size: 15px;
     line-height: 1.55;
     color: var(--muted);
   }
@@ -1182,25 +1217,25 @@
   }
 
   .info-body p + p {
-    padding-top: 6px;
+    padding-top: 7.7px;
   }
 
   .legend-section {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
   }
 
   .legend-body {
     display: flex;
-    gap: 30px;
+    gap: 38px;
     align-items: stretch;
   }
 
   /* Axis: vertical arrow + label spanning full legend height */
   .legend-axis {
     position: relative;
-    width: 16px;
+    width: 20px;
     flex-shrink: 0;
   }
 
@@ -1208,39 +1243,39 @@
   .legend-axis::before {
     content: '';
     position: absolute;
-    left: 20px;
-    top: 6px;
+    left: 26px;
+    top: 7.7px;
     bottom: 0;
-    width: 1px;
+    width: 1.3px;
     background: rgba(255,255,255,0.3);
   }
 
   .legend-axis::after {
     content: '';
     position: absolute;
-    left: 20px;
-    top: 1px;
+    left: 26px;
+    top: 1.3px;
     transform: translateX(-50%);
     width: 0;
     height: 0;
-    border-left: 3px solid transparent;
-    border-right: 3px solid transparent;
-    border-bottom: 5px solid rgba(255,255,255,0.3);
+    border-left: 3.8px solid transparent;
+    border-right: 3.8px solid transparent;
+    border-bottom: 6.4px solid rgba(255,255,255,0.3);
   }
 
   /* Text spans only the top half so its center sits near Urban */
   .legend-axis-label {
     position: absolute;
-    top: 12px;
+    top: 15px;
     bottom: 50%;
-    left: 5px;
+    left: 6.4px;
     right: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     writing-mode: vertical-rl;
     transform: rotate(180deg);
-    font-size: 9px;
+    font-size: 11.5px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: rgba(255,255,255,0.35);
@@ -1253,18 +1288,18 @@
     flex: 1;
     min-width: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 4px 8px;
+    grid-template-columns: repeat(auto-fit, minmax(192px, 1fr));
+    gap: 5px 10px;
   }
 
   .legend-category-name {
     grid-column: 1 / -1;
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    margin-top: 8px;
+    margin-top: 10px;
   }
 
   .legend-category-name:first-child {
@@ -1274,19 +1309,19 @@
   .swatch-pill {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 2px 0;
+    gap: 10px;
+    padding: 2.6px 0;
     color: #e7e9f1;
-    font-size: 11px;
+    font-size: 14px;
     letter-spacing: 0.02em;
     line-height: 1.2;
   }
 
   .swatch-pill__color {
-    width: 16px;
-    height: 16px;
-    border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    width: 20px;
+    height: 20px;
+    border-radius: 6.4px;
+    border: 1.3px solid rgba(255, 255, 255, 0.25);
     flex: 0 0 auto;
   }
 
@@ -1296,9 +1331,9 @@
   }
 
   .info-body u {
-    text-decoration-thickness: 2px;
+    text-decoration-thickness: 2.6px;
     text-decoration-color: rgba(255, 255, 255, 0.35);
-    text-underline-offset: 3px;
+    text-underline-offset: 3.8px;
   }
 
   .info-body em {
@@ -1306,25 +1341,25 @@
   }
 
   .info-citations {
-    margin-top: 14px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 18px;
+    padding-top: 13px;
+    border-top: 1.3px solid rgba(255, 255, 255, 0.08);
   }
 
   .info-citations-title {
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    margin-bottom: 6px;
+    margin-bottom: 7.7px;
   }
 
   .info-citations p {
-    font-size: 10px;
+    font-size: 13px;
     color: var(--muted);
     line-height: 1.5;
-    margin: 0 0 8px;
+    margin: 0 0 10px;
   }
 
   .info-citations p:last-child {
@@ -1337,15 +1372,16 @@
   }
 
   .chevron {
-    border: 2px solid rgba(255, 255, 255, 0.85);
+    border: 2.6px solid rgba(255, 255, 255, 0.85);
     background: var(--bg);
     color: var(--fg);
-    width: 30px;
-    height: 30px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
     cursor: pointer;
     display: grid;
     place-items: center;
+    font-size: 17px;
     font-weight: 800;
   }
 
@@ -1353,6 +1389,11 @@
     grid-column: 2;
     position: relative;
     overflow: visible;
+    /* Above the rail (z 5): the disk's 9-o'clock year handle overflows past the
+       column seam and would otherwise be clipped under the rail. Stopgap until a
+       relayout — the disk only reaches the rail's empty right padding, so this
+       doesn't cover any interactive rail element. */
+    z-index: 6;
   }
 
 </style>

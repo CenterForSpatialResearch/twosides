@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import * as d3 from 'd3';
+  import { elementScale } from '../../shared/stage.svelte.js';
   import MapCanvas from './MapCanvas.svelte';
   import { TOPO_PROFILE } from './constants.js';
   import { formatYearLabel } from './dataAdapter.js';
@@ -71,15 +72,27 @@
   // Cursor state — grab only inside inner circle
   let hoverInCircle = $state(false);
 
+  // Pointer events arrive in screen px, but innerRadiusPx and mapPanX/Y are
+  // design px. getBoundingClientRect() reports the stage-transformed box while
+  // clientWidth stays in layout px, so their ratio is the stage scale as seen
+  // here — divide screen deltas by it to get back to design space.
+  function offsetFromCenter(event, rect) {
+    const s = elementScale(chartContainer, rect);
+    return {
+      dx: (event.clientX - (rect.left + rect.width / 2)) / s,
+      dy: (event.clientY - (rect.top + rect.height / 2)) / s,
+      s
+    };
+  }
+
   function handlePanStart(event) {
     if (panning || !chartContainer || !innerRadiusPx) return;
     const rect = chartContainer.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
+    const { dx, dy, s } = offsetFromCenter(event, rect);
     if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
     panning = true;
     panHasMoved = false;
-    panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY };
+    panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY, s };
     event.preventDefault();
     window.addEventListener('pointermove', handlePanMove);
     window.addEventListener('pointerup', handlePanEnd, { once: true });
@@ -92,8 +105,9 @@
       isolationReset++;
       panHasMoved = true;
     }
-    mapPanX = panStart.px + (event.clientX - panStart.x);
-    mapPanY = panStart.py + (event.clientY - panStart.y);
+    const s = panStart.s || 1;
+    mapPanX = panStart.px + (event.clientX - panStart.x) / s;
+    mapPanY = panStart.py + (event.clientY - panStart.y) / s;
   }
 
   function handlePanEnd() {
@@ -104,16 +118,14 @@
   function handleContainerMove(event) {
     if (panning || !chartContainer || !innerRadiusPx) return;
     const rect = chartContainer.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
+    const { dx, dy } = offsetFromCenter(event, rect);
     hoverInCircle = dx * dx + dy * dy <= innerRadiusPx * innerRadiusPx;
   }
 
   function handleWheel(event) {
     if (!chartContainer || !innerRadiusPx) return;
     const rect = chartContainer.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
+    const { dx, dy } = offsetFromCenter(event, rect);
     // Only zoom when the pointer is inside the inner circle (the map area).
     if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
 
@@ -132,7 +144,7 @@
     const clampedFactor = newScale / oldScale;
 
     // Zoom to cursor: adjust pan so the point under the pointer stays fixed.
-    // dx/dy is the cursor offset from the container center (in screen px).
+    // dx/dy is the cursor offset from the container center, in design px.
     mapPanX = dx + clampedFactor * (mapPanX - dx);
     mapPanY = dy + clampedFactor * (mapPanY - dy);
     mapScale = newScale;
@@ -498,6 +510,8 @@
   function pointerToChartCoords(event) {
     if (!chartContainer || !layout) return null;
     const rect = chartContainer.getBoundingClientRect();
+    // Ratio of chart units to the rendered box, so the stage scale divides out
+    // on its own — this needs no separate transform correction.
     const scale = layout.dim / rect.width;
     const localX = (event.clientX - rect.left - rect.width / 2) * scale;
     const localY = (event.clientY - rect.top - rect.height / 2) * scale;
@@ -635,9 +649,11 @@
     yearPreview = selectedYear;
 
     if (chartContainer) {
-      const rect = chartContainer.getBoundingClientRect();
-      containerWidth = rect.width;
-      containerHeight = rect.height;
+      // Layout px, not getBoundingClientRect() — the latter reports the
+      // stage-transformed box, which would size the map to the scaled view.
+      // (ResizeObserver's contentRect below is already untransformed.)
+      containerWidth = chartContainer.clientWidth;
+      containerHeight = chartContainer.clientHeight;
 
       const ro = new ResizeObserver(entries => {
         const r = entries[0].contentRect;
@@ -848,8 +864,7 @@
 <style>
   .chart-container {
     width: 100%;
-    height: 100vh;
-    min-height: 100dvh;
+    height: 100%;
     display: grid;
     place-items: center;
     position: relative;
@@ -875,6 +890,11 @@
     inset: 0;
     z-index: 2;
     pointer-events: none;
+    /* The year grab handle sits at the disk's 9-o'clock edge and overflows the
+       SVG's left viewport edge (the column seam). Outermost <svg> defaults to
+       overflow:hidden, which slices the handle at a vertical line — override it.
+       (.viz-area z-index:6 then paints the overflow above the rail.) */
+    overflow: visible;
   }
 
   :global(.layer path.segment) {
@@ -961,7 +981,7 @@
   }
 
   .debug-panel {
-    position: fixed;
+    position: absolute;
     top: 20px;
     left: 20px;
     background: rgba(14, 11, 22, 0.95);

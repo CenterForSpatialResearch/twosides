@@ -5,6 +5,7 @@
   import * as topojson from 'topojson-client';
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
+  import { screenToDesign } from '../../shared/stage.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -86,6 +87,26 @@
     { x: 0, y: 0, visible: false },
     { x: 0, y: 0, visible: false }
   ]);
+
+  /**
+   * Pointer event -> device px in the canvas backing store, which is what the
+   * projection works in.
+   *
+   * The stage transform means getBoundingClientRect() no longer matches the
+   * canvas's layout size, so scaling by dpr alone would be wrong. Going through
+   * the backing-store/rendered-box ratio absorbs both dpr and the stage scale in
+   * one step. mapPanX/Y are design px, so they still convert with dpr.
+   */
+  function pointerToDevice(e) {
+    const rect = canvasEl.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const sx = rect.width ? canvasEl.width / rect.width : dpr;
+    const sy = rect.height ? canvasEl.height / rect.height : dpr;
+    return {
+      x: (e.clientX - rect.left) * sx - (mapPanX || 0) * dpr,
+      y: (e.clientY - rect.top) * sy - (mapPanY || 0) * dpr
+    };
+  }
 
   // Resize canvas to device pixel ratio
   function resizeCanvas() {
@@ -681,10 +702,7 @@
       }
       return;
     }
-    const rect = canvasEl.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
-    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
+    const { x, y } = pointerToDevice(e);
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
       tooltipVisible = false;
@@ -740,10 +758,13 @@
       westPercent = westTotal > 0 ? ((westYes / westTotal) * 100).toFixed(1) : 0;
     }
 
-    // Only update position if not pinned or if manually called from click
+    // Only update position if not pinned or if manually called from click.
+    // Design px: this position ends up as the leader line's start point, which
+    // is drawn in the design-space overlay.
     if (!tooltipPinned || e.type !== 'pointermove') {
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
+      const p = screenToDesign(e.clientX, e.clientY);
+      tooltipX = p.x;
+      tooltipY = p.y;
     }
 
     tooltipMeta = { color, label, year: yearLabel, code };
@@ -982,10 +1003,7 @@
   function handleCanvasClick(e) {
     if (!projection || !currentGeo) return;
 
-    const rect = canvasEl.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
-    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
+    const { x, y } = pointerToDevice(e);
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
       clearAll();
@@ -1013,9 +1031,10 @@
       isolatedFeature = feature;
       drawOverlay();
       tooltipPinned = true;
-      // Tooltip position is set by handlePointerMove
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
+      // Tooltip position is set by handlePointerMove; design px (see above)
+      const p = screenToDesign(e.clientX, e.clientY);
+      tooltipX = p.x;
+      tooltipY = p.y;
       // Manually trigger tooltip content update
       handlePointerMove(e);
 
@@ -1035,14 +1054,12 @@
     if (!projection) return;
     event.preventDefault();
     event.stopPropagation();
-    const rect = canvasEl.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     draggingHandle = true;
     const startPoints = points.map(p => [...p]);
 
     function onMove(ev) {
-      const x = (ev.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
-      const y = (ev.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
+      const { x, y } = pointerToDevice(ev);
       const inv = projection.invert([x, y]);
       if (!inv) return;
       const next = [...points];

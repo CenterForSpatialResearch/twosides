@@ -1,8 +1,17 @@
 <script>
   import { onMount } from 'svelte';
   import BiomesChart from './lib/BiomesChart.svelte';
-  import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB } from './lib/dataAdapter.js';
+  import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB, parseWestern } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
+  import DevHud from '../shared/DevHud.svelte';
+  import { initStage, screenToDesign } from '../shared/stage.svelte.js';
+
+  // The fixed design canvas; everything below is authored in design px inside it.
+  let stageEl = $state(null);
+  $effect(() => {
+    if (!stageEl) return;
+    return initStage(stageEl);
+  });
 
   // State
   let loading = $state(true);
@@ -13,6 +22,7 @@
   // UI State
   let selectedPhyla = $state([]);
   let unknownFilter = $state('all'); // 'all' | 'unknown' | 'known'
+  let westernFilter = $state('any'); // 'any' | 'western' | 'nonwestern'
   let viewSize = $state('full'); // 'full' or 'preview'
   let tension = $state(0.95);
   let settingsOpen = $state(false);
@@ -29,25 +39,36 @@
   ];
   let studyKeys = $state(cohortOptions.map(c => c.key));
 
-  // MoMA: cohort diversity ranking
-  let rankMetric = $state('total'); // 'total' (distinct SGBs) | 'percapita' (SGBs per sample)
-  let cohortStats = $state({}); // key -> { sgbs, samples }
+  // MoMA: cohort diversity ranking — by share of species previously unknown (uSGB)
+  let cohortStats = $state({}); // key -> { sgbs, unknown }
 
-  // Ranked + sized cohort bubbles for the active metric
-  const BUBBLE_MIN = 80;   // px diameter floor (finger-tappable)
-  const BUBBLE_MAX = 160;  // px diameter cap (kept small so all 6 fit one row)
+  // Ranked + sized cohort bubbles, by share of species previously unknown (uSGB)
+  const BUBBLE_MIN = 60;   // px diameter floor (finger-tappable)
+  const BUBBLE_MAX = 160;  // px diameter cap
+  const BUBBLE_GAP = 20;   // must match .cohort-bubbles `gap` in CSS
+  let bubbleRowW = $state(0); // measured content width of the bubble row (design px)
   let rankedCohorts = $derived.by(() => {
     const scored = cohortOptions.map(c => {
       const s = cohortStats[c.key] || {};
-      const total = s.sgbs || 0;
-      const percap = (s.sgbs && s.samples) ? s.sgbs / s.samples : 0;
-      return { ...c, total, percap, value: rankMetric === 'total' ? total : percap };
+      const upct = s.sgbs ? (s.unknown || 0) / s.sgbs : 0; // 0..1 share unknown (uSGB)
+      return { ...c, upct };
     });
-    scored.sort((a, b) => b.value - a.value);
-    const maxV = Math.max(1, ...scored.map(d => d.value));
-    scored.forEach(d => {
-      const t = maxV > 0 ? Math.sqrt(d.value) / Math.sqrt(maxV) : 0; // area ∝ value
-      d.size = Math.round(BUBBLE_MIN + t * (BUBBLE_MAX - BUBBLE_MIN));
+    scored.sort((a, b) => b.upct - a.upct);
+    const maxV = Math.max(1e-6, ...scored.map(d => d.upct));
+    const ts = scored.map(d => Math.sqrt(d.upct) / Math.sqrt(maxV)); // area ∝ value
+    const sumT = ts.reduce((a, b) => a + b, 0);
+    const n = scored.length;
+    // Largest diameter that still fits the whole row on one line (bubbles never
+    // shrink — see .bubble flex — so they'd ellipse if the row overflowed).
+    // Solve n*MIN + sumT*(effMax-MIN) + gaps <= rowWidth for effMax, capped at MAX.
+    let effMax = BUBBLE_MAX;
+    if (bubbleRowW > 0 && sumT > 0) {
+      const avail = bubbleRowW - (n - 1) * BUBBLE_GAP - 1; // -1px safety
+      const fit = BUBBLE_MIN + (avail - n * BUBBLE_MIN) / sumT;
+      effMax = Math.max(BUBBLE_MIN, Math.min(BUBBLE_MAX, fit));
+    }
+    scored.forEach((d, i) => {
+      d.size = Math.floor(BUBBLE_MIN + ts[i] * (effMax - BUBBLE_MIN));
     });
     return scored;
   });
@@ -55,6 +76,10 @@
   // MoMA: known / unknown percentages (computed from leaves on mount)
   let knownPct = $state(0);
   let unknownPct = $state(0);
+
+  // MoMA: western / non-western percentages (computed from leaves on mount)
+  let westernPct = $state(0);
+  let nonwesternPct = $state(0);
 
   // Panel state
   let infoOpen = $state(false);
@@ -71,13 +96,14 @@
   let viewportH = $state(0);
 
   // Leader line: from the chart's selection marker to the details panel
-  let leaderFrom = $state(null); // {x, y} screen px (marker, reported by chart)
-  let leaderTo = $state(null);   // {x, y} screen px (panel left edge, mid-height)
+  let leaderFrom = $state(null); // {x, y} design px (marker, reported by chart)
+  let leaderTo = $state(null);   // {x, y} design px (panel left edge, mid-height)
 
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
     const r = detailPanelEl.getBoundingClientRect();
-    leaderTo = { x: r.left, y: r.top + r.height / 2 };
+    // Rect is screen px; the overlay draws in design px.
+    leaderTo = screenToDesign(r.left, r.top + r.height / 2);
   }
 
   function handleMarker(event) {
@@ -115,12 +141,25 @@
 
       // Known / Unknown percentages (uSGB === 'Yes' means unknown)
       let known = 0, unknown = 0;
+      // Western / Non-western percentages (some leaves are neither)
+      let western = 0, nonwestern = 0;
+      // Set of unknown (uSGB) SGB IDs, for the cohort "% unknown" ranking
+      const unknownSgbIds = new Set();
       for (const l of leaves) {
-        if (parseUSGB(l.data.metadata) === 'Yes') unknown++; else known++;
+        const isUnknown = parseUSGB(l.data.metadata) === 'Yes';
+        if (isUnknown) unknown++; else known++;
+        if (isUnknown) {
+          const id = Number(l.data.metadata?.SGB_ID);
+          if (!Number.isNaN(id)) unknownSgbIds.add(id);
+        }
+        const w = parseWestern(l.data.metadata);
+        if (w === 'western') western++; else if (w === 'nonwestern') nonwestern++;
       }
       const totalLeaves = (known + unknown) || 1;
       knownPct = Math.round((known / totalLeaves) * 100);
       unknownPct = Math.round((unknown / totalLeaves) * 100);
+      westernPct = Math.round((western / totalLeaves) * 100);
+      nonwesternPct = Math.round((nonwestern / totalLeaves) * 100);
 
       // Cohort diversity stats (distinct SGBs + sample size) for the curated cohorts
       try {
@@ -130,7 +169,11 @@
           const stats = {};
           for (const c of cohortOptions) {
             const r = sj[c.key];
-            if (r) stats[c.key] = { sgbs: (r.sgbs || []).length, samples: r.samples_total ?? 0 };
+            if (r) {
+              const ids = (r.sgbs || []).map(Number);
+              const unknownCount = ids.filter(id => unknownSgbIds.has(id)).length;
+              stats[c.key] = { sgbs: ids.length, samples: r.samples_total ?? 0, unknown: unknownCount };
+            }
           }
           cohortStats = stats;
         }
@@ -146,15 +189,32 @@
     }
   });
 
-  // Handle select all phyla
+  // "All" restores the phylum filter to its default (empty = every phylum shown),
+  // mirroring the anthromes key's All button.
   function handleSelectAll() {
-    selectedPhyla = [...allPhyla];
+    selectedPhyla = [];
   }
 
-  // Handle clear all filters
-  function handleClear() {
+  // Full reset to page-load state: every filter, the details panel, and the
+  // chart's zoom/rotation/highlight.
+  function resetAll() {
     selectedPhyla = [];
     unknownFilter = 'all';
+    westernFilter = 'any';
+    selectedStudyKey = null;
+    openPanel = null;
+    detailContent = null;
+    detailPoint = null;
+    biomesChartRef?.resetControl?.();
+  }
+
+  // Known/Unknown and Western/Non-western behave like Cohort: no "All" button.
+  // All are shown by default; tap a value to isolate it, tap again to reset.
+  function toggleUnknown(value) {
+    unknownFilter = unknownFilter === value ? 'all' : value;
+  }
+  function toggleWestern(value) {
+    westernFilter = westernFilter === value ? 'any' : value;
   }
 
   // Handle phylum chip toggle
@@ -340,6 +400,10 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
+<!-- .viewport fills the window and shows the letterbox; .stage is the fixed
+     3000x2000 canvas that everything below is authored against. -->
+<div class="viewport">
+<div class="stage" bind:this={stageEl}>
 {#if loading}
   <div class="loading">
     <p>Loading biomes data...</p>
@@ -387,6 +451,7 @@
           {taxonomyTree}
           bind:selectedPhyla
           bind:unknownFilter
+          bind:westernFilter
           size={viewSize}
           {tension}
           bodySiteFilter={selectedBodySites}
@@ -403,41 +468,60 @@
         <!-- Top tier: largest control circles -->
         <div class="control-circles">
           <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
-          <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={() => biomesChartRef?.resetControl?.()}>◎</button>
+          <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetAll}>◎</button>
           <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
           <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
         </div>
 
-        <!-- Middle tier: always-visible menu items -->
-        <section class="fblock">
-          <h3 class="fblock-title">Known / Unknown</h3>
-          <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
-          <div class="sel-buttons">
-            <button class="sel-btn" class:active={unknownFilter === 'all'} onclick={() => unknownFilter = 'all'}>All</button>
-            <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => unknownFilter = 'known'}>Known ({knownPct}%)</button>
-            <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => unknownFilter = 'unknown'}>Unknown ({unknownPct}%)</button>
-          </div>
-        </section>
+        <!-- Middle tier: Known/Unknown and Non/Western share a row. No "All"
+             button — like Cohort, all are shown by default; tap to isolate,
+             tap again to reset. -->
+        <div class="filter-row">
+          <section class="fblock">
+            <h3 class="fblock-title">Known / Unknown</h3>
+            <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
+            <div class="sel-buttons">
+              <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => toggleUnknown('known')}>
+                <span class="sel-name">Known</span>
+                <span class="sel-pct">{knownPct}%</span>
+              </button>
+              <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => toggleUnknown('unknown')}>
+                <span class="sel-name">Unknown</span>
+                <span class="sel-pct">{unknownPct}%</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="fblock">
+            <h3 class="fblock-title">Non / Western</h3>
+            <p class="fblock-desc"><strong>Westernized</strong> — industrialized, urban populations with high exposure to modern medical and food systems. <strong>Non-Westernized</strong> — populations with limited industrialization and lower exposure to those systems.</p>
+            <div class="sel-buttons">
+              <button class="sel-btn" class:active={westernFilter === 'western'} onclick={() => toggleWestern('western')}>
+                <span class="sel-name">Western</span>
+                <span class="sel-pct">{westernPct}%</span>
+              </button>
+              <button class="sel-btn" class:active={westernFilter === 'nonwestern'} onclick={() => toggleWestern('nonwestern')}>
+                <span class="sel-name">Non-Western</span>
+                <span class="sel-pct">{nonwesternPct}%</span>
+              </button>
+            </div>
+          </section>
+        </div>
 
         <section class="fblock">
-          <div class="fblock-headrow">
-            <h3 class="fblock-title">Cohort</h3>
-            <div class="rank-toggle">
-              <button class:active={rankMetric === 'total'} onclick={() => rankMetric = 'total'}>Total</button>
-              <button class:active={rankMetric === 'percapita'} onclick={() => rankMetric = 'percapita'}>Per-capita</button>
-            </div>
-          </div>
-          <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the bacterial diversity observed in each population, most to least{rankMetric === 'percapita' ? ', adjusted per sample.' : '.'}</p>
-          <div class="cohort-bubbles">
+          <h3 class="fblock-title">Cohort</h3>
+          <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the share of each population's species that were previously unknown to science, most to least.</p>
+          <div class="cohort-bubbles" bind:clientWidth={bubbleRowW}>
             {#each rankedCohorts as c (c.key)}
               <button
                 class="bubble"
                 class:active={selectedStudyKey === c.key}
-                style="width:calc({c.size} * var(--ui)); height:calc({c.size} * var(--ui));"
-                title={rankMetric === 'total' ? `${c.total} distinct SGBs` : `${c.percap.toFixed(2)} SGBs / sample`}
+                style="width:{c.size}px; height:{c.size}px;"
+                title={`${Math.round(c.upct * 100)}% unknown (uSGB)`}
                 onclick={() => selectStudyKey(c.key)}
               >
-                <span class="bubble-label">{c.label}</span>
+                <span class="sel-name">{c.label}</span>
+                <span class="sel-pct">{Math.round(c.upct * 100)}% unknown</span>
               </button>
             {/each}
           </div>
@@ -447,7 +531,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-          <h3 class="fblock-title">Details</h3>
+          <h3 class="fblock-title">Bacteria Species Details</h3>
           <p class="fblock-desc">The evolutionary lineage and genome profile of the species at the marker.</p>
           <div class="panel-content detail-scroll" onclick={handleDetailPanelClick}>
             {#if detailContent}
@@ -463,8 +547,7 @@
           <div class="phylum-band-head">
             <span class="phylum-band-title">Phylum</span>
             <div class="phylum-band-actions">
-              <button class="mini-link" onclick={handleSelectAll}>All</button>
-              <button class="mini-link" onclick={() => selectedPhyla = []}>Clear</button>
+              <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -524,6 +607,10 @@
     {/if}
   </div>
 {/if}
+</div>
+<!-- Outside .stage so it renders at true screen px, unscaled -->
+<DevHud />
+</div>
 
 <style>
   .loading,
@@ -531,21 +618,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100vh;
+    height: 100%;
     text-align: center;
+    font-size: 21px;
     color: var(--fg);
   }
 
   .error h2 {
     color: #ff6b6b;
-    margin-bottom: 1rem;
+    margin-bottom: 20px;
   }
 
   .app {
-    /* fluid scale: 1 at 3840px (exhibition), ~0.67 at 2560px, floor 0.62 for laptop touch targets */
-    --ui: clamp(0.62px, calc(100vw / 3840), 1px);
     width: 100%;
-    height: 100vh;
+    height: 100%;
     position: relative;
     overflow: hidden;
   }
@@ -553,18 +639,18 @@
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    height: 100vh;
+    height: 100%;
     align-items: stretch;
     gap: 0;
   }
 
-  /* MoMA circle-size tiers (sized for a ~3840px exhibition display) */
+  /* MoMA circle-size tiers, in design px on the 3000x2000 canvas */
   .rail {
-    --tier-top: calc(118 * var(--ui));     /* biggest: controls */
-    --tier-mid: calc(150 * var(--ui));     /* medium: filter/select */
-    --tier-key: calc(118 * var(--ui));     /* smallest: phylum key */
+    --tier-top: 118px;     /* biggest: controls */
+    --tier-mid: 150px;     /* medium: filter/select */
+    --tier-key: 118px;     /* smallest: phylum key */
     grid-column: 2;
-    padding: 40px 48px;
+    padding: 51px 61px;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
@@ -577,15 +663,28 @@
 
   /* Thin gray divider between every menu item (details reads as just another one) */
   .rail > * + * {
-    border-top: 1px solid rgba(255, 255, 255, 0.14);
-    margin-top: 18px;
-    padding-top: 18px;
+    border-top: 1.3px solid rgba(255, 255, 255, 0.14);
+    margin-top: 23px;
+    padding-top: 23px;
   }
 
   .control-circles,
   .fblock,
+  .filter-row,
   .phylum-band {
     flex: 0 0 auto;
+  }
+
+  /* Known/Unknown + Non/Western sit side by side in one rail row */
+  .filter-row {
+    display: flex;
+    gap: 44px;
+    align-items: flex-start;
+  }
+
+  .filter-row .fblock {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .detail-block {
@@ -601,14 +700,14 @@
   }
 
   .nav-circle {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    width: calc(248 * var(--ui));
-    height: calc(248 * var(--ui));
+    position: absolute;
+    bottom: 26px;
+    left: 26px;
+    width: 248px;
+    height: 248px;
     border-radius: 50%;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
     box-shadow: var(--shadow);
     display: grid;
     place-items: center;
@@ -622,16 +721,16 @@
   .nav-circle__outer {
     display: grid;
     place-items: center;
-    width: calc(220 * var(--ui));
-    height: calc(220 * var(--ui));
+    width: 220px;
+    height: 220px;
     border-radius: 50%;
     text-decoration: none;
     pointer-events: auto;
   }
 
   .nav-circle svg {
-    width: calc(220 * var(--ui));
-    height: calc(220 * var(--ui));
+    width: 220px;
+    height: 220px;
     overflow: visible;
   }
 
@@ -640,6 +739,7 @@
     stroke: none;
   }
 
+  /* In SVG user units (viewBox is 120 wide), not px — scales with the svg box. */
   .nav-circle__text {
     font-size: 15px;
     font-weight: 800;
@@ -670,15 +770,15 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: calc(60 * var(--ui));
-    height: calc(60 * var(--ui));
+    width: 60px;
+    height: 60px;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1.3px solid rgba(255, 255, 255, 0.4);
     background: transparent;
     color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
-    font-size: calc(28 * var(--ui));
+    font-size: 28px;
     line-height: 1;
     font-weight: 800;
     text-decoration: none;
@@ -690,7 +790,7 @@
   .control-circles {
     display: flex;
     flex-wrap: wrap;
-    gap: 22px;
+    gap: 28px;
     justify-content: flex-end;
     align-items: center;
   }
@@ -700,10 +800,10 @@
     height: var(--tier-top);
     border-radius: 50%;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 700;
-    font-size: calc(44 * var(--ui));
+    font-size: 44px;
     cursor: pointer;
     display: grid;
     place-items: center;
@@ -732,21 +832,13 @@
   .fblock {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 13px;
     min-width: 0;
-  }
-
-  .fblock-headrow {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    flex-wrap: wrap;
   }
 
   .fblock-title {
     margin: 0;
-    font-size: calc(24 * var(--ui));
+    font-size: 24px;
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--fg);
@@ -754,7 +846,7 @@
 
   .fblock-desc {
     margin: 0;
-    font-size: 13px;
+    font-size: 16.6px;
     line-height: 1.45;
     color: var(--muted);
   }
@@ -763,11 +855,11 @@
     color: #fff;
   }
 
-  /* Known / Unknown: medium circular select buttons */
+  /* Known / Unknown + Non / Western: medium circular select buttons */
   .sel-buttons {
     display: flex;
     flex-wrap: nowrap;
-    gap: 20px;
+    gap: 22px;
   }
 
   .sel-btn {
@@ -775,18 +867,31 @@
     height: var(--tier-mid);
     border-radius: 50%;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
-    font-weight: 700;
-    font-size: calc(22 * var(--ui));
-    line-height: 1.15;
     cursor: pointer;
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
     padding: 10px;
     box-sizing: border-box;
     box-shadow: var(--shadow);
+  }
+
+  .sel-name {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.05;
+  }
+
+  .sel-pct {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.1;
+    margin-top: 3px;
+    opacity: 0.7;
   }
 
   .sel-btn.active {
@@ -795,34 +900,12 @@
     border-color: #fff;
   }
 
+  .sel-btn.active .sel-pct {
+    opacity: 0.75;
+  }
+
   .sel-btn:active {
     transform: scale(0.96);
-  }
-
-  /* Cohort rank toggle — underline + opacity select (no pill, keeps headrow short) */
-  .rank-toggle {
-    display: inline-flex;
-    gap: 18px;
-    align-items: baseline;
-  }
-
-  .rank-toggle button {
-    background: transparent;
-    color: var(--fg);
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 0 0 2px;
-    font-size: 18px;
-    font-weight: 700;
-    line-height: 1.2;
-    cursor: pointer;
-    opacity: 0.45;
-    transition: opacity 0.15s ease;
-  }
-
-  .rank-toggle button.active {
-    opacity: 1;
-    border-bottom-color: currentColor;
   }
 
   /* Cohort ranked bubbles */
@@ -830,35 +913,37 @@
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 16px;
-    padding-top: 6px;
+    gap: 20px;
+    padding-top: 7.7px;
   }
 
   .bubble {
+    flex: 0 0 auto;   /* never grow/shrink — a squashed bubble reads as an ellipse */
+    min-width: 0;     /* let width equal the set diameter even if content is wider */
     border-radius: 50%;
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     cursor: pointer;
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     text-align: center;
-    padding: 6px;
+    padding: 7.7px;
     box-sizing: border-box;
     box-shadow: var(--shadow);
     transition: width 0.35s ease, height 0.35s ease;
-  }
-
-  .bubble-label {
-    font-size: calc(22 * var(--ui));
-    font-weight: 700;
-    line-height: 1.1;
   }
 
   .bubble.active {
     background: #fff;
     color: var(--bg);
     border-color: #fff;
+  }
+
+  .bubble.active .sel-pct {
+    opacity: 0.75;
   }
 
   .bubble:active {
@@ -869,7 +954,7 @@
   .phylum-band {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 13px;
     min-height: 0;
   }
 
@@ -877,79 +962,85 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 15px;
   }
 
   .phylum-band-title {
-    font-size: calc(22 * var(--ui));
+    font-size: 22px;
     font-weight: 800;
     letter-spacing: 0.02em;
   }
 
   .phylum-band-actions {
     display: flex;
-    gap: 12px;
+    gap: 15px;
   }
 
+  /* Matches the cohort Total/Per-capita toggle: text with an underline on the
+     active state. "All" is active when no phylum filter is applied (the default). */
   .mini-link {
     background: transparent;
-    border: 2px solid rgba(255, 255, 255, 0.5);
-    color: var(--muted);
-    border-radius: 999px;
-    padding: 10px 22px;
-    font-size: 18px;
+    color: var(--fg);
+    border: none;
+    border-bottom: 2.6px solid transparent;
+    padding: 0 0 2.6px;
+    font-size: 23px;
     font-weight: 700;
+    line-height: 1.2;
     cursor: pointer;
+    opacity: 0.45;
+    transition: opacity 0.15s ease;
+  }
+
+  .mini-link.active {
+    opacity: 1;
+    border-bottom-color: currentColor;
   }
 
   .phylum-key {
     display: flex;
     flex-wrap: wrap;
-    gap: 11px;
+    gap: 14px;
     overflow: auto;
     align-content: flex-start;
   }
 
-  /* Compact key pill; colour = phylum, tap to toggle (mirrors anthromes key-pill) */
+  /* Compact key pill; colour = phylum, tap to toggle. Matches the anthromes
+     key-pill: selection is shown by opacity alone (dimmed when not selected),
+     never a border/box-shadow ring. */
   .phylum-dot {
     display: inline-flex;
     align-items: center;
-    height: 32px;
-    padding: 0 13px;
-    border-radius: 9px;
-    border: 1px solid rgba(0, 0, 0, 0.18);
+    height: 41px;
+    padding: 0 17px;
+    border-radius: 11.5px;
+    border: 1.3px solid rgba(0, 0, 0, 0.18);
     cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
     user-select: none;
     touch-action: none;
-    opacity: 0.92;
     transition: opacity 0.15s ease;
   }
 
   .phylum-dot span {
-    font-size: 13px;
+    font-size: 16.6px;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.01em;
   }
 
-  .phylum-dot.active {
-    border-color: #fff;
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
-    opacity: 1;
-  }
-
   .phylum-dot.dim {
-    opacity: 0.32;
+    opacity: 0.35;
   }
 
-  /* ===== Leader line from the chart selection marker to the details panel ===== */
+  /* ===== Leader line from the chart selection marker to the details panel =====
+     Spans the design canvas; its SVG user units are design px. */
   .leader-overlay {
-    position: fixed;
+    position: absolute;
     inset: 0;
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
     z-index: 6;
     overflow: visible;
@@ -957,8 +1048,8 @@
 
   .leader-line {
     stroke: rgba(255, 255, 255, 0.85);
-    stroke-width: 1.5;
-    stroke-dasharray: 2 6;
+    stroke-width: 1.9;
+    stroke-dasharray: 2.6 7.7;
     stroke-linecap: round;
   }
 
@@ -966,7 +1057,7 @@
   .detail-block {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 13px;
     pointer-events: auto;
   }
 
@@ -978,26 +1069,28 @@
 
   .detail-hint {
     margin: 0;
-    font-size: 13px;
+    font-size: 16.6px;
     font-weight: 700;
     letter-spacing: 0.02em;
     color: var(--fg);
     opacity: 0.85;
   }
 
-  /* Info stays a centered on-screen overlay (longer read) */
+  /* Info stays a centered overlay on the design canvas (longer read).
+     Percentages resolve against .stage, i.e. the 3000x2000 canvas. */
   .info-modal {
-    position: fixed;
+    position: absolute;
     top: 50%;
     left: 50%;
-    width: min(52vw, 760px);
-    max-height: 82vh;
+    width: 973px;
+    max-width: calc(100% - 123px);
+    max-height: 82%;
     overflow: auto;
     transform: translate(-50%, -50%);
     background: var(--bg);
-    border: 3px solid rgba(255, 255, 255, 0.85);
-    border-radius: 26px;
-    padding: 30px 34px;
+    border: 3.8px solid rgba(255, 255, 255, 0.85);
+    border-radius: 33px;
+    padding: 38px 44px;
     box-shadow: var(--shadow);
     z-index: 20;
     pointer-events: auto;
@@ -1012,8 +1105,8 @@
 
   .info-body {
     display: grid;
-    gap: 14px;
-    font-size: 17px;
+    gap: 18px;
+    font-size: 22px;
     line-height: 1.6;
     color: var(--muted);
   }
@@ -1023,7 +1116,7 @@
   }
 
   .info-body p + p {
-    padding-top: 6px;
+    padding-top: 7.7px;
   }
 
   .info-body strong {
@@ -1039,45 +1132,45 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 18px;
+    gap: 15px;
+    margin-bottom: 23px;
   }
 
   .overlay-title {
     font-weight: 700;
     letter-spacing: 0.04em;
-    font-size: 26px;
+    font-size: 33px;
   }
 
   .panel-content {
-    font-size: 13px;
+    font-size: 16.6px;
     color: var(--muted);
     line-height: 1.5;
     display: grid;
-    gap: 12px;
+    gap: 15px;
     overflow: auto;
   }
 
   .info-citations {
-    margin-top: 14px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 18px;
+    padding-top: 13px;
+    border-top: 1.3px solid rgba(255, 255, 255, 0.08);
   }
 
   .info-citations-title {
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
-    margin-bottom: 6px;
+    margin-bottom: 7.7px;
   }
 
   .info-citations p {
-    font-size: 10px;
+    font-size: 13px;
     color: var(--muted);
     line-height: 1.5;
-    margin: 0 0 8px;
+    margin: 0 0 10px;
   }
 
   .info-citations p:last-child {
@@ -1095,33 +1188,33 @@
 
   /* Detail panel typography */
   :global(.panel-content .title) {
-    font-size: 18px;
+    font-size: 23px;
     font-weight: 800;
     letter-spacing: 0.04em;
     color: #fff;
   }
 
   :global(.panel-content .subtitle) {
-    font-size: 13px;
+    font-size: 16.6px;
     color: #cfd3e0;
     letter-spacing: 0.02em;
   }
 
   :global(.panel-content .summary) {
-    font-size: 14px;
+    font-size: 18px;
     color: #e7e9f1;
   }
 
   :global(.panel-content .kv) {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 4px 10px;
-    padding: 6px 0;
-    border-top: 1px dashed rgba(255,255,255,0.12);
+    gap: 5px 13px;
+    padding: 7.7px 0;
+    border-top: 1.3px dashed rgba(255,255,255,0.12);
   }
 
   :global(.panel-content .kv .k) {
-    font-size: 11px;
+    font-size: 14px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #9ba3c0;
@@ -1130,16 +1223,16 @@
   :global(.panel-content .kv .v) {
     color: #f6f7fb;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 16.6px;
   }
 
   :global(.panel-content .swatch) {
     display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.25);
-    margin-right: 6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    border: 1.3px solid rgba(255,255,255,0.25);
+    margin-right: 7.7px;
     vertical-align: middle;
   }
 
@@ -1147,31 +1240,31 @@
   :global(.panel-content .badge) {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 10px;
+    gap: 7.7px;
+    padding: 7.7px 13px;
     border-radius: 999px;
     background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.16);
+    border: 1.3px solid rgba(255,255,255,0.16);
     color: #fff;
-    font-size: 11px;
+    font-size: 14px;
     letter-spacing: 0.03em;
   }
 
   :global(.panel-content .actions) {
     display: grid;
-    gap: 8px;
-    margin-top: 2px;
+    gap: 10px;
+    margin-top: 2.6px;
   }
 
   :global(.panel-content .actions button) {
     text-align: left;
     background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.18);
+    border: 1.3px solid rgba(255,255,255,0.18);
     color: #fff;
-    border-radius: 12px;
-    padding: 11px 14px;
+    border-radius: 15px;
+    padding: 14px 18px;
     font-weight: 700;
-    font-size: 13px;
+    font-size: 16.6px;
     cursor: pointer;
   }
 
@@ -1182,12 +1275,12 @@
 
   .chevron {
     background: var(--bg);
-    border: 2px solid rgba(255, 255, 255, 0.85);
+    border: 2.6px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     border-radius: 50%;
-    width: 48px;
-    height: 48px;
-    font-size: 22px;
+    width: 61px;
+    height: 61px;
+    font-size: 28px;
     display: grid;
     place-items: center;
     font-weight: 800;
