@@ -1134,16 +1134,8 @@
     align-items: start;
   }
 
-  /* Prevalence circles are smaller than the standard --tier-mid select buttons:
-     six of them in two rows, so the extra height matters for the details panel. */
-  .sel-buttons--stack .sel-btn {
-    width: 140px;
-    height: 140px;
-  }
-
-  .sel-buttons--stack .sel-name {
-    font-size: 15.5px;
-  }
+  /* Prevalence circles match the standard --tier-mid select buttons — same size
+     as Known/Unknown; there's enough vertical room now for full-size circles. */
 
   .sel-caption {
     font-size: 13px;
