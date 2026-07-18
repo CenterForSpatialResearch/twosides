@@ -191,3 +191,16 @@ body {
   margin-top: 8px;
   line-height: 1.35;
 }
+
+/* ===== Leader / connector line — shared by biomes and anthromes =====
+   Both apps draw a dashed leader from the selection (disk marker / map cell) to
+   the docked details panel. Same stroke so the two sides read as one system.
+   `fill:none` lets the biomes Option-1 polyline render as an open path. */
+.leader-line {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 1.9;
+  stroke-dasharray: 5 3.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

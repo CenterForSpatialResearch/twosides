@@ -167,12 +167,20 @@
     const start = connectorStart;
     const panel = detailPanelEl;
     const open = detailContent;
+    // Recompute when the Cell History chart appears or resizes, since the seam
+    // the leader targets moves with it.
+    barChartData; historyChartSize;
     untrack(() => {
       if (!panel || !start || !open) { connectorEnd = null; return; }
       const rect = panel.getBoundingClientRect();
-      // Panel docks on the left; leader ends at its right edge, vertically centered.
+      // Panel docks on the left; leader ends at its right edge (rail edge),
+      // vertically in line with the "Cell History" chart title. Falls back to the
+      // panel title when no chart is shown.
       // getBoundingClientRect is in screen px but the overlay draws in design px.
-      connectorEnd = screenToDesign(rect.right, (rect.top + rect.bottom) / 2);
+      const histTitle = panel.querySelector('.history-chart-title');
+      const anchor = histTitle || panel.querySelector('.menu-title') || panel;
+      const ar = anchor.getBoundingClientRect();
+      connectorEnd = screenToDesign(rect.right, ar.top + ar.height / 2);
     });
   });
 
@@ -552,10 +560,23 @@
     </div>
   {/if}
 
-  <!-- Leader line: isolated cell → docked detail panel. Endpoints are design px. -->
+  <!-- Leader line: isolated cell → docked detail panel. Endpoints are design px.
+       White arrowhead on the map (cell) side, matching the biomes disk marker. -->
   {#if detailContent && connectorStart && connectorEnd}
     <svg class="connector-overlay" aria-hidden="true">
-      <line x1={connectorStart.x} y1={connectorStart.y} x2={connectorEnd.x} y2={connectorEnd.y}></line>
+      <defs>
+        <marker id="leader-arrow" markerUnits="userSpaceOnUse"
+                markerWidth="18" markerHeight="18" refX="16" refY="9"
+                orient="auto-start-reverse">
+          <path d="M0,0 L16,9 L0,18 Z" fill="#fff"></path>
+        </marker>
+      </defs>
+      <line
+        class="leader-line"
+        marker-start="url(#leader-arrow)"
+        x1={connectorStart.x} y1={connectorStart.y}
+        x2={connectorEnd.x} y2={connectorEnd.y}
+      ></line>
     </svg>
   {/if}
 {/if}
@@ -1059,11 +1080,7 @@
     overflow: visible;
   }
 
-  .connector-overlay line {
-    stroke: rgba(255, 255, 255, 0.5);
-    stroke-width: 1.9;
-    stroke-dasharray: 5 3.8;
-  }
+  /* .leader-line stroke lives in shared styles.css (unified with biomes). */
 
   .history-chart-section {
     display: flex;

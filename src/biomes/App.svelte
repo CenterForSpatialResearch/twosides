@@ -117,8 +117,10 @@
 
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
-    const r = detailPanelEl.getBoundingClientRect();
-    // Rect is screen px; the overlay draws in design px.
+    // Anchor on the panel TITLE (not the panel mid-height) so the leader lands
+    // in line with "Bacteria Species Details". Rect is screen px; overlay is design px.
+    const titleEl = detailPanelEl.querySelector('.fblock-title');
+    const r = (titleEl || detailPanelEl).getBoundingClientRect();
     leaderTo = screenToDesign(r.left, r.top + r.height / 2);
   }
 
@@ -557,6 +559,26 @@
           <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
         </div>
 
+        <!-- Details panel, shared by both options but placed differently:
+             Option 1 renders it at the TOP (right below the controls) so the
+             marker leader lines up with its title; Option 2 renders it after
+             Cohort. Defined once as a snippet, rendered per option below. -->
+        {#snippet detailPanel()}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
+            <h3 class="fblock-title">Bacteria Species Details</h3>
+            <p class="fblock-desc">The evolutionary lineage and genome profile of the species at the marker.</p>
+            <div class="panel-content detail-scroll" onclick={handleDetailPanelClick}>
+              {#if detailContent}
+                {@html detailContent}
+              {:else}
+                <p class="detail-hint">Spin the disk to inspect a species.</p>
+              {/if}
+            </div>
+          </section>
+        {/snippet}
+
         {#if uiOption() === 2}
         <!-- Option 2 (unchanged): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
@@ -611,12 +633,17 @@
             {/each}
           </div>
         </section>
+
+        {@render detailPanel()}
         {:else}
-        <!-- Option 1: two stacked blocks — Prevalence (population type / samples /
-             countries) then Known/Unknown with two compound buttons. Same
-             tap-to-isolate / tap-again-to-reset pattern; each Block A button
-             isolates its one dimension (clearing the other two axes). Cohort is
-             intentionally omitted here to give the details panel room. -->
+        <!-- Option 1: details panel on top, then two stacked blocks — Prevalence
+             (population type / samples / countries) then Known/Unknown with two
+             compound buttons. Same tap-to-isolate / tap-again-to-reset pattern;
+             each Block A button isolates its one dimension (clearing the other
+             two axes). Cohort is intentionally omitted here to give the details
+             panel room. -->
+        {@render detailPanel()}
+
         <section class="fblock">
           <h3 class="fblock-title">Prevalence</h3>
           <p class="fblock-desc">How often bacteria are found in human populations, and where.</p>
@@ -668,29 +695,8 @@
           </div>
         </section>
 
-        {/if}
-
-        <!-- Details: shared by both options, occupying the flexible middle band.
-             Option 1 places it ABOVE Known/Unknown so the horizontal marker
-             leader lines up with the panel; Option 2 has it after Cohort. The
-             leader endpoint tracks its box, so it follows the move. -->
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-          <h3 class="fblock-title">Bacteria Species Details</h3>
-          <p class="fblock-desc">The evolutionary lineage and genome profile of the species at the marker.</p>
-          <div class="panel-content detail-scroll" onclick={handleDetailPanelClick}>
-            {#if detailContent}
-              {@html detailContent}
-            {:else}
-              <p class="detail-hint">Spin the disk to inspect a species.</p>
-            {/if}
-          </div>
-        </section>
-
-        {#if uiOption() === 1}
-        <!-- Known/Unknown sits below the details panel in Option 1 (swapped so
-             the marker leader aligns with the panel). Option-1-only content. -->
+        <!-- Known/Unknown sits below Prevalence (the details panel is above,
+             rendered at the top of this branch). Option-1-only content. -->
         <section class="fblock">
           <h3 class="fblock-title">Known / Unknown</h3>
           <p class="fblock-desc">Which bacteria species were already known before this study, and how the newly-identified ones break down by prevalence.</p>
@@ -760,12 +766,23 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        <!-- Straight horizontal run from the marker to just shy of the rail edge -->
-        <line
-          class="leader-line"
-          x1={leaderFrom.x} y1={leaderFrom.y}
-          x2={leaderTo.x - 8} y2={leaderFrom.y}
-        />
+        {#if uiOption() === 1}
+          <!-- Option 1: details panel is at the top, so the leader runs
+               horizontally from the marker to the disk-canvas edge (rail left,
+               = title left − 61px rail padding), kinks up vertically, then turns
+               to end in line with the panel title. -->
+          <polyline
+            class="leader-line"
+            points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
+          />
+        {:else}
+          <!-- Option 2: straight horizontal run from the marker to the rail edge. -->
+          <line
+            class="leader-line"
+            x1={leaderFrom.x} y1={leaderFrom.y}
+            x2={leaderTo.x - 8} y2={leaderFrom.y}
+          />
+        {/if}
       </svg>
     {/if}
 
@@ -1282,12 +1299,7 @@
     overflow: visible;
   }
 
-  .leader-line {
-    stroke: rgba(255, 255, 255, 0.85);
-    stroke-width: 1.9;
-    stroke-dasharray: 2.6 7.7;
-    stroke-linecap: round;
-  }
+  /* .leader-line stroke lives in shared styles.css (unified with anthromes). */
 
   /* ===== Details: styled exactly like the other menu items (no card) ===== */
   .detail-block {
