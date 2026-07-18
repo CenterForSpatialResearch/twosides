@@ -204,3 +204,80 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* ===== Docked detail-panel content typography — shared by biomes + anthromes =====
+   The panel HTML (built in the chart components) is injected via {@html} into
+   each app's .panel-content. These rules were byte-identical in both App.svelte
+   files; centralized here so the two detail panels stay in lockstep. */
+.panel-content .title {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
+
+.panel-content .subtitle {
+  font-size: 16.6px;
+  color: #cfd3e0;
+  letter-spacing: 0.02em;
+}
+
+.panel-content .summary {
+  font-size: 16.6px;
+  color: #e7e9f1;
+}
+
+/* Inline, clickable action link at the end of the summary (e.g. "Highlight
+   countries … →") — underline + arrow signal it's tappable. */
+.panel-content .detail-link {
+  color: var(--accent, #7dd3fc);
+  text-decoration: underline;
+  text-underline-offset: 2.6px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.panel-content .kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 13px;
+  padding: 7.7px 0;
+  border-top: 1.3px dashed rgba(255, 255, 255, 0.12);
+}
+
+.panel-content .kv .k {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #9ba3c0;
+}
+
+.panel-content .kv .v {
+  color: #f6f7fb;
+  font-weight: 600;
+  font-size: 16.6px;
+}
+
+.panel-content .swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.3px solid rgba(255, 255, 255, 0.25);
+  margin-right: 7.7px;
+  vertical-align: middle;
+}
+
+.panel-content .pill,
+.panel-content .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7.7px;
+  padding: 7.7px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.3px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 14px;
+  letter-spacing: 0.03em;
+}

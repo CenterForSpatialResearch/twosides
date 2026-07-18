@@ -13,7 +13,6 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import * as d3 from 'd3';
-  import Tooltip from '../../shared/Tooltip.svelte';
   import { createEventDispatcher } from 'svelte';
   import { screenToDesign, elementScale } from '../../shared/stage.svelte.js';
   import {

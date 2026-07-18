@@ -9,6 +9,7 @@
   import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB, parseWestern } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
   import DevHud from '../shared/DevHud.svelte';
+  import NavCircle from '../shared/NavCircle.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   import { uiOption } from '../shared/uiOption.svelte.js';
 
@@ -500,31 +501,14 @@
 {:else}
   <div class="app">
     <!-- Nav circle: switch sides + home dot -->
-    <div class="nav-circle nav-circle--left">
-      <div class="nav-circle__outer">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <defs>
-            <!-- upper arc (left→right across the top) -->
-            <path id="nav-arc-top-left" d="M8 60 A52 52 0 0 1 112 60" />
-            <!-- lower arc (right→left across the bottom) -->
-            <path id="nav-arc-bottom-right" d="M112 60 A52 52 0 0 1 8 60" />
-          </defs>
-          <g class="nav-circle__labels" transform="rotate(45 60 60)">
-            <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
-            <text class="nav-circle__text nav-circle__text--active">
-              <textPath href="#nav-arc-top-left" startOffset="50%" text-anchor="middle"><tspan class="here">BIOMES</tspan></textPath>
-            </text>
-            <text class="nav-circle__text nav-circle__text--link">
-              <a href="{import.meta.env.BASE_URL}src/anthromes/" aria-label="Go to Anthromes">
-                <textPath href="#nav-arc-bottom-right" startOffset="50%" text-anchor="middle">ANTHROMES →</textPath>
-              </a>
-            </text>
-          </g>
-        </svg>
-      </div>
-
-      <a class="nav-circle__home" href={import.meta.env.BASE_URL} aria-label="Back to home">←</a>
-    </div>
+    <NavCircle
+      side="left"
+      activeLabel="BIOMES"
+      linkLabel="ANTHROMES →"
+      linkHref="{import.meta.env.BASE_URL}src/anthromes/"
+      linkAriaLabel="Go to Anthromes"
+      homeHref={import.meta.env.BASE_URL}
+    />
 
     <!-- Settings toggle & panel intentionally hidden for now -->
 
@@ -901,92 +885,6 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
-  }
-
-  .nav-circle {
-    position: absolute;
-    bottom: 26px;
-    left: 26px;
-    width: 248px;
-    height: 248px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    box-shadow: var(--shadow);
-    display: grid;
-    place-items: center;
-    color: var(--fg);
-    text-decoration: none;
-    z-index: 8;
-    pointer-events: auto;
-    overflow: visible;
-  }
-
-  .nav-circle__outer {
-    display: grid;
-    place-items: center;
-    width: 220px;
-    height: 220px;
-    border-radius: 50%;
-    text-decoration: none;
-    pointer-events: auto;
-  }
-
-  .nav-circle svg {
-    width: 220px;
-    height: 220px;
-    overflow: visible;
-  }
-
-  .nav-circle__ring {
-    fill: none;
-    stroke: none;
-  }
-
-  /* In SVG user units (viewBox is 120 wide), not px — scales with the svg box. */
-  .nav-circle__text {
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    fill: rgba(255, 255, 255, 0.65);
-    pointer-events: none;
-  }
-
-  .nav-circle__text--active {
-    fill: #fff;
-  }
-
-  .nav-circle__text .here {
-    text-decoration: underline;
-  }
-
-  .nav-circle__text--link {
-    pointer-events: auto;
-  }
-
-  .nav-circle__text--link a {
-    fill: inherit;
-    text-decoration: none;
-  }
-
-  .nav-circle__home {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    border: 1.3px solid rgba(255, 255, 255, 0.4);
-    background: transparent;
-    color: rgba(255, 255, 255, 0.9);
-    display: grid;
-    place-items: center;
-    font-size: 28px;
-    line-height: 1;
-    font-weight: 800;
-    text-decoration: none;
-    pointer-events: auto;
   }
 
 
@@ -1434,103 +1332,8 @@
     text-decoration: underline;
   }
 
-  /* Detail panel typography */
-  :global(.panel-content .title) {
-    font-size: 23px;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    color: #fff;
-  }
-
-  :global(.panel-content .subtitle) {
-    font-size: 16.6px;
-    color: #cfd3e0;
-    letter-spacing: 0.02em;
-  }
-
-  :global(.panel-content .summary) {
-    font-size: 16.6px;
-    color: #e7e9f1;
-  }
-
-  /* Inline, clickable action link that lives at the end of the summary sentence
-     (e.g. "Highlight countries … →") — underline + arrow signal it's tappable.
-     Unified across biomes + anthromes; replaces the old boxed .actions button. */
-  :global(.panel-content .detail-link) {
-    color: var(--accent, #7dd3fc);
-    text-decoration: underline;
-    text-underline-offset: 2.6px;
-    cursor: pointer;
-    pointer-events: auto;
-  }
-
-  :global(.panel-content .kv) {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 5px 13px;
-    padding: 7.7px 0;
-    border-top: 1.3px dashed rgba(255,255,255,0.12);
-  }
-
-  :global(.panel-content .kv .k) {
-    font-size: 14px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #9ba3c0;
-  }
-
-  :global(.panel-content .kv .v) {
-    color: #f6f7fb;
-    font-weight: 600;
-    font-size: 16.6px;
-  }
-
-  :global(.panel-content .swatch) {
-    display: inline-block;
-    width: 18px;
-    height: 18px;
-    border-radius: 5px;
-    border: 1.3px solid rgba(255,255,255,0.25);
-    margin-right: 7.7px;
-    vertical-align: middle;
-  }
-
-  :global(.panel-content .pill),
-  :global(.panel-content .badge) {
-    display: inline-flex;
-    align-items: center;
-    gap: 7.7px;
-    padding: 7.7px 13px;
-    border-radius: 999px;
-    background: rgba(255,255,255,0.08);
-    border: 1.3px solid rgba(255,255,255,0.16);
-    color: #fff;
-    font-size: 14px;
-    letter-spacing: 0.03em;
-  }
-
-  :global(.panel-content .actions) {
-    display: grid;
-    gap: 10px;
-    margin-top: 2.6px;
-  }
-
-  :global(.panel-content .actions button) {
-    text-align: left;
-    background: rgba(255,255,255,0.08);
-    border: 1.3px solid rgba(255,255,255,0.18);
-    color: #fff;
-    border-radius: 15px;
-    padding: 14px 18px;
-    font-weight: 700;
-    font-size: 16.6px;
-    cursor: pointer;
-  }
-
-  :global(.panel-content .actions button:hover) {
-    background: rgba(255,255,255,0.14);
-    border-color: rgba(255,255,255,0.26);
-  }
+  /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
+     .detail-link/.kv/.swatch/.pill) is shared — see src/shared/styles.css. */
 
   .chevron {
     background: var(--bg);
