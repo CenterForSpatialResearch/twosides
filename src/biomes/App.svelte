@@ -8,8 +8,11 @@
   } from './lib/BiomesChart.svelte';
   import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB, parseWestern } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
+  import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
+  import CountryCircle from '../shared/CountryCircle.svelte';
+  import PhylumBubbles from './lib/PhylumBubbles.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   import { uiOption } from '../shared/uiOption.svelte.js';
 
@@ -25,6 +28,11 @@
   let error = $state(null);
   let taxonomyTree = $state(null);
   let allPhyla = $state([]);
+  // SGB count per phylum (drives bubble sizing). Set alongside allPhyla.
+  let phylumCountByName = $state({});
+  // Leaf lookup by SGB_ID — used to compute per-country prevalence stats
+  // (abundant/rare, widespread/concentrated, known/unknown) at selection time.
+  let leafBySgbId = $state(new Map());
 
   // UI State
   let selectedPhyla = $state([]);
@@ -37,6 +45,59 @@
   let settingsOpen = $state(false);
   let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
   let selectedStudyKey = $state(null);
+  // Country-first primary filter (Phase 2). ISO3 or null.
+  // Seeded from ?country=ISO3 so a selection carries across the two sides.
+  let selectedCountryIso3 = $state(readCountryParam());
+  let primaryCountries = $state(null);        // { ISO3: {label, sgbs, ...} } from primary_countries.json
+  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
+  const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
+  // Compact display labels — iso3_names.json expands SWE→"Sweden", USA→"United
+  // States of America", GBR→"United Kingdom" etc. The picker needs short,
+  // uniform labels that don't dictate the circle's layout width.
+  const SHORT_LABELS = {
+    SWE: 'Sweden',
+    GBR: 'UK',
+    USA: 'USA',
+    CHN: 'China',
+    MDG: 'Madagascar',
+    FJI: 'Fiji',
+    PER: 'Peru',
+    TZA: 'Tanzania'
+  };
+
+  function readCountryParam() {
+    if (typeof window === 'undefined') return null;
+    const p = new URLSearchParams(window.location.search).get('country');
+    return p && PRIMARY_ORDER.includes(p) ? p : null;
+  }
+
+  function updateCountryParam(iso3) {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (iso3) url.searchParams.set('country', iso3);
+    else url.searchParams.delete('country');
+    window.history.replaceState(null, '', url.toString());
+  }
+
+  // Cross-side link carries every part of the current context that the other
+  // side knows how to accept: the picked country AND (if the disk has landed
+  // on a species) that species' SGB, so anthromes arrives with both the
+  // primary country highlighted and the range annotation for the species.
+  const crossLinkHref = $derived.by(() => {
+    const base = import.meta.env.BASE_URL;
+    const params = new URLSearchParams();
+    if (selectedCountryIso3) params.set('country', selectedCountryIso3);
+    const sgbId = detailMeta?.metadata?.SGB_ID;
+    if (sgbId != null) params.set('highlightSGB', String(sgbId));
+    const q = params.toString();
+    return `${base}src/anthromes/${q ? `?${q}` : ''}`;
+  });
+
+  // Persist current selection in the URL so a page reload or cross-side link
+  // preserves the country. replaceState keeps the history stack clean.
+  $effect(() => {
+    updateCountryParam(selectedCountryIso3);
+  });
   let zoomIdx = $state(0);
   const cohortOptions = [
     { key: 'CM_madagascar', label: 'Madagascar' },
@@ -107,6 +168,23 @@
   let biomesChartRef = $state(null);
   let detailContent = $state(null);
   let detailPoint = $state(null);
+  let detailMeta = $state(null); // { metadata, name, phylum, leafId } from BiomesChart
+  // Overlay-annotation state — multi-species range from anthromes (cell
+  // tooltip or SGB link). BiomesChart writes this when the URL brings a
+  // highlight; App renders a dismissible rail tag off it.
+  let rangeSource = $state(null);
+
+  function clearRange() {
+    rangeSource = null;
+    biomesChartRef?.clearHighlight?.();
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('highlightSGB');
+      url.searchParams.delete('highlightSGBs');
+      window.history.replaceState(null, '', url.toString());
+      sessionStorage.removeItem('highlightSGBs');
+    }
+  }
   let detailPanelEl = $state(null);
   let detailPanelAnchor = $state(null);
   let viewportW = $state(0);
@@ -154,9 +232,17 @@
       const leaves = root.leaves();
 
       const phylumCounts = d3.rollup(leaves, v => v.length, leaf => getPhylum(leaf));
-      allPhyla = Array.from(phylumCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([phylum]) => phylum);
+      const sortedEntries = Array.from(phylumCounts.entries()).sort((a, b) => b[1] - a[1]);
+      allPhyla = sortedEntries.map(([phylum]) => phylum);
+      phylumCountByName = Object.fromEntries(sortedEntries);
+
+      // SGB → leaf map (metadata.SGB_ID is a number stringified in some places)
+      const leafMap = new Map();
+      for (const l of leaves) {
+        const id = Number(l.data?.metadata?.SGB_ID);
+        if (Number.isFinite(id)) leafMap.set(id, l);
+      }
+      leafBySgbId = leafMap;
 
       // Known / Unknown percentages (uSGB === 'Yes' means unknown)
       let known = 0, unknown = 0;
@@ -191,6 +277,34 @@
       rarePct = Math.round((rare / totalLeaves) * 100);
       widespreadPct = Math.round((widespread / totalLeaves) * 100);
       concentratedPct = Math.round((concentrated / totalLeaves) * 100);
+
+      // Country-first picker data (Phase 2): the curated 8-country manifest and
+      // the admin boundary geometries used to draw each CountryCircle globe.
+      try {
+        const base = import.meta.env.BASE_URL;
+        const [pcRes, boundariesRes] = await Promise.all([
+          fetch(`${base}data/primary_countries.json`),
+          fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`)
+        ]);
+        if (pcRes.ok) primaryCountries = await pcRes.json();
+        if (boundariesRes.ok) {
+          const topo = await boundariesRes.json();
+          const objName = Object.keys(topo.objects)[0];
+          const fc = topoFeature(topo, topo.objects[objName]);
+          // Only keep the 8 target-country features. The picker no longer
+          // renders context boundaries, so materializing all 172 features into
+          // reactive state is wasted memory + reactivity work.
+          const wanted = new Set(PRIMARY_ORDER);
+          const byIso = new Map();
+          for (const f of fc.features) {
+            const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
+            if (id && wanted.has(id)) byIso.set(id, f);
+          }
+          countryFeatureByIso = byIso;
+        }
+      } catch (e) {
+        console.warn('Failed to load country picker data', e);
+      }
 
       // Cohort diversity stats (distinct SGBs + sample size) for the curated cohorts
       try {
@@ -235,6 +349,7 @@
     abundanceFilter = 'any';
     geoFilter = 'any';
     selectedStudyKey = null;
+    selectedCountryIso3 = null;
     openPanel = null;
     detailContent = null;
     detailPoint = null;
@@ -311,6 +426,141 @@
     }
   }
 
+  // Bubble picker uses the same selectedPhyla list — a normal bubble is one
+  // phylum; the aggregated Other bubble stands in for its member phyla list.
+  function handleBubbleToggle(datum) {
+    if (datum.isOther) {
+      const members = new Set(datum.memberNames);
+      const overlap = selectedPhyla.filter((p) => members.has(p));
+      if (overlap.length === members.size) {
+        // All members currently selected → remove them.
+        selectedPhyla = selectedPhyla.filter((p) => !members.has(p));
+      } else {
+        // Otherwise select the whole group (idempotent union).
+        const rest = selectedPhyla.filter((p) => !members.has(p));
+        selectedPhyla = [...rest, ...datum.memberNames];
+      }
+      return;
+    }
+    togglePhylum(datum.name);
+  }
+
+  // Bubble input: derived list of {name, count, color, isOther?, memberNames?}.
+  // Any phylum that falls through to the palette's Other colour collapses into
+  // a single Other bubble carrying the summed count and its member names.
+  const OTHER_COLOR = colorMapping.Other;
+  const phylumBubbles = $derived.by(() => {
+    if (!allPhyla.length) return [];
+    const primary = [];
+    const otherMembers = [];
+    let otherCount = 0;
+    for (const name of allPhyla) {
+      const count = phylumCountByName[name] || 0;
+      const color = colorMapping[name] || OTHER_COLOR;
+      if (color === OTHER_COLOR) {
+        otherMembers.push(name);
+        otherCount += count;
+      } else {
+        primary.push({ name, count, color });
+      }
+    }
+    if (otherMembers.length) {
+      primary.push({
+        name: 'Other',
+        count: otherCount,
+        color: OTHER_COLOR,
+        isOther: true,
+        memberNames: otherMembers
+      });
+    }
+    return primary;
+  });
+
+  // Bubble container geometry (bound to the .phylum-key element so the pack
+  // layout fits the actual available box).
+  let phBoxW = $state(0);
+  let phBoxH = $state(0);
+
+  // Per-country prevalence stats — computed from the leaves whose SGB is in
+  // the country's sgbs array. Uses the same thresholds as BiomesChart's
+  // filter chain (ABUNDANT_MIN_SAMPLES / RARE_MAX_SAMPLES /
+  // WIDESPREAD_MIN_COUNTRIES / CONCENTRATED_MAX_COUNTRIES).
+  const countryStats = $derived.by(() => {
+    if (!selectedCountryIso3 || !primaryCountries) return null;
+    const meta = primaryCountries[selectedCountryIso3];
+    if (!meta?.sgbs?.length || !leafBySgbId.size) return null;
+
+    let matched = 0;
+    let abundant = 0, rare = 0, widespread = 0, concentrated = 0;
+    let known = 0, unknown = 0;
+    for (const sgb of meta.sgbs) {
+      const leaf = leafBySgbId.get(Number(sgb));
+      if (!leaf) continue;
+      matched += 1;
+      const md = leaf.data?.metadata || {};
+      const samples = Number(md.Sample_ID_Count);
+      const countries = Number(md.Country_Count);
+      if (Number.isFinite(samples)) {
+        if (samples >= ABUNDANT_MIN_SAMPLES) abundant += 1;
+        else if (samples <= RARE_MAX_SAMPLES) rare += 1;
+      }
+      if (Number.isFinite(countries)) {
+        if (countries >= WIDESPREAD_MIN_COUNTRIES) widespread += 1;
+        else if (countries <= CONCENTRATED_MAX_COUNTRIES) concentrated += 1;
+      }
+      const isU = parseUSGB(md) === 'Yes';
+      if (isU) unknown += 1; else known += 1;
+    }
+    const pct = (n) => (matched ? Math.round((n / matched) * 100) : 0);
+    return {
+      matched,
+      known, unknown,
+      abundant, rare, widespread, concentrated,
+      knownPct: pct(known),
+      unknownPct: pct(unknown),
+      abundantPct: pct(abundant),
+      rarePct: pct(rare),
+      widespreadPct: pct(widespread),
+      concentratedPct: pct(concentrated)
+    };
+  });
+
+  // Pick which stat to accent — the paper's headline is the uSGB gap in
+  // Non-Westernized cohorts, so weight those findings above the more
+  // "typical" cohort-level stats. Whichever stat wins gets the highlighted
+  // tile so the panel reads as "here's what makes this cohort notable."
+  const STAT_WEIGHT = {
+    unknown: 1.25,        // paper's key finding
+    rare: 1.10,           // single-sample species = hidden diversity
+    concentrated: 1.05,   // geographic hotspots
+    widespread: 1.00,     // pan-human core species
+    abundant: 1.00,
+    known: 0.90           // less narratively interesting
+  };
+
+  const heroStat = $derived.by(() => {
+    const s = countryStats;
+    if (!s) return null;
+    const candidates = [
+      { key: 'unknown', pct: s.unknownPct },
+      { key: 'known', pct: s.knownPct },
+      { key: 'widespread', pct: s.widespreadPct },
+      { key: 'concentrated', pct: s.concentratedPct },
+      { key: 'abundant', pct: s.abundantPct },
+      { key: 'rare', pct: s.rarePct }
+    ];
+    let best = null;
+    let bestScore = -Infinity;
+    for (const c of candidates) {
+      const score = c.pct * (STAT_WEIGHT[c.key] || 1);
+      if (score > bestScore) {
+        bestScore = score;
+        best = c.key;
+      }
+    }
+    return best;
+  });
+
   // ── Phylum pills: tap isolates one, drag across selects a contiguous range ──
   // (mirrors the anthromes filter key; pointer-based so it works on touch)
   let phDragging = $state(false);
@@ -355,6 +605,10 @@
 
   function selectStudyKey(key) {
     selectedStudyKey = selectedStudyKey === key ? null : key;
+  }
+
+  function selectCountry(iso3) {
+    selectedCountryIso3 = selectedCountryIso3 === iso3 ? null : iso3;
   }
 
   // Handle keyboard shortcuts
@@ -402,6 +656,7 @@
   function handleDetail(event) {
     detailContent = event.detail?.content || null;
     detailPoint = event.detail?.point || null;
+    detailMeta = event.detail?.meta || null;
     openPanel = null;
   }
 
@@ -413,8 +668,111 @@
   function handleDetailClose() {
     detailContent = null;
     detailPoint = null;
+    detailMeta = null;
     detailPanelAnchor = null;
   }
+
+  // Per-species stats grid — the four axes the paper reports on. Each axis
+  // returns a categorical label + the raw count that classified it. The
+  // uSGB axis is always the hero (accent styling), because that's the paper's
+  // headline finding for any given species.
+  const speciesStats = $derived.by(() => {
+    const md = detailMeta?.metadata;
+    if (!md) return null;
+    const samples = Number(md.Sample_ID_Count);
+    const countries = Number(md.Country_Count);
+    const isU = parseUSGB(md) === 'Yes';
+    const w = parseWestern(md);
+
+    // Abundance
+    let abundance = { name: 'Typical', detail: 'sample count' };
+    if (Number.isFinite(samples)) {
+      if (samples >= ABUNDANT_MIN_SAMPLES)
+        abundance = { name: 'Abundant', detail: `${samples.toLocaleString()} samples` };
+      else if (samples <= RARE_MAX_SAMPLES)
+        abundance = { name: 'Rare', detail: `${samples} sample${samples === 1 ? '' : 's'}` };
+      else abundance = { name: 'Typical', detail: `${samples.toLocaleString()} samples` };
+    }
+
+    // Geographic reach
+    let reach = { name: 'Regional', detail: 'country count' };
+    if (Number.isFinite(countries)) {
+      if (countries >= WIDESPREAD_MIN_COUNTRIES)
+        reach = { name: 'Widespread', detail: `${countries} countries` };
+      else if (countries <= CONCENTRATED_MAX_COUNTRIES)
+        reach = { name: 'Concentrated', detail: `${countries} country` };
+      else reach = { name: 'Regional', detail: `${countries} countries` };
+    }
+
+    // Population type
+    let population = { name: '—', detail: 'lifestyle context' };
+    if (w === 'western') population = { name: 'Westernized', detail: 'industrialized cohort' };
+    else if (w === 'nonwestern') population = { name: 'Non-Westernized', detail: 'limited industrialization' };
+
+    // Knowledge status — hero
+    const status = isU
+      ? { name: 'Previously unknown (uSGB)', detail: 'Newly identified by Pasolli 2019' }
+      : { name: 'Previously known', detail: 'In reference databases before this study' };
+
+    return { abundance, reach, population, status, isUnknown: isU };
+  });
+
+  // Countries where this SGB has been reported — parsed from Country_List
+  // metadata. Split into "primary" (in our curated 8-country set, clickable
+  // to jump to anthromes with that country selected) and "other" (display).
+  const speciesCountries = $derived.by(() => {
+    const md = detailMeta?.metadata;
+    if (!md) return { primary: [], other: [] };
+    let v = md.Country_List;
+    if (!v) return { primary: [], other: [] };
+    let arr = [];
+    if (Array.isArray(v)) arr = v;
+    else if (typeof v === 'string') {
+      try {
+        const parsed = JSON.parse(v);
+        arr = Array.isArray(parsed) ? parsed : v.split(',');
+      } catch {
+        arr = v.split(',');
+      }
+    }
+    const uniq = Array.from(new Set(arr.map((s) => String(s).trim()).filter(Boolean)));
+    const primarySet = new Set(PRIMARY_ORDER);
+    const primary = [];
+    const other = [];
+    for (const iso of uniq) {
+      if (primarySet.has(iso)) primary.push(iso);
+      else other.push(iso);
+    }
+    // Sort primaries by our PRIMARY_ORDER, others alphabetically.
+    primary.sort((a, b) => PRIMARY_ORDER.indexOf(a) - PRIMARY_ORDER.indexOf(b));
+    other.sort();
+    return { primary, other };
+  });
+
+  function goToAnthromes(iso3) {
+    const base = import.meta.env.BASE_URL;
+    const params = new URLSearchParams();
+    if (iso3) params.set('country', iso3);
+    const sgbId = detailMeta?.metadata?.SGB_ID;
+    if (sgbId != null) params.set('highlightSGB', String(sgbId));
+    const q = params.toString();
+    window.location.href = `${base}src/anthromes/${q ? `?${q}` : ''}`;
+  }
+
+  const speciesPhylumColor = $derived.by(() => {
+    const p = detailMeta?.phylum;
+    if (!p) return null;
+    return colorMapping[p] || colorMapping.Other;
+  });
+
+  // Genome meter: sqrt-scaled so 3 000-genome outliers don't crush the small
+  // end. Falls back to a full bar if the dataset max isn't reported yet.
+  const speciesGenomeMeter = $derived.by(() => {
+    const count = Number(detailMeta?.genomeCount) || 0;
+    const max = Math.max(1, Number(detailMeta?.maxGenomeCount) || 1);
+    const pct = count > 0 ? Math.min(100, Math.round(100 * Math.sqrt(count) / Math.sqrt(max))) : 0;
+    return { count, max, pct };
+  });
 
   // Handle export
   function handleExport() {
@@ -505,7 +863,7 @@
       side="left"
       activeLabel="BIOMES"
       linkLabel="ANTHROMES →"
-      linkHref="{import.meta.env.BASE_URL}src/anthromes/"
+      linkHref={crossLinkHref}
       linkAriaLabel="Go to Anthromes"
       homeHref={import.meta.env.BASE_URL}
     />
@@ -527,6 +885,8 @@
           bodySiteFilter={selectedBodySites}
           proxyKey={null}
           studyKey={selectedStudyKey}
+          countryIso3={selectedCountryIso3}
+          bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
           on:zoomchange={handleZoomChange}
@@ -551,72 +911,230 @@
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-            <h3 class="fblock-title">Bacteria Species Details</h3>
-            <p class="fblock-desc">The evolutionary lineage and genome profile of the species at the marker.</p>
-            <div class="panel-content detail-scroll" onclick={handleDetailPanelClick}>
-              {#if detailContent}
-                {@html detailContent}
-              {:else}
-                <p class="detail-hint">Spin the disk to inspect a species.</p>
+            {#if !detailContent}
+              <p class="detail-hint">Spin the disk to inspect a species.</p>
+            {:else if detailMeta}
+              <!-- Graphical header replaces the section title: radial mini-glyph
+                   traces this leaf's ancestor path through the tree in the
+                   disk's polar coordinates, next to the SGB label + lineage
+                   breadcrumbs. -->
+              <div class="species-graphic">
+                {#if detailMeta.glyphPath}
+                  <svg class="species-glyph" viewBox="-60 -60 120 120" aria-hidden="true">
+                    <path
+                      d={detailMeta.glyphPath}
+                      fill="none"
+                      stroke={speciesPhylumColor}
+                      stroke-width="2"
+                      stroke-linejoin="round"
+                    />
+                    <circle
+                      cx="0"
+                      cy="0"
+                      r="3"
+                      fill={speciesPhylumColor}
+                    />
+                  </svg>
+                {/if}
+                <div class="species-ident">
+                  {#if detailMeta.metadata?.SGB_ID != null}
+                    <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
+                  {/if}
+                  {#if detailMeta.ancestors?.length}
+                    <div class="lineage-chips" aria-label="Taxonomic lineage">
+                      {#each detailMeta.ancestors as a, i (a.depth + '-' + a.name)}
+                        {#if i > 0}<span class="lineage-sep">›</span>{/if}
+                        <span
+                          class="lineage-chip"
+                          class:phylum={i === 1}
+                          class:leaf={i === detailMeta.ancestors.length - 1}
+                          style={i === 1 ? `border-color: ${speciesPhylumColor}; color: #fff;` : ''}
+                        >{a.name}</span>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              </div>
+
+              <!-- Genome meter: sqrt-scaled bar with the raw count called out.
+                   Fill uses the phylum colour so the whole panel reads as one
+                   species-brand. Ticks give quick reference for 25/50/75%. -->
+              {#if speciesGenomeMeter.count > 0}
+                <div class="genome-meter">
+                  <div class="gm-head">
+                    <span class="gm-label">Reconstructed genomes</span>
+                    <span class="gm-count">
+                      {speciesGenomeMeter.count.toLocaleString()}
+                      <span class="gm-max">/ {speciesGenomeMeter.max.toLocaleString()} max</span>
+                    </span>
+                  </div>
+                  <div class="gm-track" role="img" aria-label={`${speciesGenomeMeter.count} of ${speciesGenomeMeter.max} genomes`}>
+                    <div class="gm-fill" style="width: {speciesGenomeMeter.pct}%; background: {speciesPhylumColor};"></div>
+                    <span class="gm-tick" style="left: 25%"></span>
+                    <span class="gm-tick" style="left: 50%"></span>
+                    <span class="gm-tick" style="left: 75%"></span>
+                  </div>
+                </div>
               {/if}
-            </div>
+
+              {#if speciesStats}
+                <!-- Four axes in a single inline row: knowledge status (hero) ·
+                     abundance · geographic reach · population type. Wraps
+                     to a second line if the rail is too narrow. -->
+                <div class="sp-statline">
+                  <span class="sp-stat sp-stat--hero" class:sp-stat--unknown={speciesStats.isUnknown}>
+                    {speciesStats.status.name}
+                  </span>
+                  <span class="sp-stat">
+                    {speciesStats.abundance.name}<span class="sp-stat-detail"> · {speciesStats.abundance.detail}</span>
+                  </span>
+                  <span class="sp-stat">
+                    {speciesStats.reach.name}<span class="sp-stat-detail"> · {speciesStats.reach.detail}</span>
+                  </span>
+                  <span class="sp-stat">
+                    {speciesStats.population.name}
+                  </span>
+                </div>
+              {/if}
+
+              {#if speciesCountries.primary.length || speciesCountries.other.length}
+                <div class="sp-countries">
+                  <span class="sp-countries-title">
+                    Reported in
+                    {(speciesCountries.primary.length + speciesCountries.other.length).toLocaleString()}
+                    {(speciesCountries.primary.length + speciesCountries.other.length) === 1 ? 'country' : 'countries'}
+                  </span>
+                  <div class="sp-country-chips">
+                    {#each speciesCountries.primary as iso3 (iso3)}
+                      <button
+                        class="sp-country-chip sp-country-chip--primary"
+                        onclick={() => goToAnthromes(iso3)}
+                        title={`Open ${SHORT_LABELS[iso3] ?? iso3} on the anthromes side`}
+                      >{SHORT_LABELS[iso3] ?? iso3}</button>
+                    {/each}
+                    {#each speciesCountries.other as iso3 (iso3)}
+                      <span class="sp-country-chip sp-country-chip--muted">{iso3}</span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+
+              {#if detailMeta.metadata?.SGB_ID != null}
+                <button class="sp-cta" onclick={() => goToAnthromes(null)}>
+                  <span class="sp-cta-label">See this species on the anthromes map</span>
+                  <span class="sp-cta-arrow" aria-hidden="true">→</span>
+                </button>
+              {/if}
+            {/if}
           </section>
         {/snippet}
 
         {#if uiOption() === 2}
-        <!-- Option 2 (unchanged): Known/Unknown and Non/Western share a row. No
-             "All" button — like Cohort, all are shown by default; tap to isolate,
-             tap again to reset. -->
-        <div class="filter-row">
-          <section class="fblock">
-            <h3 class="fblock-title">Known / Unknown</h3>
-            <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
-            <div class="sel-buttons">
-              <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => toggleUnknown('known')}>
-                <span class="sel-name">Known</span>
-                <span class="sel-pct">{knownPct}%</span>
-              </button>
-              <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => toggleUnknown('unknown')}>
-                <span class="sel-name">Unknown</span>
-                <span class="sel-pct">{unknownPct}%</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="fblock">
-            <h3 class="fblock-title">Non / Western</h3>
-            <p class="fblock-desc"><strong>Westernized</strong> — industrialized, urban populations with high exposure to modern medical and food systems. <strong>Non-Westernized</strong> — populations with limited industrialization and lower exposure to those systems.</p>
-            <div class="sel-buttons">
-              <button class="sel-btn" class:active={westernFilter === 'western'} onclick={() => toggleWestern('western')}>
-                <span class="sel-name">Western</span>
-                <span class="sel-pct">{westernPct}%</span>
-              </button>
-              <button class="sel-btn" class:active={westernFilter === 'nonwestern'} onclick={() => toggleWestern('nonwestern')}>
-                <span class="sel-name">Non-Western</span>
-                <span class="sel-pct">{nonwesternPct}%</span>
-              </button>
-            </div>
-          </section>
-        </div>
-
+        <!-- Option 2: Country is the primary filter. Known/Unknown and
+             Western/Non-Western are no longer standalone filter radios — they
+             surface inside the country breakdown panel when a country is
+             selected. -->
         <section class="fblock">
-          <h3 class="fblock-title">Cohort</h3>
-          <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the share of each population's species that were previously unknown to science, most to least.</p>
-          <div class="cohort-bubbles" bind:clientWidth={bubbleRowW}>
-            {#each rankedCohorts as c (c.key)}
-              <button
-                class="bubble"
-                class:active={selectedStudyKey === c.key}
-                style="width:{c.size}px; height:{c.size}px;"
-                title={`${Math.round(c.upct * 100)}% unknown (uSGB)`}
-                onclick={() => selectStudyKey(c.key)}
-              >
-                <span class="sel-name">{c.label}</span>
-                <span class="sel-pct">{Math.round(c.upct * 100)}% unknown</span>
-              </button>
+          <div class="fblock-headrow">
+            <h3 class="fblock-title">Country</h3>
+            <button
+              class="mini-link"
+              class:active={selectedCountryIso3 === null}
+              onclick={() => (selectedCountryIso3 = null)}
+              aria-label="Clear country selection"
+            >All</button>
+          </div>
+          <p class="fblock-desc">Select a country to lens the tree to species found in samples collected there.</p>
+          <div class="country-row">
+            {#each PRIMARY_ORDER as iso3 (iso3)}
+              {@const feature = countryFeatureByIso.get(iso3)}
+              <div class="country-cell">
+                <CountryCircle
+                  {iso3}
+                  label={SHORT_LABELS[iso3] ?? iso3}
+                  {feature}
+                  size={168}
+                  labelFontSize={20}
+                  ringStroke={3.4}
+                  ringStrokeSelected={5}
+                  selected={selectedCountryIso3 === iso3}
+                  dimmed={selectedCountryIso3 !== null && selectedCountryIso3 !== iso3}
+                  onclick={() => selectCountry(iso3)}
+                />
+              </div>
             {/each}
           </div>
+
+          {#if selectedCountryIso3 && primaryCountries?.[selectedCountryIso3]}
+            {@const meta = primaryCountries[selectedCountryIso3]}
+            {@const s = countryStats}
+            <div class="country-breakdown" aria-live="polite">
+              <div class="cb-head">
+                <span class="cb-label">{SHORT_LABELS[selectedCountryIso3] ?? meta.label}</span>
+              </div>
+
+              <!-- Magazine-style big-number row: samples · species · studies.
+                   Each numeral sits above its label — reads as an infographic,
+                   not a filter. -->
+              <div class="cb-bignums">
+                <div class="cb-bignum">
+                  <span class="cb-bignum-value">{meta.samples_total.toLocaleString()}</span>
+                  <span class="cb-bignum-label">samples</span>
+                </div>
+                <div class="cb-bignum">
+                  <span class="cb-bignum-value">{meta.sgbs.length.toLocaleString()}</span>
+                  <span class="cb-bignum-label">species (SGBs)</span>
+                </div>
+                <div class="cb-bignum">
+                  <span class="cb-bignum-value">{meta.studies?.length ?? 0}</span>
+                  <span class="cb-bignum-label">{meta.studies?.length === 1 ? 'study' : 'studies'}</span>
+                </div>
+              </div>
+
+              {#if s}
+                <div class="cb-split">
+                  <div class="cb-split-head">
+                    <span class="cb-split-title">Previously unknown to science</span>
+                    <span class="cb-split-hero">{s.unknownPct}%</span>
+                  </div>
+                  <div class="cb-split-bar" role="img" aria-label={`${s.unknownPct}% previously unknown, ${s.knownPct}% previously known`}>
+                    <span class="cb-split-fill" style="width: {s.unknownPct}%"></span>
+                  </div>
+                  <div class="cb-split-legend">
+                    <span class="cb-split-lg cb-split-lg--unk">Unknown (uSGB) · {s.unknown.toLocaleString()}</span>
+                    <span class="cb-split-lg cb-split-lg--known">Known · {s.known.toLocaleString()}</span>
+                  </div>
+                </div>
+              {/if}
+
+              {#if meta.sub_cohort_ids?.length}
+                <div class="cb-subs">
+                  <span class="cb-sub-title">Sub-cohorts</span>
+                  {#each meta.sub_cohort_ids as sid}<span class="cb-sub-chip">{sid}</span>{/each}
+                </div>
+              {/if}
+            </div>
+          {/if}
         </section>
+
+        <!-- Overlay annotation: multi-species range from the anthromes side.
+             Same visual vocabulary as anthromes' range-tag so both rails
+             share the "sent from the other side" pattern. -->
+        {#if rangeSource}
+          <section class="range-tag" aria-live="polite">
+            <div class="range-tag-row">
+              <span class="range-tag-badge" aria-hidden="true"></span>
+              <div class="range-tag-body">
+                <span class="range-tag-title">Range: {rangeSource.label}</span>
+                <span class="range-tag-sub">
+                  {#if rangeSource.count}{rangeSource.count} species{/if}
+                  {#if rangeSource.from}{rangeSource.count ? ' · ' : ''}from {rangeSource.from}{/if}
+                </span>
+              </div>
+              <button class="range-tag-clear" onclick={clearRange} aria-label="Clear range highlight">×</button>
+            </div>
+          </section>
+        {/if}
 
         {@render detailPanel()}
         {:else}
@@ -719,7 +1237,7 @@
         </section>
         {/if}
 
-        <!-- Bottom tier: phylum key -->
+        <!-- Bottom tier: phylum key (bubble cluster; area ∝ SGB count) -->
         <section class="phylum-band">
           <div class="phylum-band-head">
             <span class="phylum-band-title">Phylum</span>
@@ -727,21 +1245,18 @@
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="phylum-key" onpointerdown={phPointerDown}>
-            {#each allPhyla as phylum, i}
-              {@const color = colorMapping[phylum] || colorMapping.Other}
-              {@const textColor = pickTextColor(color)}
-              <button
-                class="phylum-dot"
-                class:active={selectedPhyla.includes(phylum)}
-                class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
-                data-idx={i}
-                style="background:{color}; color:{textColor};"
-              >
-                <span>{phylum.replace(/_/g, ' ')}</span>
-              </button>
-            {/each}
+          <div class="phylum-key" bind:clientWidth={phBoxW} bind:clientHeight={phBoxH}>
+            <PhylumBubbles
+              bubbles={phylumBubbles}
+              {selectedPhyla}
+              {pickTextColor}
+              width={phBoxW}
+              height={phBoxH}
+              minRadius={26}
+              maxRadius={100}
+              padding={4}
+              onToggle={handleBubbleToggle}
+            />
           </div>
         </section>
       </div>
@@ -1059,7 +1574,652 @@
     text-align: center;
   }
 
-  /* Cohort ranked bubbles */
+  /* Country picker: 4 columns × 2 rows. Cells are equal-width regardless of
+     label length so the grid stays uniform. */
+  .country-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: max-content;
+    row-gap: 22px;
+    column-gap: 12px;
+    justify-items: center;
+    align-items: start;
+    padding-top: 12px;
+  }
+
+  .country-cell {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Header row inside an fblock: title on the left, All/Clear link on the
+     right — same visual weight as the phylum-band-head. */
+  .fblock-headrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    margin-bottom: 6px;
+  }
+
+  /* Range annotation tag — mirrors the anthromes-side treatment so both
+     rails share the same "sent from the other side" vocabulary. */
+  .range-tag {
+    display: block;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1.4px dashed rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .range-tag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .range-tag-badge {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.6px dashed rgba(255, 255, 255, 0.85);
+    flex: 0 0 auto;
+  }
+
+  .range-tag-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .range-tag-title {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #fff;
+  }
+
+  .range-tag-sub {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .range-tag-clear {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+    flex: 0 0 auto;
+  }
+
+  .range-tag-clear:hover {
+    opacity: 1;
+  }
+
+  /* Bacteria Species Details enrichment header */
+  .fblock-title .phylum-swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    margin-right: 10px;
+    vertical-align: -1px;
+    border: 1.4px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
+  }
+
+  /* Species graphic: radial glyph + inline SGB label + lineage chips.
+     Compact — glyph and text sit on one baseline; chips can wrap. */
+  .species-graphic {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin: 6px 0 8px;
+  }
+
+  .species-glyph {
+    width: 52px;
+    height: 52px;
+    flex: 0 0 auto;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.14));
+  }
+
+  .species-ident {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .species-sgb {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #fff;
+    line-height: 1;
+  }
+
+  .lineage-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 3px;
+  }
+
+  .lineage-chip {
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--fg);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    line-height: 1.4;
+  }
+
+  .lineage-chip.phylum {
+    border-width: 1.4px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .lineage-chip.leaf {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.55);
+    color: #fff;
+  }
+
+  .lineage-sep {
+    color: var(--muted);
+    font-size: 10px;
+    opacity: 0.6;
+    padding: 0 1px;
+  }
+
+  /* Genome meter: sqrt-scaled bar, phylum-tinted fill. Head + track share a
+     row to keep vertical footprint tight. */
+  .genome-meter {
+    display: grid;
+    gap: 4px;
+    margin: 0 0 8px;
+  }
+
+  .gm-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .gm-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .gm-count {
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .gm-max {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-left: 4px;
+  }
+
+  .gm-track {
+    position: relative;
+    height: 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+
+  .gm-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    border-radius: 6px;
+    transition: width 0.24s ease;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  }
+
+  .gm-tick {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(255, 255, 255, 0.14);
+    transform: translateX(-0.5px);
+  }
+
+  /* Species four-axis stat line — one row of inline chip-like pills. Hero
+     (knowledge status) reads bright; the rest are neutral. Wraps if the
+     rail is narrow. */
+  .sp-statline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 5px;
+    margin: 0 0 8px;
+  }
+
+  .sp-stat {
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--fg);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .sp-stat--hero {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #fff;
+  }
+
+  .sp-stat--hero.sp-stat--unknown {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.7);
+  }
+
+  .sp-stat-detail {
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  .sp-stat--hero .sp-stat-detail {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  /* Countries where the species has been reported. Compact: title + chips
+     on one row, wraps when tight. */
+  .sp-countries {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 8px;
+    margin: 0 0 8px;
+  }
+
+  .sp-countries-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .sp-country-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 4px;
+  }
+
+  .sp-country-chip {
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--fg);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    font-family: inherit;
+    line-height: 1.3;
+  }
+
+  .sp-country-chip--primary {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.55);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.12s ease;
+  }
+
+  .sp-country-chip--primary:hover {
+    background: rgba(255, 255, 255, 0.22);
+    transform: translateY(-1px);
+  }
+
+  .sp-country-chip--muted {
+    color: var(--muted);
+    opacity: 0.75;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  /* Cross-side CTA — compact single-row button */
+  .sp-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1.4px solid rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-family: inherit;
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.12s ease;
+    margin: 0 0 4px;
+  }
+
+  .sp-cta:hover {
+    background: rgba(255, 255, 255, 0.16);
+    transform: translateY(-1px);
+  }
+
+  .sp-cta-arrow {
+    font-size: 14px;
+    font-weight: 700;
+    opacity: 0.9;
+  }
+
+  .species-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    margin: 6px 0 12px;
+  }
+
+  .species-badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--fg);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: none;
+    white-space: nowrap;
+  }
+
+  .species-badge.accent {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.55);
+    color: #fff;
+  }
+
+  /* Country breakdown — full big-number treatment by default; collapses to a
+     single-line summary when a species is also being inspected (see the
+     .country-breakdown--compact variant) so the rail doesn't overflow. */
+  .country-breakdown {
+    margin-top: 18px;
+    display: grid;
+    gap: 16px;
+  }
+
+  .country-breakdown--compact {
+    margin-top: 10px;
+    gap: 0;
+  }
+
+  .cb-oneline {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 6px 0;
+  }
+
+  .cb-oneline-label {
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .cb-oneline-nums {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .cb-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .cb-label {
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+
+  .cb-summary {
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+
+  .cb-narrative {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+
+  /* High-level "big number" row — one large numeral per metric with a small
+     label underneath. Magazine layout, three columns. */
+  .cb-bignums {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    column-gap: 12px;
+    row-gap: 6px;
+    align-items: end;
+    padding: 4px 0;
+  }
+
+  .cb-bignum {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .cb-bignum-value {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: 0.005em;
+    color: #fff;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cb-bignum-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Split-bar treatment for the Known/Unknown takeaway */
+  .cb-split {
+    display: grid;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .cb-split-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .cb-split-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .cb-split-hero {
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cb-split-bar {
+    position: relative;
+    height: 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.10);
+    overflow: hidden;
+  }
+
+  .cb-split-fill {
+    display: block;
+    height: 100%;
+    background: #fff;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+
+  .cb-split-legend {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .cb-split-lg--unk { color: #fff; }
+  .cb-split-lg--known { color: var(--muted); }
+
+  /* Legacy — kept in case Option 1 revives it */
+  .cb-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: max-content;
+    row-gap: 14px;
+    column-gap: 14px;
+  }
+
+  .cb-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .cb-tile {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border: 1.6px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.04);
+    min-width: 0;
+  }
+
+  .cb-tile--accent {
+    border-color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .cb-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--fg);
+    letter-spacing: 0.02em;
+    line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cb-pct {
+    font-weight: 800;
+    font-size: 16px;
+    color: #fff;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .cb-cap {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    padding: 0 3px;
+  }
+
+  .cb-subs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    font-size: 11px;
+  }
+
+  .cb-sub-title {
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 800;
+  }
+
+  .cb-sub-chip {
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: var(--fg);
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+  }
+
+  /* Cohort ranked bubbles (legacy — kept in case Option 1 revives it) */
   .cohort-bubbles {
     display: flex;
     flex-wrap: nowrap;
@@ -1149,11 +2309,14 @@
   }
 
   .phylum-key {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 14px;
-    overflow: auto;
-    align-content: flex-start;
+    position: relative;
+    flex: 0 1 auto;
+    min-height: 220px;
+    max-height: 440px;
+    width: 100%;
+    overflow: visible;
+    touch-action: none;
+    user-select: none;
   }
 
   /* Compact key pill; colour = phylum, tap to toggle. Matches the anthromes

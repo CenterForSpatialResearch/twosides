@@ -2,9 +2,12 @@
   import { onMount, untrack } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
   import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
+  import CountryTimeseriesChart from './lib/CountryTimeseriesChart.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
+  import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
+  import CountryCircle from '../shared/CountryCircle.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
@@ -52,6 +55,62 @@
 
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
+
+  // Country-first primary filter (Phase 3). Parity with biomes side.
+  // Seeded from ?country=ISO3 so a selection carries across the two sides.
+  let selectedCountryIso3 = $state(readCountryParam());
+  // Overlay-annotation state — multi-country highlight from the biomes side.
+  // MapCanvas populates these from URL params on mount; App reads them to
+  // render the dismissible rail tag.
+  let rangeIso3s = $state(new Set());
+  let rangeSource = $state(null); // { kind, label, sgbId, from } | null
+  let primaryCountries = $state(null);
+  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
+  let countryTimeseries = $state(null);
+  const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
+  const SHORT_LABELS = {
+    SWE: 'Sweden',
+    GBR: 'UK',
+    USA: 'USA',
+    CHN: 'China',
+    MDG: 'Madagascar',
+    FJI: 'Fiji',
+    PER: 'Peru',
+    TZA: 'Tanzania'
+  };
+
+  function readCountryParam() {
+    if (typeof window === 'undefined') return null;
+    const p = new URLSearchParams(window.location.search).get('country');
+    return p && PRIMARY_ORDER.includes(p) ? p : null;
+  }
+
+  function updateCountryParam(iso3) {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (iso3) url.searchParams.set('country', iso3);
+    else url.searchParams.delete('country');
+    window.history.replaceState(null, '', url.toString());
+  }
+
+  // Cross-side link carries the picked country AND the active range's SGB, so
+  // biomes arrives with both the country lens and (if present) the species
+  // highlight from the range annotation still in play.
+  const crossLinkHref = $derived.by(() => {
+    const base = import.meta.env.BASE_URL;
+    const params = new URLSearchParams();
+    if (selectedCountryIso3) params.set('country', selectedCountryIso3);
+    if (rangeSource?.sgbId != null) params.set('highlightSGB', String(rangeSource.sgbId));
+    const q = params.toString();
+    return `${base}src/biomes/${q ? `?${q}` : ''}`;
+  });
+
+  $effect(() => {
+    updateCountryParam(selectedCountryIso3);
+  });
+  const selectedCountryMeta = $derived(
+    selectedCountryIso3 && primaryCountries ? primaryCountries[selectedCountryIso3] : null
+  );
 
   // Cell history chart state (lifted from MapCanvas via WaffleChart bindings)
   let showBarChart = $state(false);
@@ -209,6 +268,32 @@
         selectedYear = years[years.length - 1];
       }
 
+      // Country-picker data (parity with biomes side)
+      try {
+        const base = import.meta.env.BASE_URL;
+        const [pcRes, boundariesRes, tsRes] = await Promise.all([
+          fetch(`${base}data/primary_countries.json`),
+          fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`),
+          fetch(`${base}data/country-anthrome-timeseries.json`)
+        ]);
+        if (pcRes.ok) primaryCountries = await pcRes.json();
+        if (tsRes.ok) countryTimeseries = await tsRes.json();
+        if (boundariesRes.ok) {
+          const topo = await boundariesRes.json();
+          const objName = Object.keys(topo.objects)[0];
+          const fc = topoFeature(topo, topo.objects[objName]);
+          const wanted = new Set(PRIMARY_ORDER);
+          const byIso = new Map();
+          for (const f of fc.features) {
+            const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
+            if (id && wanted.has(id)) byIso.set(id, f);
+          }
+          countryFeatureByIso = byIso;
+        }
+      } catch (e) {
+        console.warn('Failed to load country picker data', e);
+      }
+
       loading = false;
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -250,11 +335,60 @@
     openPanel = null;
     detailContent = null;
     detailMeta = null;
+    // Reset also drops the multi-country range overlay so the map returns to
+    // a completely clean baseline. Country picker selection persists — the
+    // reset button is a "view reset," not a picker reset.
+    if (rangeIso3s?.size || rangeSource) clearRange();
   }
 
   // "All" restores the filter to every anthrome (the default, everything shown)
   function handleSelectAll() {
     selectedAnthromes = orderedCodes.length ? [...orderedCodes] : selectedAnthromes;
+  }
+
+  function selectCountry(iso3) {
+    if (selectedCountryIso3 === iso3) {
+      // Toggling the same globe off — treat as picker deselect and snap the
+      // map back to the default view. Pan-driven clears go through a
+      // different path in WaffleChart and preserve the user's pan.
+      clearCountrySelection();
+    } else {
+      // Any picker interaction wipes cell isolation — a country click means
+      // "look at this country", not "keep the pixel view I had open."
+      clearCellSelection();
+      selectedCountryIso3 = iso3;
+    }
+  }
+
+  function clearCountrySelection() {
+    clearCellSelection();
+    selectedCountryIso3 = null;
+    mapPanX = 0;
+    mapPanY = 0;
+    zoomLevel = 1;
+  }
+
+  // Clear anything left over from a per-cell isolation so the Details dock
+  // can fall back to the country view (or the default hint).
+  function clearCellSelection() {
+    detailContent = null;
+    detailMeta = null;
+    barChartData = null;
+    showBarChart = false;
+    isolationReset++;
+  }
+
+  // Dismiss the overlay-annotation range highlight (multi-country from a
+  // biomes species). Leaves the primary picker selection alone. Also strips
+  // ?highlightSGB from the URL so a reload doesn't re-apply it.
+  function clearRange() {
+    rangeIso3s = new Set();
+    rangeSource = null;
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('highlightSGB');
+      window.history.replaceState(null, '', url.toString());
+    }
   }
 
   // Handle keyboard shortcuts
@@ -354,7 +488,7 @@
       side="right"
       activeLabel="ANTHROMES"
       linkLabel="BIOMES →"
-      linkHref="{import.meta.env.BASE_URL}src/biomes/"
+      linkHref={crossLinkHref}
       linkAriaLabel="Go to Biomes"
       homeHref={import.meta.env.BASE_URL}
     />
@@ -398,20 +532,89 @@
           <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
         </div>
 
+        <!-- Country picker (parity with biomes side) -->
+        <section class="fblock">
+          <div class="fblock-headrow">
+            <h3 class="menu-title">Country</h3>
+            <button
+              class="mini-link"
+              class:active={selectedCountryIso3 === null}
+              onclick={clearCountrySelection}
+              aria-label="Clear country selection"
+            >All</button>
+          </div>
+          <p class="menu-desc">Select a country to see the composition of its anthromes over time.</p>
+          <div class="country-row">
+            {#each PRIMARY_ORDER as iso3 (iso3)}
+              {@const feature = countryFeatureByIso.get(iso3)}
+              <div class="country-cell">
+                <CountryCircle
+                  {iso3}
+                  label={SHORT_LABELS[iso3] ?? iso3}
+                  {feature}
+                  size={168}
+                  labelFontSize={20}
+                  ringStroke={3.4}
+                  ringStrokeSelected={5}
+                  selected={selectedCountryIso3 === iso3}
+                  dimmed={selectedCountryIso3 !== null && selectedCountryIso3 !== iso3}
+                  onclick={() => selectCountry(iso3)}
+                />
+              </div>
+            {/each}
+          </div>
+        </section>
+
+        <!-- Overlay annotation: multi-country range from the biomes side.
+             Distinct from the single-country picker so the two grammars
+             ("you picked one" vs "the other side sent you many") don't
+             conflate. Dismissible; also clears the ?highlightSGB URL. -->
+        {#if rangeIso3s.size > 0 && rangeSource}
+          <section class="range-tag" aria-live="polite">
+            <div class="range-tag-row">
+              <span class="range-tag-badge" aria-hidden="true"></span>
+              <div class="range-tag-body">
+                <span class="range-tag-title">Range of {rangeSource.label}</span>
+                <span class="range-tag-sub">
+                  {rangeIso3s.size} {rangeIso3s.size === 1 ? 'country' : 'countries'}
+                  {#if rangeSource.from} · from {rangeSource.from}{/if}
+                </span>
+              </div>
+              <button class="range-tag-clear" onclick={clearRange} aria-label="Clear range highlight">×</button>
+            </div>
+          </section>
+        {/if}
+
         <!-- Middle: always-visible details menu item, where Views used to be -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
           <h3 class="menu-title">Details</h3>
-          <p class="menu-desc">The history of anthropogenic land use for an area</p>
+          <p class="menu-desc">
+            {#if detailContent}
+              This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${selectedCountryMeta.label}` : ''}.
+            {:else if selectedCountryMeta}
+              Anthrome composition of {selectedCountryMeta.label} across 12 025 years.
+            {:else}
+              Select a country above, or click a cell on the map.
+            {/if}
+          </p>
           <div class="detail-body">
             {#if detailContent}
+              <!-- Cell selection takes precedence: fine-grained detail wins.
+                   When a country is also active, its label surfaces here as
+                   context, and returning to the country overview happens by
+                   panning the map (which clears the cell isolation) or
+                   picking the same anthrome tile again. -->
               {#if detailMeta?.label}
                 <div class="detail-subhead">
                   {#if detailMeta?.color}
                     <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
                   {/if}
                   <span>{detailMeta.label}</span>
+                  {#if selectedCountryMeta}
+                    <span class="detail-within">within {selectedCountryMeta.label}</span>
+                  {/if}
                 </div>
               {/if}
               <div class="panel-content" onclick={handleDetailPanelClick}>
@@ -419,10 +622,26 @@
               </div>
               {#if barChartData?.length}
                 <div class="history-chart-section" bind:this={historyChartEl}>
-                  <div class="history-chart-title">Cell History</div>
+                  <div class="history-chart-title">Cell history</div>
                   <HistoryCircleChart periods={barChartData} size={historyChartSize} />
                 </div>
               {/if}
+            {:else if selectedCountryMeta && countryTimeseries?.[selectedCountryIso3]}
+              <div class="detail-subhead">
+                <span class="country-badge">{selectedCountryMeta.label}</span>
+                <span class="country-meta">{selectedCountryMeta.samples_total.toLocaleString()} samples · {selectedCountryMeta.sgbs.length.toLocaleString()} species</span>
+              </div>
+              <div class="history-chart-section" bind:this={historyChartEl}>
+                <div class="history-chart-title">Anthrome timeline</div>
+                <CountryTimeseriesChart
+                  data={countryTimeseries[selectedCountryIso3]}
+                  {colorMapping}
+                  {labelMapping}
+                  {orderedCodes}
+                  size={historyChartSize}
+                  {selectedYear}
+                />
+              </div>
             {:else}
               <p class="detail-hint">Select an area on the map</p>
             {/if}
@@ -489,6 +708,9 @@
           bind:isolationReset
           bind:connectorStart
           panelCloseSignal={panelCloseSignal}
+          bind:focusIso3={selectedCountryIso3}
+          bind:rangeIso3s
+          bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
         />
@@ -870,6 +1092,128 @@
     gap: 13px;
     box-sizing: border-box;
     pointer-events: auto;
+  }
+
+  /* Country picker: 4 columns × 2 rows. Cells are equal-width regardless of
+     label length so the grid stays uniform. Mirrors biomes side. */
+  .country-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: max-content;
+    row-gap: 22px;
+    column-gap: 12px;
+    justify-items: center;
+    align-items: start;
+    padding-top: 12px;
+  }
+
+  .country-cell {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .fblock-headrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    margin-bottom: 6px;
+  }
+
+  /* Range annotation tag — dashed-outline pattern echoes the dashed range
+     stroke on the map, so the rail tag reads as "the dashed thing you see
+     out there" at a glance. Distinct from the picker's solid ring. */
+  .range-tag {
+    display: block;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1.4px dashed rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .range-tag-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .range-tag-badge {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1.6px dashed rgba(255, 255, 255, 0.85);
+    flex: 0 0 auto;
+  }
+
+  .range-tag-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .range-tag-title {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #fff;
+  }
+
+  .range-tag-sub {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .range-tag-clear {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 4px 8px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s ease;
+    flex: 0 0 auto;
+  }
+
+  .range-tag-clear:hover {
+    opacity: 1;
+  }
+
+  .country-badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    font-size: 14px;
+  }
+
+  .country-meta {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-left: 8px;
+  }
+
+  .detail-within {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-left: 6px;
   }
 
   /* Menu item title/description — shared look with the other rail sections */

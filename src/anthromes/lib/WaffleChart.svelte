@@ -30,6 +30,9 @@
     cellIsolated = $bindable(false),
     panelCloseSignal = 0,
     connectorStart = $bindable(null),
+    focusIso3 = $bindable(null),
+    rangeIso3s = $bindable(new Set()),
+    rangeSource = $bindable(null),
   } = $props();
 
   const fullSize = 7000;
@@ -100,10 +103,13 @@
 
   function handlePanMove(event) {
     if (!panHasMoved) {
-      // First actual movement — clear isolation state now (not on pointerdown)
+      // First actual movement — clear isolation state, close any pinned
+      // panel, and drop the country focus. Panning is a "free-explore"
+      // gesture: releasing the country lock lets the user roam the map.
       closePanel();
       isolationReset++;
       panHasMoved = true;
+      if (focusIso3) focusIso3 = null;
     }
     const s = panStart.s || 1;
     mapPanX = panStart.px + (event.clientX - panStart.x) / s;
@@ -760,8 +766,9 @@
     {clipAngle}
     {showBoundaries}
     {debugMenuVisible}
-    mapPanX={mapPanX}
-    mapPanY={mapPanY}
+    bind:mapPanX
+    bind:mapPanY
+    bind:mapScale
     bind:tooltipVisible={mapTooltipVisible}
     bind:tooltipX={mapTooltipX}
     bind:tooltipY={mapTooltipY}
@@ -772,6 +779,9 @@
     bind:barChartData
     bind:cellIsolated
     isolationReset={isolationReset}
+    {focusIso3}
+    bind:rangeIso3s
+    bind:rangeSource
   />
 
   {#if debugMenuVisible}

@@ -28,8 +28,9 @@
     mapReady = $bindable(false),
     showBoundaries = false,
     debugMenuVisible = false,
-    mapPanX = 0,
-    mapPanY = 0,
+    mapPanX = $bindable(0),
+    mapPanY = $bindable(0),
+    mapScale = $bindable(1),
     tooltipVisible = $bindable(false),
     tooltipX = $bindable(0),
     tooltipY = $bindable(0),
@@ -40,6 +41,13 @@
     barChartData = $bindable(null),
     cellIsolated = $bindable(false),
     isolationReset = 0,
+    focusIso3 = null,
+    // Overlay annotation: multi-country highlight coming from the biomes side.
+    // Kept separate from the primary picker highlight so we can render both
+    // with distinct visual language (primary = bold white ring, range =
+    // dashed white on top). App renders a dismissible rail tag off these.
+    rangeIso3s = $bindable(new Set()),
+    rangeSource = $bindable(null), // { kind, label, sgbId } | null
   } = $props();
 
   let canvasEl = $state(null);
@@ -537,36 +545,71 @@
     performance.mark('feature-render-end');
     performance.measure('feature-render', 'feature-render-start', 'feature-render-end');
 
-    // Draw country boundaries overlay if enabled
+    // Draw country boundaries overlay if enabled. Base pass = mesh; primary
+    // highlight = 3-pass bold ring; range annotation = dashed white on top.
     if (showBoundaries && boundariesMesh) {
       performance.mark('boundaries-render-start');
 
-      // If cross-highlighting is active, render individual features with custom styling
-      if (crossHighlightActive && highlightedCountries.size > 0 && boundariesGeo) {
-        for (let i = 0; i < boundariesGeo.features.length; i++) {
-          const feature = boundariesGeo.features[i];
-          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
+      ctx.beginPath();
+      path(boundariesMesh);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.setLineDash([]);
+      ctx.stroke();
 
+      // Primary highlight (picker-driven, single country): bold white ring
+      // with a black spacer + soft outer halo. Reads unmistakably.
+      if (crossHighlightActive && highlightedCountries.size > 0 && boundariesGeo) {
+        const passes = [
+          { style: 'rgba(255, 255, 255, 0.22)', width: 11 * dpr },
+          { style: 'rgba(0, 0, 0, 0.85)',       width: 7 * dpr  },
+          { style: 'rgba(255, 255, 255, 1)',    width: 4 * dpr  }
+        ];
+        for (const pass of passes) {
+          ctx.strokeStyle = pass.style;
+          ctx.lineWidth = pass.width;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.setLineDash([]);
+          for (const feature of boundariesGeo.features) {
+            const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
+            if (!highlightedCountries.has(iso3)) continue;
+            ctx.beginPath();
+            path(feature);
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Range annotation (from biomes species): dashed white on top. Draws
+      // last so it sits above the primary bold ring — countries that are
+      // both primary and range read as a dashed white inside a bold halo.
+      if (rangeIso3s && rangeIso3s.size > 0 && boundariesGeo) {
+        // Subtle dark backing so the dashes read on light-colored anthrome
+        // fills as well as dark ones.
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.lineWidth = 5 * dpr;
+        ctx.setLineDash([]);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        for (const feature of boundariesGeo.features) {
+          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
+          if (!rangeIso3s.has(iso3)) continue;
           ctx.beginPath();
           path(feature);
-
-          if (highlightedCountries.has(iso3)) {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
-            ctx.lineWidth = 3 * dpr;
-          } else {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.lineWidth = 1 * dpr;
-          }
-
           ctx.stroke();
         }
-      } else {
-        // Normal boundary rendering
-        ctx.beginPath();
-        path(boundariesMesh);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 1 * dpr;
-        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.lineWidth = 2.4 * dpr;
+        ctx.setLineDash([6 * dpr, 5 * dpr]);
+        for (const feature of boundariesGeo.features) {
+          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
+          if (!rangeIso3s.has(iso3)) continue;
+          ctx.beginPath();
+          path(feature);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
       }
 
       performance.mark('boundaries-render-end');
@@ -1138,11 +1181,91 @@
     crossHighlightActive;
     highlightedCountries;
     isolatedCellId;
+    rangeIso3s;
 
     if (initialDrawDone) {
       scheduleDraw();
     }
   });
+
+  // Country picker (Phase 3): drive the same highlight mechanism as the
+  // cross-highlight URL param, so selecting a country strokes its boundary.
+  // NOTE: we no longer reset pan/scale here on clear — that decision belongs
+  // to the parent App, which distinguishes "picker deselect" (reset view)
+  // from "pan-cleared" (keep the panned view).
+  let focusPanApplied = $state(null); // last ISO3 we've panned/zoomed for
+  $effect(() => {
+    if (focusIso3) {
+      highlightedCountries = new Set([focusIso3]);
+      crossHighlightActive = true;
+    } else if (crossHighlightActive && highlightedCountries.size <= 1) {
+      highlightedCountries = new Set();
+      crossHighlightActive = false;
+      focusPanApplied = null;
+    }
+  });
+
+  // Zoom + pan the map to the selected country's boundary. Runs whenever the
+  // focus target changes or the projection first becomes available for that
+  // target (initial mount case). Uses the country's canvas-projected centroid
+  // and bbox to compute the pan needed to center it, and a scale that fills
+  // roughly 55% of the inner circle. Nothing happens for URL-param highlights
+  // (multi-country) — they keep the current view.
+  $effect(() => {
+    focusIso3;
+    projection;
+    boundariesGeo;
+    innerRadiusPx;
+    untrack(() => applyFocusFraming());
+  });
+
+  function applyFocusFraming() {
+    if (!focusIso3 || !projection || !boundariesGeo || innerRadiusPx <= 0) return;
+    if (focusPanApplied === focusIso3) return;
+
+    const feature = boundariesGeo.features.find(f => {
+      const id = f?.id ?? f?.properties?.id ?? f?.properties?.iso_a3 ?? f?.properties?.ISO_A3;
+      return id === focusIso3;
+    });
+    if (!feature) return;
+
+    const centroid = d3.geoCentroid(feature);
+    if (!Number.isFinite(centroid?.[0])) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const circle = getCircle();
+    const path = d3.geoPath(projection);
+
+    // Bounds are in canvas coords (dpr); span in design px.
+    const [[minX, minY], [maxX, maxY]] = path.bounds(feature);
+    const spanPx = Math.max(1, Math.max(maxX - minX, maxY - minY)) / dpr;
+    const targetDiameter = circle.r * 2 * 0.55;
+    const scaleMultiplier = spanPx > 0 ? targetDiameter / spanPx : 1;
+    const currentScale = mapScale || 1;
+    const nextScale = Math.max(1, Math.min(7, currentScale * scaleMultiplier));
+
+    // Project centroid at the CURRENT scale, then predict where it lands at
+    // the new scale using the linear-around-center property of fitExtent: a
+    // point offset by (dx, dy) from the map center at scale k1 sits at
+    // (dx, dy) * k2/k1 at scale k2. Compute the pan that would bring the
+    // predicted point to the circle center — no wait-for-refit loop needed.
+    const projected = projection(centroid);
+    if (!projected) return;
+    const pxDesign = projected[0] / dpr;
+    const pyDesign = projected[1] / dpr;
+    const scaleRatio = nextScale / currentScale;
+    const predictedX = circle.cx + (pxDesign - circle.cx) * scaleRatio;
+    const predictedY = circle.cy + (pyDesign - circle.cy) * scaleRatio;
+    const nextPanX = circle.cx - predictedX;
+    const nextPanY = circle.cy - predictedY;
+
+    // Batch both writes; Svelte flushes them in one tick so only one draw
+    // runs downstream instead of a scale-draw-refit-effect-pan-draw chain.
+    mapScale = nextScale;
+    mapPanX = nextPanX;
+    mapPanY = nextPanY;
+    focusPanApplied = focusIso3;
+  }
 
   // Clear isolation when filtering changes
   $effect(() => {
@@ -1186,7 +1309,8 @@
   // processHistoryData still uses it with a safe fallback when 0.
   const timelineHeightPx = 0;
 
-  // Handle cross-highlighting from URL parameter
+  // Cross-highlighting from URL parameter — fills the *range* set (multi-
+  // country annotation), separate from the primary picker highlight above.
   $effect(() => {
     if (!countryData) return;
 
@@ -1203,8 +1327,10 @@
         }
       }
 
-      highlightedCountries = new Set(matchingCountries);
-      crossHighlightActive = matchingCountries.length > 0;
+      rangeIso3s = new Set(matchingCountries);
+      rangeSource = matchingCountries.length
+        ? { kind: 'species', label: `SGB ${sgbId}`, sgbId, from: 'biomes' }
+        : null;
     }
   });
 

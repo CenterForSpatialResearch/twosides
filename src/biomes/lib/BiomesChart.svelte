@@ -41,6 +41,11 @@
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
     studyKey = $bindable(null),
+    countryIso3 = $bindable(null),
+    // Overlay-annotation state — multi-species range coming from anthromes
+    // (cell tooltip or SGB link). Rendered as a dismissible rail tag by the
+    // App; the internal tree-dim behaviour is unchanged.
+    rangeSource = $bindable(null),
     size = 'full',
     tension = 0.95
   } = $props();
@@ -98,8 +103,10 @@
   let viewportH = $state(0);
   let proxySgbMap = {};
   let studySgbMap = {};
+  let countrySgbMap = {};
   let proxyLoaded = false;
   let studyLoaded = false;
+  let countryLoaded = false;
   let cachedLeaves = null;
 
   // ── Canvas spin engine (Mode C) ──────────────────────────────────────────
@@ -156,14 +163,61 @@
     dispatch('detail-close');
   }
 
-  function showPanel(html) {
+  function showPanel(html, datum) {
     panelContent = html;
     panelVisible = !!html;
     if (panelVisible) {
-      dispatch('detail', { content: html, point: connectorStart });
+      // Emit the leaf's structured metadata alongside the HTML so the App
+      // rail can compose graphical add-ons (mini-glyph, lineage chips, genome
+      // meter, badges) without re-parsing the HTML blob.
+      let meta = null;
+      if (datum) {
+        const ancestors = datum
+          .ancestors()
+          .slice(0, -1)
+          .reverse()
+          .map((a) => ({
+            depth: a.depth,
+            name: (a.data?.name || '').split('__').pop()?.replace(/_/g, ' ') || ''
+          }))
+          .filter((a) => a.name);
+        meta = {
+          metadata: datum.data?.metadata || null,
+          name: datum.data?.name || null,
+          phylum: getPhylum(datum),
+          leafId: datum.leafId ?? null,
+          ancestors,
+          genomeCount: Number(datum.data?.metadata?.['#_Reconstructed_genomes']) || 0,
+          maxGenomeCount,
+          glyphPath: buildMiniGlyphPath(datum)
+        };
+      }
+      dispatch('detail', { content: html, point: connectorStart, meta });
     } else {
       dispatch('detail-close');
     }
+  }
+
+  // Mini-glyph path: a radial line traced through the leaf's ancestor chain
+  // (root → phylum → … → leaf) in the disk's polar coordinates, scaled into a
+  // small preview radius. Shared between the tooltip HTML and the App-side
+  // enriched detail card so both stay in sync visually.
+  function buildMiniGlyphPath(d) {
+    const chain = d.ancestors().reverse();
+    const yVals = chain.map((n) => n.y);
+    const yMin = Math.min(...yVals);
+    const yMax = Math.max(...yVals);
+    const rMin = 12, rMax = 50;
+    const line = d3
+      .lineRadial()
+      .curve(d3.curveBundle.beta(0.85))
+      .angle((n) => n.x)
+      .radius((n) =>
+        yMax === yMin
+          ? (rMin + rMax) / 2
+          : rMin + ((n.y - yMin) / (yMax - yMin)) * (rMax - rMin)
+      );
+    return line(chain);
   }
 
   function applyTransforms() {
@@ -805,7 +859,7 @@
     selectedLeafId = selLeaf.leafId;
     connectorStart = null;
     currentTooltipDatum = selLeaf;
-    showPanel(createTooltipHTML(selLeaf));
+    showPanel(createTooltipHTML(selLeaf), selLeaf);
   }
 
   // ── Drag-to-spin + momentum ───────────────────────────────────────────────
@@ -907,27 +961,11 @@
       : '';
     const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> ${recWord} within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.${highlightLink}`;
 
-    return `
-      <div class="tip-header">
-        <div class="h-left">
-          <div class="title-block two-col">
-            <div class="title-row">
-              <span class="swatch" style="background:${color}"></span>
-              <div class="title">${sgb}</div>
-            </div>
-            <div class="subtitle">${phylum.replace(/_/g, ' ')}</div>
-            <div class="subtitle lineage">${lineage(d) || ''}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="summary">${summary}</div>
-
-      <div class="kv">
-        <div class="k">Status</div><div>${safe(status)}</div>
-        <div class="k">Geography</div><div>${safe(geo)}</div>
-      </div>
-    `;
+    // The title / phylum / lineage / status-geo pairs are now composed
+    // graphically by the App (mini-glyph, breadcrumb chips, badge row, genome
+    // meter). The tooltip HTML keeps just the descriptive prose summary and
+    // the cross-side "highlight countries" call-to-action.
+    return `<div class="summary">${summary}</div>`;
   }
 
   // (Center-select drives selection now — per-mark tap handlers/hit layers were removed.)
@@ -937,9 +975,10 @@
   }
 
   // Clear any URL cross-highlight and fall back to the current filter state.
-  function clearHighlight() {
+  export function clearHighlight() {
     highlightedSGBs = new Set();
     crossHighlightActive = false;
+    rangeSource = null;
     applyFiltersNow();
   }
 
@@ -989,6 +1028,13 @@
       const allowed = studySgbMap[studyKey] || null;
       if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
     }
+    // Country filter (primary_countries.json SGB set per ISO3)
+    if (countryIso3) {
+      const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
+      const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
+      const allowed = countrySgbMap[countryIso3] || null;
+      if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
+    }
     return true;
   }
 
@@ -1001,7 +1047,8 @@
       geoFilter !== 'any' ||
       bodySiteFilter.size > 0 ||
       !!proxyKey ||
-      !!studyKey;
+      !!studyKey ||
+      !!countryIso3;
     if (!anyActive) return null;
 
     const leaves = cachedLeaves || root.leaves();
@@ -1089,6 +1136,7 @@
     // Only clear an active URL cross-highlight; the center-select panel stays.
     if (crossHighlightActive) {
       crossHighlightActive = false;
+      rangeSource = null;
       const url = new URL(window.location.href);
       url.searchParams.delete('highlightSGBs');
       url.searchParams.delete('highlightSGB');
@@ -1129,6 +1177,7 @@
     bodySiteFilter.size;
     proxyKey;
     studyKey;
+    countryIso3;
 
     scheduleFilters();
   });
@@ -1144,6 +1193,24 @@
             studySgbMap[key] = new Set((val?.sgbs || []).map(Number));
           });
           studyLoaded = true;
+          applyFiltersNow();
+        }
+      })
+      .catch(() => {});
+  });
+
+  // Lazy-load per-country SGB map from primary_countries.json when a country is
+  // first selected. Falls back gracefully if the file isn't deployed yet.
+  $effect(() => {
+    if (!countryIso3 || countryLoaded) return;
+    fetch(`${import.meta.env.BASE_URL}data/primary_countries.json`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json) {
+          Object.entries(json).forEach(([iso, val]) => {
+            countrySgbMap[iso] = new Set((val?.sgbs || []).map(Number));
+          });
+          countryLoaded = true;
           applyFiltersNow();
         }
       })
@@ -1242,6 +1309,25 @@
             });
             applyKeepSet(keep);
             requestDraw();
+            // Publish a dismissible tag payload up to App. `session` means
+            // the arrival came from an anthromes cell tooltip (many SGBs);
+            // a single numeric param means a specific SGB was pushed over.
+            rangeSource = highlightSGBsParam === 'session'
+              ? {
+                  kind: 'cell',
+                  label: matchedLeaves.length === 1
+                    ? 'Cell selection'
+                    : `Cell selection · ${matchedLeaves.length} species`,
+                  count: matchedLeaves.length,
+                  from: 'Anthromes'
+                }
+              : {
+                  kind: 'species',
+                  label: `SGB ${sgbIds[0]}`,
+                  sgbId: sgbIds[0],
+                  count: matchedLeaves.length,
+                  from: 'Anthromes'
+                };
           }
         }
       }, 100);
