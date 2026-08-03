@@ -73,6 +73,26 @@ jobs:
           mkdir -p dist/dev
           cp -R src-dev/dist/. dist/dev/
 
+      # ---- feat/cohorts -> dist/feat-cohorts/ ----         
+      - name: Checkout feat/cohorts
+        uses: actions/checkout@v4                                                                                                 
+        with:
+          ref: feat/cohorts                                                                                                       
+          lfs: true                                          
+          path: src-feat-cohorts
+
+      - name: Build feat/cohorts (/feat-cohorts/ base)                                                                            
+        working-directory: src-feat-cohorts
+        run: |                                                                                                                    
+          npm ci                                             
+          BASE_PATH=/feat-cohorts/ npm run build
+                                                                                                                                    
+      - name: Stage feat/cohorts at dist/feat-cohorts/
+        run: |                                                                                                                    
+          mkdir -p dist/feat-cohorts                         
+          cp -R src-feat-cohorts/dist/. dist/feat-cohorts/
+
+
       # ---- custom domain + upload ----
       # Required: the CNAME is held in Pages settings today, and a combined
       # artifact deploy would otherwise wipe the twosides.earth domain.
