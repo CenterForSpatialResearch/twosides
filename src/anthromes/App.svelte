@@ -1,8 +1,8 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
-  import HistoryCircleChart from './lib/HistoryCircleChart.svelte';
-  import CountryTimeseriesChart from './lib/CountryTimeseriesChart.svelte';
+  import CellHistoryBar from './lib/CellHistoryBar.svelte';
+  import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
@@ -124,7 +124,10 @@
 
   // History chart section sizing
   let historyChartEl = $state(null);
-  let historyChartSize = $state(282);
+  let historyChartSize = $state(282); // legacy: kept while old radial imports linger
+  let historyChartW = $state(340);
+  const CELL_BAR_H = 92;
+  const COUNTRY_BAR_H = 160;
 
   // Current-year land-cover percentages (drives the bottom filter key sizing)
   let currentPercentages = $derived.by(() => {
@@ -203,14 +206,10 @@
   $effect(() => {
     if (!historyChartEl) return;
     const update = () => {
-      // clientWidth/Height are layout px, so they stay in design space even
-      // though the stage transform scales the rendered box.
-      const h = historyChartEl.clientHeight;
+      // Horizontal chart: width flexes with the section, height is fixed per
+      // chart type. Only track width here — the components take {width, height}.
       const w = historyChartEl.clientWidth;
-      // Square chart. Height must also leave room for the "Cell History" title
-      // above the SVG (~26px incl. gap), or the section overflows and the panel scrolls.
-      // Width only needs a hairline gutter.
-      historyChartSize = Math.max(77, Math.min(h - 26, w - 8));
+      historyChartW = Math.max(200, w - 8);
     };
     update();
     const ro = new ResizeObserver(update);
@@ -623,7 +622,12 @@
               {#if barChartData?.length}
                 <div class="history-chart-section" bind:this={historyChartEl}>
                   <div class="history-chart-title">Cell history</div>
-                  <HistoryCircleChart periods={barChartData} size={historyChartSize} />
+                  <CellHistoryBar
+                    periods={barChartData}
+                    {selectedYear}
+                    width={historyChartW}
+                    height={CELL_BAR_H}
+                  />
                 </div>
               {/if}
             {:else if selectedCountryMeta && countryTimeseries?.[selectedCountryIso3]}
@@ -633,13 +637,14 @@
               </div>
               <div class="history-chart-section" bind:this={historyChartEl}>
                 <div class="history-chart-title">Anthrome timeline</div>
-                <CountryTimeseriesChart
+                <CountryTimeseriesBar
                   data={countryTimeseries[selectedCountryIso3]}
                   {colorMapping}
                   {labelMapping}
                   {orderedCodes}
-                  size={historyChartSize}
                   {selectedYear}
+                  width={historyChartW}
+                  height={COUNTRY_BAR_H}
                 />
               </div>
             {:else}
