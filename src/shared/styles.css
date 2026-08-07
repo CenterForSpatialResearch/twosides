@@ -206,9 +206,30 @@ body {
 }
 
 /* ===== Docked detail-panel content typography — shared by biomes + anthromes =====
-   The panel HTML (built in the chart components) is injected via {@html} into
-   each app's .panel-content. These rules were byte-identical in both App.svelte
-   files; centralized here so the two detail panels stay in lockstep. */
+   Two kinds of content land in .panel-content:
+     1. HTML built in the chart components and injected via {@html} (.title,
+        .subtitle, .summary, .detail-link, .kv, .swatch, .pill/.badge);
+     2. Svelte markup composed in biomes/App.svelte from the structured `meta`
+        BiomesChart emits (.species-*, .lineage-*, .gm-*, .sp-*).
+   Both are styled here so the two detail panels stay in lockstep.
+
+   TYPE SCALE — all sizes are design px, scaled by the stage transform.
+   The floor is 16.6px, matching .fblock-desc (the "Select a country to lens…"
+   copy) and the .panel-content base. Body text sizes up from the floor.
+     12px    micro — lineage chips ONLY (see below)
+     16.6px  floor — chips, uppercase micro-labels, CTA, stat pills
+     18.5px  step  — numeric values
+     23px    title — panel headline (.title / .species-sgb)
+   The single sanctioned exception to the floor is the taxonomic lineage row:
+   it is reference detail meant to sit visually beneath everything else, so it
+   is set at 12px. Do not borrow that size for anything else — for all other
+   panel content, smaller than 16.6px is a bug.
+
+   LAYOUT STABILITY — the panel re-renders continuously while the disk spins,
+   so blocks whose height depends on the selected species' text length read as
+   the rail bouncing. Prefer fixed grids over wrapping flex rows: .sp-statline
+   is a 2x2 grid and .sp-countries puts its title and chips on separate rows
+   for exactly this reason. */
 .panel-content .title {
   font-size: 23px;
   font-weight: 800;
@@ -246,7 +267,7 @@ body {
 }
 
 .panel-content .kv .k {
-  font-size: 14px;
+  font-size: 16.6px; /* floor */
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9ba3c0;
@@ -278,6 +299,348 @@ body {
   background: rgba(255, 255, 255, 0.08);
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   color: #fff;
-  font-size: 14px;
+  font-size: 16.6px; /* floor */
   letter-spacing: 0.03em;
+}
+
+/* ----- Species detail card (biomes) -------------------------------------
+   Composed as Svelte markup in biomes/App.svelte from BiomesChart's `meta`,
+   not {@html}. Lives here rather than in that component's scoped <style> so
+   the whole panel vocabulary sits in one place alongside the {@html} rules
+   above, and so both sides share one type scale. */
+
+/* Species graphic: radial glyph + inline SGB label + lineage chips.
+   Glyph and text sit on one baseline; chips wrap. */
+.panel-content .species-graphic {
+  display: flex;
+  gap: 18px; /* clears the 2x glyph without crowding the lineage chips */
+  align-items: center;
+  margin: 6px 0 11px;
+}
+
+/* 2x the original 64px. The SVG's viewBox is cropped to the path's extent
+   (see biomes/App.svelte) so the box is the glyph — there is no dead margin
+   baked into the artwork, and this width is the real optical size. */
+.panel-content .species-glyph {
+  width: 128px;
+  height: 128px;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.14));
+}
+
+.panel-content .species-ident {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* The panel headline — same size/weight as .title, which it replaced. */
+.panel-content .species-sgb {
+  font-size: 23px; /* title */
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+  line-height: 1.05;
+}
+
+/* Lineage depth varies by species, so this row lands on one line for some and
+   two for others — another source of the rail jumping during a spin. Reserve
+   two rows' worth of height unconditionally and top-align, so a short lineage
+   leaves empty space rather than collapsing the block.
+   Row height = 12px * 1.4 line-height + 4px padding + 2.6px border = 23.4px. */
+.panel-content .lineage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 3px 5px;
+  min-height: calc(2 * 23.4px + 3px); /* two rows + one row-gap */
+}
+
+/* Deliberately the smallest type in the piece — the lineage is reference
+   detail, subordinate to everything else in the card. Sized well below the
+   16.6px floor on purpose; see the type-scale note above. */
+.panel-content .lineage-chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1.3px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg);
+  font-size: 12px; /* micro */
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.panel-content .lineage-chip.phylum {
+  border-width: 1.6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.panel-content .lineage-chip.leaf {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+}
+
+.panel-content .lineage-sep {
+  color: var(--muted);
+  font-size: 12px; /* micro — matches .lineage-chip */
+  opacity: 0.6;
+  padding: 0 1px;
+}
+
+/* Genome meter: sqrt-scaled bar, phylum-tinted fill. Head + track share a
+   row to keep the vertical footprint tight. */
+.panel-content .genome-meter {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 11px;
+}
+
+.panel-content .gm-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 11px;
+}
+
+.panel-content .gm-label {
+  font-size: 16.6px; /* floor */
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.panel-content .gm-count {
+  font-size: 18.5px; /* step */
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.panel-content .gm-max {
+  font-size: 16.6px; /* floor */
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-left: 5px;
+}
+
+.panel-content .gm-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.panel-content .gm-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  border-radius: 6px;
+  transition: width 0.24s ease;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.panel-content .gm-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.3px;
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateX(-0.65px);
+}
+
+/* Four-axis stat line — a fixed 2x2 grid, never a wrapping row. Free-flowing
+   flex made the block flip between one and two rows depending on how long the
+   species' labels happened to be (the four pills total ~875px against an
+   878px rail), which read as the panel bouncing as you spin the disk. Two
+   fixed columns keep the footprint identical for every species. */
+.panel-content .sp-statline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  justify-items: start; /* pills hug their text — the column is the slot, not the pill */
+  gap: 6px 8px;
+  margin: 0 0 11px;
+}
+
+.panel-content .sp-stat {
+  min-width: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1.3px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg);
+  font-size: 16.6px; /* floor */
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.panel-content .sp-stat--hero {
+  font-size: 18.5px; /* step */
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.panel-content .sp-stat--hero.sp-stat--unknown {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.panel-content .sp-stat-detail {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.panel-content .sp-stat--hero .sp-stat-detail {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Countries where the species has been reported. The title always owns its
+   own line and the chips always start on the line beneath it — sharing a row
+   meant species with few countries sat inline and species with many pushed
+   the chips down, so the block jumped height as the selection changed. */
+.panel-content .sp-countries {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 7px 11px;
+  margin: 0 0 11px;
+}
+
+/* Full-width basis is the whole trick: the title claims its own flex line, so
+   the chips always begin on the line beneath it no matter how many there are.
+   Done with flex rather than a grid because grid's default stretch alignment
+   pulled the chips to the row height and rounded them into circles. */
+.panel-content .sp-countries-title {
+  flex: 0 0 100%;
+  font-size: 16.6px; /* floor */
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.panel-content .sp-country-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start; /* never stretch chips to the row height — that reads as circles */
+  flex: 1 1 100%;
+  gap: 5px 7px;
+}
+
+.panel-content .sp-country-chip {
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1.3px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fg);
+  font-size: 16.6px; /* floor */
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-family: inherit;
+  line-height: 1.3;
+}
+
+.panel-content .sp-country-chip--primary {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.panel-content .sp-country-chip--primary:hover {
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.panel-content .sp-country-chip--muted {
+  color: var(--muted);
+  opacity: 0.75;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* Cross-side CTA — hugs its text like the chips above it. As a direct child of
+   the .panel-content grid/column it would otherwise stretch the full rail
+   width, and `justify-content: space-between` threw the arrow to the far edge;
+   justify-self/align-self keep it content-width. Explicit line-height matters
+   too: without it the button inherited .panel-content's 1.5 and stood
+   noticeably taller than every other pill. */
+.panel-content .sp-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  justify-self: start; /* .panel-content is a grid on the biomes side */
+  align-self: flex-start; /* …and a flex column on the anthromes side */
+  width: auto;
+  gap: 8px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: 1.4px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 16.6px; /* floor */
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+  margin: 0 0 4px;
+}
+
+.panel-content .sp-cta:hover {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+.panel-content .sp-cta-arrow {
+  font-size: 16.6px; /* floor — must not out-measure the label and drive height */
+  line-height: 1.3;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+/* NOTE: .species-badges/.species-badge have no markup referencing them as of
+   the feat/cohorts merge — the stat line replaced them. Kept (rescaled to the
+   floor) because they're part of this panel's vocabulary; delete if the badge
+   row isn't coming back. */
+.panel-content .species-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 11px;
+  margin: 6px 0 12px;
+}
+
+.panel-content .species-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.3px solid rgba(255, 255, 255, 0.18);
+  color: var(--fg);
+  font-size: 16.6px; /* floor */
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.panel-content .species-badge.accent {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
 }

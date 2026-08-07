@@ -914,117 +914,128 @@
             {#if !detailContent}
               <p class="detail-hint">Spin the disk to inspect a species.</p>
             {:else if detailMeta}
-              <!-- Graphical header replaces the section title: radial mini-glyph
-                   traces this leaf's ancestor path through the tree in the
-                   disk's polar coordinates, next to the SGB label + lineage
-                   breadcrumbs. -->
-              <div class="species-graphic">
-                {#if detailMeta.glyphPath}
-                  <svg class="species-glyph" viewBox="-60 -60 120 120" aria-hidden="true">
-                    <path
-                      d={detailMeta.glyphPath}
-                      fill="none"
-                      stroke={speciesPhylumColor}
-                      stroke-width="2"
-                      stroke-linejoin="round"
-                    />
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r="3"
-                      fill={speciesPhylumColor}
-                    />
-                  </svg>
-                {/if}
-                <div class="species-ident">
-                  {#if detailMeta.metadata?.SGB_ID != null}
-                    <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
+              <!-- .panel-content carries the shared panel typography (see
+                   src/shared/styles.css); .detail-scroll supplies the
+                   min-height:0 that lets it scroll inside the flex column
+                   rather than overflow the rail. -->
+              <div class="panel-content detail-scroll">
+                <!-- Graphical header replaces the section title: radial mini-glyph
+                     traces this leaf's ancestor path through the tree in the
+                     disk's polar coordinates, next to the SGB label + lineage
+                     breadcrumbs. -->
+                <div class="species-graphic">
+                  {#if detailMeta.glyphPath}
+                    <!-- viewBox is cropped to the glyph's actual extent:
+                         buildMiniGlyphPath tops out at radius 50 and the stroke
+                         is 2px, so 51 + 1px breathing room = 52. Keep it fixed
+                         (not per-species bounds) or the glyph would rescale as
+                         you spin. -->
+                    <svg class="species-glyph" viewBox="-52 -52 104 104" aria-hidden="true">
+                      <path
+                        d={detailMeta.glyphPath}
+                        fill="none"
+                        stroke={speciesPhylumColor}
+                        stroke-width="2"
+                        stroke-linejoin="round"
+                      />
+                      <circle
+                        cx="0"
+                        cy="0"
+                        r="3"
+                        fill={speciesPhylumColor}
+                      />
+                    </svg>
                   {/if}
-                  {#if detailMeta.ancestors?.length}
-                    <div class="lineage-chips" aria-label="Taxonomic lineage">
-                      {#each detailMeta.ancestors as a, i (a.depth + '-' + a.name)}
-                        {#if i > 0}<span class="lineage-sep">›</span>{/if}
-                        <span
-                          class="lineage-chip"
-                          class:phylum={i === 1}
-                          class:leaf={i === detailMeta.ancestors.length - 1}
-                          style={i === 1 ? `border-color: ${speciesPhylumColor}; color: #fff;` : ''}
-                        >{a.name}</span>
-                      {/each}
-                    </div>
-                  {/if}
+                  <div class="species-ident">
+                    {#if detailMeta.metadata?.SGB_ID != null}
+                      <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
+                    {/if}
+                    {#if detailMeta.ancestors?.length}
+                      <div class="lineage-chips" aria-label="Taxonomic lineage">
+                        {#each detailMeta.ancestors as a, i (a.depth + '-' + a.name)}
+                          {#if i > 0}<span class="lineage-sep">›</span>{/if}
+                          <span
+                            class="lineage-chip"
+                            class:phylum={i === 1}
+                            class:leaf={i === detailMeta.ancestors.length - 1}
+                            style={i === 1 ? `border-color: ${speciesPhylumColor}; color: #fff;` : ''}
+                          >{a.name}</span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
                 </div>
-              </div>
 
-              <!-- Genome meter: sqrt-scaled bar with the raw count called out.
-                   Fill uses the phylum colour so the whole panel reads as one
-                   species-brand. Ticks give quick reference for 25/50/75%. -->
-              {#if speciesGenomeMeter.count > 0}
-                <div class="genome-meter">
-                  <div class="gm-head">
-                    <span class="gm-label">Reconstructed genomes</span>
-                    <span class="gm-count">
-                      {speciesGenomeMeter.count.toLocaleString()}
-                      <span class="gm-max">/ {speciesGenomeMeter.max.toLocaleString()} max</span>
+                <!-- Genome meter: sqrt-scaled bar with the raw count called out.
+                     Fill uses the phylum colour so the whole panel reads as one
+                     species-brand. Ticks give quick reference for 25/50/75%. -->
+                {#if speciesGenomeMeter.count > 0}
+                  <div class="genome-meter">
+                    <div class="gm-head">
+                      <span class="gm-label">Reconstructed genomes</span>
+                      <span class="gm-count">
+                        {speciesGenomeMeter.count.toLocaleString()}
+                        <span class="gm-max">/ {speciesGenomeMeter.max.toLocaleString()} max</span>
+                      </span>
+                    </div>
+                    <div class="gm-track" role="img" aria-label={`${speciesGenomeMeter.count} of ${speciesGenomeMeter.max} genomes`}>
+                      <div class="gm-fill" style="width: {speciesGenomeMeter.pct}%; background: {speciesPhylumColor};"></div>
+                      <span class="gm-tick" style="left: 25%"></span>
+                      <span class="gm-tick" style="left: 50%"></span>
+                      <span class="gm-tick" style="left: 75%"></span>
+                    </div>
+                  </div>
+                {/if}
+
+                {#if speciesStats}
+                  <!-- Four axes in a single inline row: knowledge status (hero) ·
+                       abundance · geographic reach · population type. Wraps
+                       to a second line if the rail is too narrow. -->
+                  <div class="sp-statline">
+                    <span class="sp-stat sp-stat--hero" class:sp-stat--unknown={speciesStats.isUnknown}>
+                      {speciesStats.status.name}
+                    </span>
+                    <span class="sp-stat">
+                      {speciesStats.abundance.name}<span class="sp-stat-detail"> · {speciesStats.abundance.detail}</span>
+                    </span>
+                    <span class="sp-stat">
+                      {speciesStats.reach.name}<span class="sp-stat-detail"> · {speciesStats.reach.detail}</span>
+                    </span>
+                    <span class="sp-stat">
+                      {speciesStats.population.name}
                     </span>
                   </div>
-                  <div class="gm-track" role="img" aria-label={`${speciesGenomeMeter.count} of ${speciesGenomeMeter.max} genomes`}>
-                    <div class="gm-fill" style="width: {speciesGenomeMeter.pct}%; background: {speciesPhylumColor};"></div>
-                    <span class="gm-tick" style="left: 25%"></span>
-                    <span class="gm-tick" style="left: 50%"></span>
-                    <span class="gm-tick" style="left: 75%"></span>
+                {/if}
+
+                {#if speciesCountries.primary.length || speciesCountries.other.length}
+                  <div class="sp-countries">
+                    <span class="sp-countries-title">
+                      Reported in
+                      {(speciesCountries.primary.length + speciesCountries.other.length).toLocaleString()}
+                      {(speciesCountries.primary.length + speciesCountries.other.length) === 1 ? 'country' : 'countries'}
+                    </span>
+                    <div class="sp-country-chips">
+                      {#each speciesCountries.primary as iso3 (iso3)}
+                        <button
+                          class="sp-country-chip sp-country-chip--primary"
+                          onclick={() => goToAnthromes(iso3)}
+                          title={`Open ${SHORT_LABELS[iso3] ?? iso3} on the anthromes side`}
+                        >{SHORT_LABELS[iso3] ?? iso3}</button>
+                      {/each}
+                      {#each speciesCountries.other as iso3 (iso3)}
+                        <span class="sp-country-chip sp-country-chip--muted">{iso3}</span>
+                      {/each}
+                    </div>
                   </div>
-                </div>
-              {/if}
+                {/if}
 
-              {#if speciesStats}
-                <!-- Four axes in a single inline row: knowledge status (hero) ·
-                     abundance · geographic reach · population type. Wraps
-                     to a second line if the rail is too narrow. -->
-                <div class="sp-statline">
-                  <span class="sp-stat sp-stat--hero" class:sp-stat--unknown={speciesStats.isUnknown}>
-                    {speciesStats.status.name}
-                  </span>
-                  <span class="sp-stat">
-                    {speciesStats.abundance.name}<span class="sp-stat-detail"> · {speciesStats.abundance.detail}</span>
-                  </span>
-                  <span class="sp-stat">
-                    {speciesStats.reach.name}<span class="sp-stat-detail"> · {speciesStats.reach.detail}</span>
-                  </span>
-                  <span class="sp-stat">
-                    {speciesStats.population.name}
-                  </span>
-                </div>
-              {/if}
-
-              {#if speciesCountries.primary.length || speciesCountries.other.length}
-                <div class="sp-countries">
-                  <span class="sp-countries-title">
-                    Reported in
-                    {(speciesCountries.primary.length + speciesCountries.other.length).toLocaleString()}
-                    {(speciesCountries.primary.length + speciesCountries.other.length) === 1 ? 'country' : 'countries'}
-                  </span>
-                  <div class="sp-country-chips">
-                    {#each speciesCountries.primary as iso3 (iso3)}
-                      <button
-                        class="sp-country-chip sp-country-chip--primary"
-                        onclick={() => goToAnthromes(iso3)}
-                        title={`Open ${SHORT_LABELS[iso3] ?? iso3} on the anthromes side`}
-                      >{SHORT_LABELS[iso3] ?? iso3}</button>
-                    {/each}
-                    {#each speciesCountries.other as iso3 (iso3)}
-                      <span class="sp-country-chip sp-country-chip--muted">{iso3}</span>
-                    {/each}
-                  </div>
-                </div>
-              {/if}
-
-              {#if detailMeta.metadata?.SGB_ID != null}
-                <button class="sp-cta" onclick={() => goToAnthromes(null)}>
-                  <span class="sp-cta-label">See this species on the anthromes map</span>
-                  <span class="sp-cta-arrow" aria-hidden="true">→</span>
-                </button>
-              {/if}
+                {#if detailMeta.metadata?.SGB_ID != null}
+                  <button class="sp-cta" onclick={() => goToAnthromes(null)}>
+                    <span class="sp-cta-label">See this species on the anthromes map</span>
+                    <span class="sp-cta-arrow" aria-hidden="true">→</span>
+                  </button>
+                {/if}
+              </div>
             {/if}
           </section>
         {/snippet}
@@ -1738,299 +1749,10 @@
     box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
   }
 
-  /* Species graphic: radial glyph + inline SGB label + lineage chips.
-     Compact — glyph and text sit on one baseline; chips can wrap. */
-  .species-graphic {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    margin: 6px 0 8px;
-  }
-
-  .species-glyph {
-    width: 52px;
-    height: 52px;
-    flex: 0 0 auto;
-    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.14));
-  }
-
-  .species-ident {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .species-sgb {
-    font-size: 17px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: #fff;
-    line-height: 1;
-  }
-
-  .lineage-chips {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2px 3px;
-  }
-
-  .lineage-chip {
-    padding: 1px 6px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--fg);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-    line-height: 1.4;
-  }
-
-  .lineage-chip.phylum {
-    border-width: 1.4px;
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .lineage-chip.leaf {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.55);
-    color: #fff;
-  }
-
-  .lineage-sep {
-    color: var(--muted);
-    font-size: 10px;
-    opacity: 0.6;
-    padding: 0 1px;
-  }
-
-  /* Genome meter: sqrt-scaled bar, phylum-tinted fill. Head + track share a
-     row to keep vertical footprint tight. */
-  .genome-meter {
-    display: grid;
-    gap: 4px;
-    margin: 0 0 8px;
-  }
-
-  .gm-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  .gm-label {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .gm-count {
-    font-size: 12px;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: 0.02em;
-  }
-
-  .gm-max {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-left: 4px;
-  }
-
-  .gm-track {
-    position: relative;
-    height: 6px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.08);
-    overflow: hidden;
-  }
-
-  .gm-fill {
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    border-radius: 6px;
-    transition: width 0.24s ease;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
-  }
-
-  .gm-tick {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: rgba(255, 255, 255, 0.14);
-    transform: translateX(-0.5px);
-  }
-
-  /* Species four-axis stat line — one row of inline chip-like pills. Hero
-     (knowledge status) reads bright; the rest are neutral. Wraps if the
-     rail is narrow. */
-  .sp-statline {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 5px;
-    margin: 0 0 8px;
-  }
-
-  .sp-stat {
-    padding: 2px 8px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--fg);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    line-height: 1.3;
-    white-space: nowrap;
-  }
-
-  .sp-stat--hero {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.35);
-    color: #fff;
-  }
-
-  .sp-stat--hero.sp-stat--unknown {
-    background: rgba(255, 255, 255, 0.16);
-    border-color: rgba(255, 255, 255, 0.7);
-  }
-
-  .sp-stat-detail {
-    font-weight: 600;
-    color: var(--muted);
-  }
-
-  .sp-stat--hero .sp-stat-detail {
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  /* Countries where the species has been reported. Compact: title + chips
-     on one row, wraps when tight. */
-  .sp-countries {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 5px 8px;
-    margin: 0 0 8px;
-  }
-
-  .sp-countries-title {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .sp-country-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px 4px;
-  }
-
-  .sp-country-chip {
-    padding: 2px 7px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--fg);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    font-family: inherit;
-    line-height: 1.3;
-  }
-
-  .sp-country-chip--primary {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.55);
-    color: #fff;
-    cursor: pointer;
-    transition: background 0.15s ease, transform 0.12s ease;
-  }
-
-  .sp-country-chip--primary:hover {
-    background: rgba(255, 255, 255, 0.22);
-    transform: translateY(-1px);
-  }
-
-  .sp-country-chip--muted {
-    color: var(--muted);
-    opacity: 0.75;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  }
-
-  /* Cross-side CTA — compact single-row button */
-  .sp-cta {
-    display: inline-flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 5px 12px;
-    border-radius: 999px;
-    border: 1.4px solid rgba(255, 255, 255, 0.55);
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-    font-family: inherit;
-    font-weight: 800;
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: background 0.15s ease, transform 0.12s ease;
-    margin: 0 0 4px;
-  }
-
-  .sp-cta:hover {
-    background: rgba(255, 255, 255, 0.16);
-    transform: translateY(-1px);
-  }
-
-  .sp-cta-arrow {
-    font-size: 14px;
-    font-weight: 700;
-    opacity: 0.9;
-  }
-
-  .species-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 8px;
-    margin: 6px 0 12px;
-  }
-
-  .species-badge {
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: var(--fg);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    text-transform: none;
-    white-space: nowrap;
-  }
-
-  .species-badge.accent {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.55);
-    color: #fff;
-  }
+  /* Species detail-card styling — the .panel-content species / lineage / genome
+     meter / stat-line rules are shared with the anthromes panel; see
+     src/shared/styles.css, which also documents the 16.6px type floor that both
+     panels size up from. */
 
   /* Country breakdown — full big-number treatment by default; collapses to a
      single-line summary when a species is also being inspected (see the
