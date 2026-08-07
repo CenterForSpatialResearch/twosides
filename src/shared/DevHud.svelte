@@ -5,7 +5,7 @@
   // Mount inside .viewport but OUTSIDE .stage so it never gets scaled.
   import { onMount } from 'svelte';
   import { DESIGN_W, DESIGN_H, stageScale, getStageEl, screenToDesign } from './stage.svelte.js';
-  import { uiOption, setUiOption } from './uiOption.svelte.js';
+  import { uiOption, cycleUiOption, uiOptionLabel, UI_OPTION_COUNT } from './uiOption.svelte.js';
 
   const LENS_W = 420;
   const LENS_H = 280;
@@ -136,10 +136,10 @@
       </button>
       <button
         class="hud-btn"
-        class:on={uiOption() === 2}
-        onclick={() => setUiOption(uiOption() === 1 ? 2 : 1)}
+        class:on={uiOption() !== 1}
+        onclick={cycleUiOption}
       >
-        UI OPTION: {uiOption()}
+        UI OPTION: {uiOption()}/{UI_OPTION_COUNT} &middot; {uiOptionLabel()}
       </button>
     </div>
   {/if}

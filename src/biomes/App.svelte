@@ -1029,8 +1029,8 @@
           </section>
         {/snippet}
 
-        {#if uiOption() === 2}
-        <!-- Option 2: Country is the primary filter. Known/Unknown and
+        {#if uiOption() === 1}
+        <!-- Option 1 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
              selected. -->
@@ -1137,13 +1137,69 @@
         {/if}
 
         {@render detailPanel()}
+        {:else if uiOption() === 2}
+        <!-- Option 2 (Split): Known/Unknown and Non/Western share a row. No
+             "All" button — like Cohort, all are shown by default; tap to isolate,
+             tap again to reset. -->
+        <div class="filter-row">
+          <section class="fblock">
+            <h3 class="fblock-title">Known / Unknown</h3>
+            <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
+            <div class="sel-buttons">
+              <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => toggleUnknown('known')}>
+                <span class="sel-name">Known</span>
+                <span class="sel-pct">{knownPct}%</span>
+              </button>
+              <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => toggleUnknown('unknown')}>
+                <span class="sel-name">Unknown</span>
+                <span class="sel-pct">{unknownPct}%</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="fblock">
+            <h3 class="fblock-title">Non / Western</h3>
+            <p class="fblock-desc"><strong>Westernized</strong> — industrialized, urban populations with high exposure to modern medical and food systems. <strong>Non-Westernized</strong> — populations with limited industrialization and lower exposure to those systems.</p>
+            <div class="sel-buttons">
+              <button class="sel-btn" class:active={westernFilter === 'western'} onclick={() => toggleWestern('western')}>
+                <span class="sel-name">Western</span>
+                <span class="sel-pct">{westernPct}%</span>
+              </button>
+              <button class="sel-btn" class:active={westernFilter === 'nonwestern'} onclick={() => toggleWestern('nonwestern')}>
+                <span class="sel-name">Non-Western</span>
+                <span class="sel-pct">{nonwesternPct}%</span>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <section class="fblock">
+          <h3 class="fblock-title">Cohort</h3>
+          <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the share of each population's species that were previously unknown to science, most to least.</p>
+          <div class="cohort-bubbles" bind:clientWidth={bubbleRowW}>
+            {#each rankedCohorts as c (c.key)}
+              <button
+                class="bubble"
+                class:active={selectedStudyKey === c.key}
+                style="width:{c.size}px; height:{c.size}px;"
+                title={`${Math.round(c.upct * 100)}% unknown (uSGB)`}
+                onclick={() => selectStudyKey(c.key)}
+              >
+                <span class="sel-name">{c.label}</span>
+                <span class="sel-pct">{Math.round(c.upct * 100)}% unknown</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+
+        {@render detailPanel()}
         {:else}
-        <!-- Option 1: details panel on top, then two stacked blocks — Prevalence
-             (population type / samples / countries) then Known/Unknown with two
-             compound buttons. Same tap-to-isolate / tap-again-to-reset pattern;
-             each Block A button isolates its one dimension (clearing the other
-             two axes). Cohort is intentionally omitted here to give the details
-             panel room. -->
+        <!-- Option 3 (Prevalence): details panel on top, then two stacked blocks —
+             Prevalence (population type / samples / countries) then Known/Unknown
+             with two compound buttons. Same tap-to-isolate / tap-again-to-reset
+             pattern; each Block A button isolates its one dimension (clearing the
+             other two axes). Cohort is intentionally omitted here to give the
+             details panel room. -->
         {@render detailPanel()}
 
         <section class="fblock">
@@ -1265,8 +1321,8 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 1}
-          <!-- Option 1: details panel is at the top, so the leader runs
+        {#if uiOption() === 3}
+          <!-- Option 3: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns
                to end in line with the panel title. -->
@@ -1275,7 +1331,8 @@
             points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
           />
         {:else}
-          <!-- Option 2: straight horizontal run from the marker to the rail edge. -->
+          <!-- Options 1 & 2: the details panel sits inline in the rail, so the
+               leader is a straight horizontal run from the marker to the rail edge. -->
           <line
             class="leader-line"
             x1={leaderFrom.x} y1={leaderFrom.y}
@@ -2219,7 +2276,7 @@
     font-size: 11px;
   }
 
-  /* Cohort ranked bubbles (legacy — kept in case Option 1 revives it) */
+  /* Cohort ranked bubbles — used by Option 2 (Split) */
   .cohort-bubbles {
     display: flex;
     flex-wrap: nowrap;
