@@ -8,6 +8,23 @@
   export const RARE_MAX_SAMPLES = 1;           // Sample_ID_Count <= 1  (~40% of SGBs)
   export const WIDESPREAD_MIN_COUNTRIES = 4;   // Country_Count >= 4   (~25% of SGBs)
   export const CONCENTRATED_MAX_COUNTRIES = 1; // Country_Count <= 1   (~54% of SGBs)
+
+  // ── Lifestyle-exclusivity colouring (UI Option 1) ────────────────────────────
+  // A species is "non-Westernized-exclusive" when every sample it was ever
+  // reconstructed from came from a non-Westernized cohort. Westernized_Count is
+  // the number of DISTINCT Westernized values across the whole corpus (1 or 2),
+  // and Westernized_Mode is that value when there is only one — both are true,
+  // un-truncated corpus-wide figures on the tree, unlike the per-country SGB
+  // rosters in sgb_edges_genome_sample_study.csv (capped at 10–20 genomes per
+  // SGB, which inflates apparent exclusivity). 315 of 4,930 SGBs qualify; 95% of
+  // them were unknown to science before this study.
+  export const LIFESTYLE_MAGENTA = '#ff2d95'; // found only in non-Westernized populations
+  export const LIFESTYLE_SHARED = '#f2eef8';  // also found in Westernized populations
+
+  export function isNonWesternExclusive(metadata) {
+    if (!metadata) return false;
+    return Number(metadata.Westernized_Count) === 1 && metadata.Westernized_Mode === 'No';
+  }
 </script>
 
 <script>
@@ -46,6 +63,12 @@
     // (cell tooltip or SGB link). Rendered as a dismissible rail tag by the
     // App; the internal tree-dim behaviour is unchanged.
     rangeSource = $bindable(null),
+    // UI Option 1: recolour leaf lines / dots / bars by lifestyle exclusivity
+    // (magenta = non-Westernized-exclusive, near-white = also found in
+    // Westernized populations) instead of by phylum. The phylum region bands
+    // stay phylum-coloured so the taxonomy backdrop and the phylum pills still
+    // read. App drives this off "Option 1 AND a country is selected".
+    lifestyleColor = false,
     size = 'full',
     tension = 0.95
   } = $props();
@@ -548,6 +571,13 @@
       link: new Path2D(),
       barsByColor: new Map(),
       nodesByColor: new Map(),
+      // Only populated when lifestyleColor is on — the leaf radial lines and
+      // the root→leaf bundle curves are otherwise single Path2Ds stroked in
+      // fgColor (see draw(), steps 1 and 3). Split per colour so the whole
+      // leaf, root to tip, carries the lifestyle colour rather than just its
+      // outer segment.
+      sgbLineByColor: new Map(),
+      linkByColor: new Map(),
       usgbWhite: new Path2D(), usgbBlack: new Path2D(),
       westWhite: new Path2D(), westBlack: new Path2D()
     };
@@ -559,13 +589,24 @@
       const theta = d.x - Math.PI / 2;
       const cos = Math.cos(theta), sin = Math.sin(theta);
       const cnt = d.data.metadata?.["#_Reconstructed_genomes"] || 0;
-      const color = colorMapping[getPhylum(d)] || colorMapping.Other;
+      const color = lifestyleColor
+        ? (isNonWesternExclusive(d.data?.metadata) ? LIFESTYLE_MAGENTA : LIFESTYLE_SHARED)
+        : (colorMapping[getPhylum(d)] || colorMapping.Other);
       // sgb radial line (leaf rim → beyond the bars)
       const rOut = barInner + barScale(cnt);
       b.sgbLine.moveTo(cos * d.y, sin * d.y);
       b.sgbLine.lineTo(cos * rOut, sin * rOut);
+      // Under lifestyle colouring the same line is also recorded into a
+      // per-colour path so draw() can stroke it magenta/white instead of fg.
+      if (lifestyleColor) {
+        const lp = grp(b.sgbLineByColor, color);
+        lp.moveTo(cos * d.y, sin * d.y);
+        lp.lineTo(cos * rOut, sin * rOut);
+      }
       // bundle-curve link root → leaf
-      b.link.addPath(new Path2D(line(d.ancestors().reverse())));
+      const linkPath = new Path2D(line(d.ancestors().reverse()));
+      b.link.addPath(linkPath);
+      if (lifestyleColor) grp(b.linkByColor, color).addPath(linkPath);
       // node dot
       const nx = cos * d.y, ny = sin * d.y;
       const ndp = grp(b.nodesByColor, color);
@@ -632,9 +673,26 @@
     const filtered = !!(keepBatches && dimBatches);
     const layer = (fn) => { if (filtered) { fn(dimBatches, DIM_OPACITY); fn(keepBatches, 1); } else fn(fullBatches, 1); };
 
-    // 1) sgb lines (fg, α0.8)
-    cctx.strokeStyle = fgColor;
-    layer((b, a) => { cctx.globalAlpha = 0.8 * a; cctx.lineWidth = nsw; cctx.stroke(b.sgbLine); });
+    // 1) sgb lines (fg, α0.8) — or per-colour under lifestyle colouring, where
+    //    the magenta lines are drawn last (and slightly heavier) so the
+    //    non-Westernized-exclusive species read over the shared ones.
+    if (lifestyleColor) {
+      layer((b, a) => {
+        cctx.globalAlpha = 0.8 * a;
+        for (const [color, p] of b.sgbLineByColor) {
+          if (color === LIFESTYLE_MAGENTA) continue;
+          cctx.strokeStyle = color; cctx.lineWidth = nsw; cctx.stroke(p);
+        }
+        const mag = b.sgbLineByColor.get(LIFESTYLE_MAGENTA);
+        if (mag) {
+          cctx.globalAlpha = a; cctx.strokeStyle = LIFESTYLE_MAGENTA;
+          cctx.lineWidth = nsw * 1.8; cctx.stroke(mag);
+        }
+      });
+    } else {
+      cctx.strokeStyle = fgColor;
+      layer((b, a) => { cctx.globalAlpha = 0.8 * a; cctx.lineWidth = nsw; cctx.stroke(b.sgbLine); });
+    }
 
     // 2) region bands (radial gradient, canvas)
     for (const band of bandList) {
@@ -647,9 +705,28 @@
       cctx.fill(band.path);
     }
 
-    // 3) links (fg, α0.35)
-    cctx.strokeStyle = fgColor;
-    layer((b, a) => { cctx.globalAlpha = 0.35 * a; cctx.lineWidth = nsw; cctx.stroke(b.link); });
+    // 3) links (fg, α0.35) — per-colour under lifestyle colouring so the leaf
+    //    reads as one continuous magenta/white path from the root outward.
+    //    Magenta again drawn last, brighter and heavier: a non-Westernized-
+    //    exclusive species should be traceable back through the tree, not just
+    //    visible at its tip.
+    if (lifestyleColor) {
+      layer((b, a) => {
+        cctx.lineWidth = nsw;
+        for (const [color, p] of b.linkByColor) {
+          if (color === LIFESTYLE_MAGENTA) continue;
+          cctx.globalAlpha = 0.35 * a; cctx.strokeStyle = color; cctx.stroke(p);
+        }
+        const mag = b.linkByColor.get(LIFESTYLE_MAGENTA);
+        if (mag) {
+          cctx.globalAlpha = 0.75 * a; cctx.strokeStyle = LIFESTYLE_MAGENTA;
+          cctx.lineWidth = nsw * 1.6; cctx.stroke(mag);
+        }
+      });
+    } else {
+      cctx.strokeStyle = fgColor;
+      layer((b, a) => { cctx.globalAlpha = 0.35 * a; cctx.lineWidth = nsw; cctx.stroke(b.link); });
+    }
 
     // 4) node dots (skip while moving — resolution cap)
     if (!inMotion) {
@@ -1180,6 +1257,25 @@
     countryIso3;
 
     scheduleFilters();
+  });
+
+  // Lifestyle colouring changes what colour each leaf is baked into, so the
+  // canvas batches have to be rebuilt — but NOT via render(), which would also
+  // reset zoom/rotation/selection. Rebuild the batches in place and re-run the
+  // filter pass so keep/dim partitions pick up the new colours.
+  $effect(() => {
+    lifestyleColor;
+    const root = untrack(() => handles?.root);
+    if (!root || !untrack(() => fullBatches)) return;
+    const leaves = untrack(() => cachedLeaves) || root.leaves();
+    fullBatches = buildBatches(leaves);
+    // Drop the stale keep/dim partitions — scheduleFilters rebuilds them from
+    // the new fullBatches on the next frame. Until then draw() falls back to
+    // fullBatches, which is already recoloured, so there's no wrong-colour flash.
+    keepBatches = null;
+    dimBatches = null;
+    scheduleFilters();
+    requestDraw();
   });
 
   // Lazy-load study SGB map only when a study filter is requested

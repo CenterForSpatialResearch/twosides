@@ -6,9 +6,11 @@
 // {:else if uiOption() === N} branch in biomes/App.svelte. The DevHud cycles
 // through however many are listed here — nothing else needs touching.
 export const UI_OPTIONS = [
-  'Country', // 1 — country-first: CountryCircle picker + per-country breakdown
-  'Split', //    2 — Known/Unknown and Non/Western share a row
-  'Prevalence', // 3 — details on top, then Prevalence + Known/Unknown stacked
+  'Lifestyle', // 1 — Western / Non-Western country rows, ranked by % unknown;
+  //                  leaves recolour white/magenta when a country is selected
+  'Country', //  2 — country-first: CountryCircle picker + per-country breakdown
+  'Split', //    3 — Known/Unknown and Non/Western share a row
+  'Prevalence', // 4 — details on top, then Prevalence + Known/Unknown stacked
 ];
 
 export const UI_OPTION_COUNT = UI_OPTIONS.length;

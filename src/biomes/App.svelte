@@ -4,7 +4,10 @@
     ABUNDANT_MIN_SAMPLES,
     RARE_MAX_SAMPLES,
     WIDESPREAD_MIN_COUNTRIES,
-    CONCENTRATED_MAX_COUNTRIES
+    CONCENTRATED_MAX_COUNTRIES,
+    LIFESTYLE_MAGENTA,
+    LIFESTYLE_SHARED,
+    isNonWesternExclusive
   } from './lib/BiomesChart.svelte';
   import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB, parseWestern } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
@@ -64,6 +67,35 @@
     PER: 'Peru',
     TZA: 'Tanzania'
   };
+
+  // ── UI Option 1: lifestyle rows ─────────────────────────────────────────────
+  // Pasolli assigns Westernized per cohort, but cohorts are country-bounded: of
+  // the 30 countries in the corpus only Mongolia (not in this eight) carries
+  // both labels, so the split is a clean property of the country here.
+  const WESTERN_ISOS = ['SWE', 'GBR', 'USA', 'CHN'];
+  const NONWESTERN_ISOS = ['MDG', 'FJI', 'PER', 'TZA'];
+  const NONWESTERN_SET = new Set(NONWESTERN_ISOS);
+
+  // SGB_IDs never reconstructed from a Westernized sample (see
+  // isNonWesternExclusive in BiomesChart) — drives the magenta leaf colour and
+  // the per-country magenta share.
+  let nonWestOnlySgbIds = $state(new Set());
+  // ISO3 -> { unknownPct, magentaPct, sgbs } for every country in PRIMARY_ORDER,
+  // computed once on mount so the bubbles can be ranked without a selection.
+  let countryRowStats = $state({});
+
+  const selectedIsNonWestern = $derived(
+    !!selectedCountryIso3 && NONWESTERN_SET.has(selectedCountryIso3)
+  );
+
+  // Each row ranked by share of species unknown to science, greatest first.
+  function rankRow(isos) {
+    return isos
+      .map((iso3) => ({ iso3, unknownPct: countryRowStats[iso3]?.unknownPct ?? 0 }))
+      .sort((a, b) => b.unknownPct - a.unknownPct);
+  }
+  const westernRow = $derived(rankRow(WESTERN_ISOS));
+  const nonWesternRow = $derived(rankRow(NONWESTERN_ISOS));
 
   function readCountryParam() {
     if (typeof window === 'undefined') return null;
@@ -252,7 +284,13 @@
       let abundant = 0, rare = 0, widespread = 0, concentrated = 0;
       // Set of unknown (uSGB) SGB IDs, for the cohort "% unknown" ranking
       const unknownSgbIds = new Set();
+      // Set of SGB IDs found only in non-Westernized samples (Option 1 magenta)
+      const nwOnly = new Set();
       for (const l of leaves) {
+        if (isNonWesternExclusive(l.data.metadata)) {
+          const nwId = Number(l.data.metadata?.SGB_ID);
+          if (Number.isFinite(nwId)) nwOnly.add(nwId);
+        }
         const isUnknown = parseUSGB(l.data.metadata) === 'Yes';
         if (isUnknown) unknown++; else known++;
         if (isUnknown) {
@@ -268,6 +306,7 @@
         if (countries >= WIDESPREAD_MIN_COUNTRIES) widespread++;
         else if (countries <= CONCENTRATED_MAX_COUNTRIES) concentrated++;
       }
+      nonWestOnlySgbIds = nwOnly;
       const totalLeaves = (known + unknown) || 1;
       knownPct = Math.round((known / totalLeaves) * 100);
       unknownPct = Math.round((unknown / totalLeaves) * 100);
@@ -286,7 +325,24 @@
           fetch(`${base}data/primary_countries.json`),
           fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`)
         ]);
-        if (pcRes.ok) primaryCountries = await pcRes.json();
+        if (pcRes.ok) {
+          primaryCountries = await pcRes.json();
+          // Per-country row stats for the Option 1 bubbles. Denominator is the
+          // country's distinct-SGB roster, matching countryStats below.
+          const rs = {};
+          for (const iso of PRIMARY_ORDER) {
+            const ids = (primaryCountries[iso]?.sgbs || []).map(Number);
+            if (!ids.length) continue;
+            const u = ids.filter((id) => unknownSgbIds.has(id)).length;
+            const m = ids.filter((id) => nwOnly.has(id)).length;
+            rs[iso] = {
+              sgbs: ids.length,
+              unknownPct: Math.round((u / ids.length) * 100),
+              magentaPct: Math.round((m / ids.length) * 100)
+            };
+          }
+          countryRowStats = rs;
+        }
         if (boundariesRes.ok) {
           const topo = await boundariesRes.json();
           const objName = Object.keys(topo.objects)[0];
@@ -886,6 +942,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
+          lifestyleColor={uiOption() === 1 && selectedCountryIso3 !== null}
           bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -1041,7 +1098,93 @@
         {/snippet}
 
         {#if uiOption() === 1}
-        <!-- Option 1 (Country): Country is the primary filter. Known/Unknown and
+        <!-- Option 1 (Lifestyle): the eight countries split into the two
+             categories the study itself assigns, each row ranked by the share
+             of that country's species previously unknown to science. Selecting
+             a country recolours the disk by lifestyle exclusivity; the magenta
+             key only appears for a non-Westernized selection, since magenta is
+             structurally absent from every Westernized country (any species
+             found there is by definition in a Westernized sample). -->
+        <section class="fblock">
+          <div class="fblock-headrow">
+            <h3 class="fblock-title">Country</h3>
+            <button
+              class="mini-link"
+              class:active={selectedCountryIso3 === null}
+              onclick={() => (selectedCountryIso3 = null)}
+              aria-label="Clear country selection"
+            >All</button>
+          </div>
+          <p class="fblock-desc">
+            Select a country to lens the tree to species found in samples collected there.
+            The percentage is the share of that country's bacteria species that were
+            unknown to science before this study.
+          </p>
+
+          {#snippet lifestyleRow(title, blurb, rowItems)}
+            <div class="ls-row">
+              <div class="ls-row-head">
+                <span class="ls-row-title">{title}</span>
+                <span class="ls-row-desc">{blurb}</span>
+              </div>
+              <div class="country-row country-row--ls">
+                {#each rowItems as item (item.iso3)}
+                  {@const feature = countryFeatureByIso.get(item.iso3)}
+                  <div class="country-cell">
+                    <CountryCircle
+                      iso3={item.iso3}
+                      label={SHORT_LABELS[item.iso3] ?? item.iso3}
+                      {feature}
+                      size={150}
+                      labelFontSize={19}
+                      ringStroke={3.4}
+                      ringStrokeSelected={5}
+                      selected={selectedCountryIso3 === item.iso3}
+                      dimmed={selectedCountryIso3 !== null && selectedCountryIso3 !== item.iso3}
+                      onclick={() => selectCountry(item.iso3)}
+                    />
+                    <span class="ls-pct">{item.unknownPct}% unknown</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/snippet}
+
+          {@render lifestyleRow(
+            'Western',
+            'Populations living with industrialized food, medicine and urban land use.',
+            westernRow
+          )}
+
+          {@render lifestyleRow(
+            'Non-Western',
+            'Populations with limited exposure to industrialized systems and urbanized land.',
+            nonWesternRow
+          )}
+
+          <!-- Reserved space: the key only resolves once a non-Westernized
+               country is selected, but the slot is always present so the rail
+               below it doesn't reflow on selection. -->
+          <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
+            {#if selectedIsNonWestern}
+              <span class="ls-key-item">
+                <span class="ls-key-swatch" style="background:{LIFESTYLE_MAGENTA}"></span>
+                Found only in non-Westernized populations
+                {#if countryRowStats[selectedCountryIso3]}
+                  · {countryRowStats[selectedCountryIso3].magentaPct}%
+                {/if}
+              </span>
+              <span class="ls-key-item">
+                <span class="ls-key-swatch" style="background:{LIFESTYLE_SHARED}"></span>
+                Also found in Westernized populations
+              </span>
+            {/if}
+          </div>
+        </section>
+
+        {@render detailPanel()}
+        {:else if uiOption() === 2}
+        <!-- Option 2 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
              selected. -->
@@ -1148,8 +1291,8 @@
         {/if}
 
         {@render detailPanel()}
-        {:else if uiOption() === 2}
-        <!-- Option 2 (Split): Known/Unknown and Non/Western share a row. No
+        {:else if uiOption() === 3}
+        <!-- Option 3 (Split): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
         <div class="filter-row">
@@ -1205,7 +1348,7 @@
 
         {@render detailPanel()}
         {:else}
-        <!-- Option 3 (Prevalence): details panel on top, then two stacked blocks —
+        <!-- Option 4 (Prevalence): details panel on top, then two stacked blocks —
              Prevalence (population type / samples / countries) then Known/Unknown
              with two compound buttons. Same tap-to-isolate / tap-again-to-reset
              pattern; each Block A button isolates its one dimension (clearing the
@@ -1312,19 +1455,42 @@
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          <div class="phylum-key" bind:clientWidth={phBoxW} bind:clientHeight={phBoxH}>
-            <PhylumBubbles
-              bubbles={phylumBubbles}
-              {selectedPhyla}
-              {pickTextColor}
-              width={phBoxW}
-              height={phBoxH}
-              minRadius={26}
-              maxRadius={100}
-              padding={4}
-              onToggle={handleBubbleToggle}
-            />
-          </div>
+          {#if uiOption() === 1}
+            <!-- Option 1 uses the flat pill key (same vocabulary as the
+                 anthromes legend) rather than the bubble pack: the disk is
+                 already carrying the magenta/white lifestyle encoding, so the
+                 phylum key stays a quiet filter instead of a second chart.
+                 Tap to isolate, drag across to select a contiguous range. -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div class="phylum-key phylum-key--pills" onpointerdown={phPointerDown}>
+              {#each allPhyla as phylum, i (phylum)}
+                {@const color = colorMapping[phylum] || colorMapping.Other}
+                <button
+                  class="phylum-dot"
+                  class:active={selectedPhyla.includes(phylum)}
+                  class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
+                  data-idx={i}
+                  style="background:{color}; color:{pickTextColor(color)};"
+                >
+                  <span>{phylum.replace(/_/g, ' ')}</span>
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <div class="phylum-key" bind:clientWidth={phBoxW} bind:clientHeight={phBoxH}>
+              <PhylumBubbles
+                bubbles={phylumBubbles}
+                {selectedPhyla}
+                {pickTextColor}
+                width={phBoxW}
+                height={phBoxH}
+                minRadius={26}
+                maxRadius={100}
+                padding={4}
+                onToggle={handleBubbleToggle}
+              />
+            </div>
+          {/if}
         </section>
       </div>
     </div>
@@ -1332,8 +1498,8 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 3}
-          <!-- Option 3: details panel is at the top, so the leader runs
+        {#if uiOption() === 4}
+          <!-- Option 4: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns
                to end in line with the panel title. -->
@@ -1342,7 +1508,7 @@
             points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
           />
         {:else}
-          <!-- Options 1 & 2: the details panel sits inline in the rail, so the
+          <!-- Options 1–3: the details panel sits inline in the rail, so the
                leader is a straight horizontal run from the marker to the rail edge. -->
           <line
             class="leader-line"
@@ -2096,6 +2262,95 @@
     overflow: visible;
     touch-action: none;
     user-select: none;
+  }
+
+  /* Option 1 only: flat pill key. Sized to content rather than the bubble
+     pack's fixed 220–440px box, so it doesn't strand vertical space. */
+  .phylum-key--pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    align-content: flex-start;
+    min-height: 0;
+    max-height: none;
+  }
+
+  /* ===== Option 1: Western / Non-Western lifestyle rows ===== */
+  .ls-row {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+
+  .ls-row + .ls-row {
+    margin-top: 22px;
+  }
+
+  .ls-row-head {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .ls-row-title {
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+
+  .ls-row-desc {
+    font-size: 16px;
+    line-height: 1.3;
+    opacity: 0.62;
+  }
+
+  .country-row--ls {
+    gap: 16px;
+  }
+
+  /* Percentage caption under each circle. Tabular figures so the numerals in a
+     row line up regardless of digit widths. */
+  .ls-pct {
+    display: block;
+    margin-top: 7px;
+    text-align: center;
+    font-size: 15.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.78;
+  }
+
+  /* Magenta key. The slot always occupies its height so selecting a country
+     doesn't reflow the rail below; only the contents appear/disappear. */
+  .ls-key {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 52px;
+    margin-top: 20px;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+
+  .ls-key--on {
+    opacity: 1;
+  }
+
+  .ls-key-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 15.5px;
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ls-key-swatch {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 4px;
+    border-radius: 2px;
   }
 
   /* Compact key pill; colour = phylum, tap to toggle. Matches the anthromes
