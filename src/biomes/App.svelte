@@ -116,12 +116,19 @@
   // side knows how to accept: the picked country AND (if the disk has landed
   // on a species) that species' SGB, so anthromes arrives with both the
   // primary country highlighted and the range annotation for the species.
+  //
+  // Option 1 sends the country only. Carrying the species meant that merely
+  // resting the disk on a leaf lit up every country it occurs in on arrival —
+  // a selection the reader never made, competing with the country lens that
+  // now drives the whole anthromes view.
+  const carrySgbAcross = $derived(uiOption() !== 1);
+
   const crossLinkHref = $derived.by(() => {
     const base = import.meta.env.BASE_URL;
     const params = new URLSearchParams();
     if (selectedCountryIso3) params.set('country', selectedCountryIso3);
     const sgbId = detailMeta?.metadata?.SGB_ID;
-    if (sgbId != null) params.set('highlightSGB', String(sgbId));
+    if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
     const q = params.toString();
     return `${base}src/anthromes/${q ? `?${q}` : ''}`;
   });
@@ -230,10 +237,20 @@
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
     // Anchor on the panel TITLE (not the panel mid-height) so the leader lands
-    // in line with "Bacteria Species Details". Rect is screen px; overlay is design px.
-    const titleEl = detailPanelEl.querySelector('.fblock-title');
-    const r = (titleEl || detailPanelEl).getBoundingClientRect();
-    leaderTo = screenToDesign(r.left, r.top + r.height / 2);
+    // in line with "Bacteria Species Details". Option 1's detail block has no
+    // such title — its head is the species glyph with the SGB label beside it —
+    // so the leader lines up with the GLYPH's centre, which is the taller of
+    // the two and reads as the head's true middle. X always comes from the
+    // panel's own left edge, never the anchor's, so the horizontal landing
+    // point stays put regardless of which element supplies the height.
+    // Rects are screen px; the overlay is design px.
+    const headEl = uiOption() === 1
+      ? detailPanelEl.querySelector('.species-glyph') || detailPanelEl.querySelector('.species-sgb')
+      : null;
+    const anchor = headEl || detailPanelEl.querySelector('.fblock-title') || detailPanelEl;
+    const r = anchor.getBoundingClientRect();
+    const panelRect = detailPanelEl.getBoundingClientRect();
+    leaderTo = screenToDesign(panelRect.left, r.top + r.height / 2);
   }
 
   function handleMarker(event) {
@@ -811,7 +828,8 @@
     const params = new URLSearchParams();
     if (iso3) params.set('country', iso3);
     const sgbId = detailMeta?.metadata?.SGB_ID;
-    if (sgbId != null) params.set('highlightSGB', String(sgbId));
+    // See carrySgbAcross: Option 1 hands over the country only.
+    if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
     const q = params.toString();
     window.location.href = `${base}src/anthromes/${q ? `?${q}` : ''}`;
   }
@@ -1541,11 +1559,14 @@
           />
         {:else}
           <!-- Options 1–4: the details panel sits inline in the rail, so the
-               leader is a straight horizontal run from the marker to the rail edge. -->
+               leader is a straight run from the marker to the rail edge.
+               Option 1 lands on the vertical centre of the SGB title, so the
+               line slopes; the others stay level with the marker. The x
+               endpoint is the same either way. -->
           <line
             class="leader-line"
             x1={leaderFrom.x} y1={leaderFrom.y}
-            x2={leaderTo.x - 8} y2={leaderFrom.y}
+            x2={leaderTo.x - 8} y2={uiOption() === 1 ? leaderTo.y : leaderFrom.y}
           />
         {/if}
       </svg>

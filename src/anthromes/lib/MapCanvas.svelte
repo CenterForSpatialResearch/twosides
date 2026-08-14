@@ -6,6 +6,7 @@
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
+  import { uiOption } from '../../shared/uiOption.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -1493,8 +1494,15 @@
 
   // Cross-highlighting from URL parameter — fills the *range* set (multi-
   // country annotation), separate from the primary picker highlight above.
+  //
+  // Option 1 does not carry a species across the sides at all: arriving from
+  // biomes should land on the plain map, not on a set of countries lit up by
+  // whichever leaf the disk happened to be resting on. The biomes side already
+  // omits ?highlightSGB from its links under Option 1; this also ignores the
+  // param on a pasted or bookmarked URL.
   $effect(() => {
     if (!countryData) return;
+    if (uiOption() === 1) return;
 
     const urlParams = new URLSearchParams(window.location.search);
     const highlightSGB = urlParams.get('highlightSGB');
