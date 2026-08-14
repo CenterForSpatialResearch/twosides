@@ -1,4 +1,6 @@
-// Central place to pick the topojson profile/resolution for the map.
+// Default topojson profile/resolution for the map. The anthromes app switches
+// this at runtime — the live value and the list of resolutions live in
+// src/shared/topoProfile.svelte.js, which the DevHud cycles.
 export const TOPO_PROFILE = '100km';
 
 // Resolution profile for zoom test page (independent of main map)

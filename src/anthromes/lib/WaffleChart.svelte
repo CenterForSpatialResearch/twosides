@@ -6,6 +6,11 @@
   import MapCanvas from './MapCanvas.svelte';
   import { TOPO_PROFILE } from './constants.js';
   import { formatYearLabel } from './dataAdapter.js';
+  import {
+    SWAP_PHASE_MS,
+    SWAP_STAGGER_MS,
+    SWAP_SEG_MS
+  } from '../../shared/swapTransition.js';
 
   let {
     data = [],
@@ -25,6 +30,7 @@
     mapPanX = $bindable(0),
     mapPanY = $bindable(0),
     barChartData = $bindable(null),
+    cellSeries = $bindable(null),
     showBarChart = $bindable(false),
     isolationReset = $bindable(0),
     cellIsolated = $bindable(false),
@@ -33,6 +39,24 @@
     focusIso3 = $bindable(null),
     rangeIso3s = $bindable(new Set()),
     rangeSource = $bindable(null),
+    // Per-year anthrome shares for the focused country, shaped
+    // { "1850AD": { "61": 0.42, ... } }. When set, the ring plots this instead
+    // of the world-wide distribution and swaps with an animated transition.
+    countryDistribution = null,
+    // Option 1's country semantics: the picked country is the primary state —
+    // it owns the highlight, the framing AND the ring's distribution — so it
+    // survives incidental gestures (panning, clicking dead space) and is
+    // released only by an explicit one (isolating a cell, re-clicking the
+    // bubble, Reset). The older arrangements treat it as a side note and let a
+    // pan or an outside click drop it, so they leave this off.
+    strictCountryFocus = false,
+    // Option 1 renders the cell's country facts as a rail pill, so MapCanvas
+    // omits them from the detail HTML.
+    compactCellDetail = false,
+    // The isolated cell's live position in design px — the leader's start.
+    isolatedPoint = $bindable(null),
+    // Map tile resolution ('100km' | '33km'); switchable from the settings panel.
+    profile = TOPO_PROFILE,
   } = $props();
 
   const fullSize = 7000;
@@ -103,12 +127,15 @@
 
   function handlePanMove(event) {
     if (!panHasMoved) {
-      // First actual movement — clear isolation state, close any pinned
-      // panel, and drop the country focus. Panning is a "free-explore"
-      // gesture: releasing the country lock lets the user roam the map.
+      panHasMoved = true;
+      // Under strictCountryFocus a pan is purely a view gesture: it moves the
+      // camera and changes no selection at all. The country keeps its
+      // highlight, an isolated cell keeps its panel, and the leader line
+      // simply follows the cell across the disk. The older arrangements treat
+      // a pan as "free-explore" and drop both.
+      if (strictCountryFocus) return;
       closePanel();
       isolationReset++;
-      panHasMoved = true;
       if (focusIso3) focusIso3 = null;
     }
     const s = panStart.s || 1;
@@ -207,14 +234,48 @@
   let mapPoints = $state(defaultPoints.map(p => [...p]));
   let clipAngle = $state(180);
 
+  // Whichever distribution the ring is currently plotting: the world-wide
+  // per-year counts, or — when a country is focused — that country's per-year
+  // anthrome shares reshaped into the same {year, counts, total, percentages}
+  // rows the world data uses.
+  //
+  // Shares are renormalised so every year sums to exactly COUNTRY_TOTAL. The
+  // source fractions are rounded to 2dp and can land a few millionths off 1,
+  // which would otherwise make the ring's outer edge visibly ragged; the world
+  // data has a constant total per year, so the two views want to fill the same
+  // radial band identically.
+  const COUNTRY_TOTAL = 10000;
+
+  const activeData = $derived.by(() => {
+    if (!countryDistribution || !years.length || !orderedCodes.length) return data;
+    return years.map(year => {
+      const dist = countryDistribution[year] || {};
+      const sum = orderedCodes.reduce((s, code) => s + (dist[String(code)] || 0), 0);
+      const norm = sum > 0 ? 1 / sum : 0;
+      const counts = {};
+      const percentages = {};
+      for (const code of orderedCodes) {
+        const share = (dist[String(code)] || 0) * norm;
+        counts[code] = share * COUNTRY_TOTAL;
+        percentages[String(code)] = share * 100;
+      }
+      return { year, counts, total: COUNTRY_TOTAL, percentages };
+    });
+  });
+
+  // Identifies which dataset is on screen, so the render effect can tell a
+  // "same data, re-layout" pass from a genuine world <-> country swap.
+  const activeKey = $derived(countryDistribution ? `country:${focusIso3 ?? '?'}` : 'world');
+
   // Memoized computed values using $derived
   const stackedData = $derived.by(() => {
-    if (!data.length || !orderedCodes.length || !years.length) return null;
+    const rows = activeData;
+    if (!rows.length || !orderedCodes.length || !years.length) return null;
 
     performance.mark('stack-start');
     const labels = orderedCodes.map(code => labelMapping[code]).filter(Boolean);
 
-    const dataByYear = data.map(d => {
+    const dataByYear = rows.map(d => {
       const obj = {};
       Object.keys(d.counts).forEach(code => {
         const label = labelMapping[code];
@@ -230,7 +291,7 @@
       .value((yearEntry, key) => yearEntry[1][key] || 0)
       (dataByYear);
 
-    const totalsByYear = new Map(data.map(d => [d.year, d.total]));
+    const totalsByYear = new Map(rows.map(d => [d.year, d.total]));
 
     performance.mark('stack-end');
     performance.measure('stack-computation', 'stack-start', 'stack-end');
@@ -238,6 +299,8 @@
     return { stack, labels, dataByYear, totalsByYear };
   });
 
+  // World-wide rows only — MapCanvas reads this to state each cell's share of
+  // the Earth's surface, which must not change when a country is focused.
   const yearDataLookup = $derived.by(() => new Map(data.map(d => [d.year, d])));
 
   const layout = $derived.by(() => {
@@ -308,8 +371,33 @@
     };
   }
 
+  /**
+   * Arc generator for the ring segments, with a `t` that pulls every radius
+   * toward the inner edge: t = 1 is the segment at full extent, t = 0 is a
+   * zero-thickness sliver sitting on the map's rim. The world <-> country swap
+   * animates t so segments collapse into and grow back out of the disk.
+   */
+  function makeSegmentArc(lay, t = 1) {
+    const { rScale, angle, innerRadius } = lay;
+    const toward = (v) => innerRadius + (rScale(v) - innerRadius) * t;
+    return d3.arc()
+      .innerRadius(d => toward(d.seg[0]))
+      .outerRadius(d => toward(d.seg[1]))
+      .startAngle(d => angle(d.year))
+      .endAngle(d => angle(d.year) + angle.bandwidth())
+      .padAngle(0.006)
+      .padRadius(innerRadius);
+  }
+
+  // The layout the ring on screen was actually drawn with. The swap animation
+  // needs it: by the time the effect fires, `layout` already holds the INCOMING
+  // dataset's rScale, and running the outgoing segments' values through that
+  // scale would snap them to a wildly wrong radius before they collapse.
+  let renderedLayout = null;
+
   function renderChart() {
     if (!svgElement || !stackedData || !layout) return;
+    renderedLayout = layout;
 
     const { dim, radius, innerRadius, angle, rScale } = layout;
     const svg = d3.select(svgElement);
@@ -347,13 +435,7 @@
       .attr('cy', 0);
 
     // Stack layers
-    const arc = d3.arc()
-      .innerRadius(d => rScale(d.seg[0]))
-      .outerRadius(d => rScale(d.seg[1]))
-      .startAngle(d => angle(d.year))
-      .endAngle(d => angle(d.year) + angle.bandwidth())
-      .padAngle(0.006)
-      .padRadius(innerRadius);
+    const arc = makeSegmentArc(layout, 1);
 
     const arcHit = d3.arc()
       .innerRadius(d => Math.max(0, rScale(d.seg[0]) - 8))
@@ -386,10 +468,10 @@
       .attr('d', arcHit)
       .attr('data-key', d => `${d.year}__${d.label}`)
       .on('click', function(_event, d) {
-        if (cellIsolated) {
-          closePanel();
-          isolationReset++;
-        }
+        // Changing the year is a time gesture, not a selection gesture: an
+        // isolated cell stays isolated and MapCanvas restates it for the new
+        // year. Dropping the isolation here made the ring unusable as a scrub
+        // control whenever a cell was open.
         commitYear(d.year);
       });
 
@@ -469,16 +551,32 @@
     updateYearHighlight();
   }
 
+  const labelToCode = $derived.by(() => {
+    const m = {};
+    Object.keys(labelMapping).forEach(code => {
+      m[labelMapping[code]] = Number(code);
+    });
+    return m;
+  });
+
+  // Mirrors the `.layer path.segment` / dimmed-segment rules below. The swap
+  // animation tweens opacity numerically, so it needs the literal values;
+  // applyFilters hands styling back to CSS the moment the swap is done.
+  const SEGMENT_OPACITY = 0.92;
+  const SEGMENT_DIM_OPACITY = 0.02;
+
+  function segmentIsShown(d) {
+    if (!orderedCodes.length) return true;
+    if (selectedAnthromes.length === orderedCodes.length) return true;
+    const code = labelToCode[d.label];
+    return !!code && selectedAnthromes.includes(code);
+  }
+
   function applyFilters() {
     if (!svgElement || !orderedCodes.length) return;
 
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
-
-    const labelToCode = {};
-    Object.keys(labelMapping).forEach(code => {
-      labelToCode[labelMapping[code]] = Number(code);
-    });
 
     const allAnthromesSelected = selectedAnthromes.length === orderedCodes.length;
     if (allAnthromesSelected) {
@@ -507,6 +605,82 @@
       hit.style('opacity', show ? null : 0)
         .style('pointer-events', show ? 'all' : 'none');
     });
+  }
+
+  // ===== World <-> country ring swap =====
+  //
+  // The outgoing ring collapses into the disk staggered BACKWARDS through time
+  // (2025 first, 10000BC last); once it has gone the incoming ring grows back
+  // out staggered FORWARDS. Timing is shared with the details-panel pixel
+  // timeline so the two read as one gesture — see swapTransition.js.
+  const yearIndex = $derived(new Map(years.map((y, i) => [y, i])));
+
+  let renderedKey = null;   // activeKey of the ring currently on screen
+  let swapToken = 0;        // invalidates a swap that a newer one supersedes
+  let swapTimers = [];
+
+  function clearSwapTimers() {
+    swapTimers.forEach(clearTimeout);
+    swapTimers = [];
+  }
+
+  function animateSwap(nextKey) {
+    const outLay = renderedLayout;
+    if (!svgElement || !layout || !outLay) {
+      renderChart();
+      applyFilters();
+      renderedKey = nextKey;
+      return;
+    }
+
+    const token = ++swapToken;
+    clearSwapTimers();
+
+    const span = Math.max(1, years.length - 1);
+    const svg = d3.select(svgElement);
+
+    // Nothing is clickable mid-swap: for half of it there is no ring at all.
+    svg.selectAll('path.hit').style('pointer-events', 'none');
+
+    svg.selectAll('path.segment')
+      .interrupt()
+      .transition()
+      .delay(d => ((span - (yearIndex.get(d.year) ?? 0)) / span) * SWAP_STAGGER_MS)
+      .duration(SWAP_SEG_MS)
+      .ease(d3.easeCubicIn)
+      .attrTween('d', (d) => (t) => makeSegmentArc(outLay, 1 - t)(d))
+      .style('opacity', 0);
+
+    swapTimers.push(setTimeout(() => {
+      if (token !== swapToken) return;
+
+      // Rebuild from the incoming dataset while the ring is empty, then pin
+      // every segment to the collapsed state before the browser paints it.
+      renderChart();
+      applyFilters();
+      renderedKey = nextKey;
+
+      const inLay = renderedLayout;
+      const svgIn = d3.select(svgElement);
+      svgIn.selectAll('path.hit').style('pointer-events', 'none');
+      svgIn.selectAll('path.segment')
+        .attr('d', makeSegmentArc(inLay, 0))
+        .style('opacity', 0)
+        .transition()
+        .delay(d => ((yearIndex.get(d.year) ?? 0) / span) * SWAP_STAGGER_MS)
+        .duration(SWAP_SEG_MS)
+        .ease(d3.easeCubicOut)
+        .attrTween('d', (d) => (t) => makeSegmentArc(inLay, t)(d))
+        .style('opacity', d => (segmentIsShown(d) ? SEGMENT_OPACITY : SEGMENT_DIM_OPACITY));
+
+      swapTimers.push(setTimeout(() => {
+        if (token !== swapToken) return;
+        // Hand styling back to CSS/applyFilters so nothing stays pinned to a
+        // literal opacity, and make the ring clickable again.
+        svgIn.selectAll('path.segment').interrupt().attr('d', makeSegmentArc(inLay, 1)).style('opacity', null);
+        applyFilters();
+      }, SWAP_PHASE_MS + 20));
+    }, SWAP_PHASE_MS));
   }
 
   function angularDistance(a, b) {
@@ -568,8 +742,9 @@
     const handleBaseR = radius + HANDLE_OFFSET;
 
     // r_dome = semicircle radius whose diameter spans the year's chord at handleBaseR
-    // ↓ adjust this multiplier to resize the dome (MoMA: enlarged for touch grab target)
-    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.6;
+    // ↓ adjust this multiplier to resize the dome (kept a comfortable grab
+    //   target, but pulled back so it no longer crowds the year labels)
+    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.15;
 
     // Base endpoints on the handle base circle
     const px_s = Math.sin(startAngle) * handleBaseR;
@@ -612,14 +787,14 @@
     svg.select('.year-drag-handle').attr('transform', null);
     svg.select('.year-handle-arc')
       .attr('d', handlePath)
-      .attr('stroke-width', 26); // SVG user units — MoMA: thicker for a bigger touch grab target
+      .attr('stroke-width', 18); // SVG user units — scaled with r_dome above
   }
 
   function startYearDrag(event) {
     event.stopPropagation();
     event.preventDefault();
-    closePanel();
-    isolationReset++;
+    // Scrubbing the year keeps any isolated cell open — see the ring click
+    // handler above for why.
     draggingYear = true;
     yearPreview = nearestYearFromPointer(event) || selectedYear;
     updateYearHighlight();
@@ -674,18 +849,30 @@
     svg.append('g').attr('class', 'zoom-container');
   });
 
-  // Render chart when stackedData or layout change
+  // Render chart when stackedData or layout change. A change of activeKey means
+  // the ring is switching between the world and a country, which is the one
+  // case that animates rather than redrawing outright.
   $effect(() => {
     if (!stackedData || !layout) return;
+    const key = activeKey;
 
     performance.mark('render-start');
     untrack(() => {
-      renderChart();
-      applyFilters();
+      if (renderedKey !== null && renderedKey !== key) {
+        animateSwap(key);
+      } else {
+        clearSwapTimers();
+        swapToken++;
+        renderChart();
+        applyFilters();
+        renderedKey = key;
+      }
     });
     performance.mark('render-end');
     performance.measure('chart-render', 'render-start', 'render-end');
   });
+
+  $effect(() => () => clearSwapTimers());
 
   // Apply filters when selection changes
   $effect(() => {
@@ -740,6 +927,18 @@
     });
   });
 
+  // Keep the leader anchored to the cell itself. showPanel seeds connectorStart
+  // from the click position; MapCanvas then republishes the cell's projected
+  // centre on every repaint, so the line tracks it through pans, zooms and year
+  // changes instead of staying where the pointer happened to be.
+  $effect(() => {
+    const p = isolatedPoint;
+    untrack(() => {
+      if (!p || !panelVisible) return;
+      connectorStart = p;
+    });
+  });
+
   // Close panel when parent signals a reset
   $effect(() => {
     const sig = panelCloseSignal;
@@ -754,7 +953,7 @@
     width={containerWidth}
     height={containerHeight}
     innerRadiusPx={innerRadiusPx}
-    profile={TOPO_PROFILE}
+    {profile}
     year={mapYear}
     legend={legend}
     yearDataLookup={yearDataLookup}
@@ -777,9 +976,13 @@
     bind:tooltipPinned={mapTooltipPinned}
     bind:showBarChart
     bind:barChartData
+    bind:cellSeries
     bind:cellIsolated
     isolationReset={isolationReset}
-    {focusIso3}
+    bind:focusIso3
+    {strictCountryFocus}
+    {compactCellDetail}
+    bind:isolatedPoint
     bind:rangeIso3s
     bind:rangeSource
   />

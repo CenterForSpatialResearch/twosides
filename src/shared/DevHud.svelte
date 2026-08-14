@@ -6,6 +6,11 @@
   import { onMount } from 'svelte';
   import { DESIGN_W, DESIGN_H, stageScale, getStageEl, screenToDesign } from './stage.svelte.js';
   import { uiOption, cycleUiOption, uiOptionLabel, UI_OPTION_COUNT } from './uiOption.svelte.js';
+  import { topoProfile, cycleTopoProfile, DEFAULT_TOPO_PROFILE } from './topoProfile.svelte.js';
+
+  // Only the anthromes side has a map, so only it opts into the resolution
+  // toggle. Biomes leaves it off.
+  let { showMapResolution = false } = $props();
 
   const LENS_W = 420;
   const LENS_H = 280;
@@ -141,6 +146,16 @@
       >
         UI OPTION: {uiOption()}/{UI_OPTION_COUNT} &middot; {uiOptionLabel()}
       </button>
+      {#if showMapResolution}
+        <button
+          class="hud-btn"
+          class:on={topoProfile() !== DEFAULT_TOPO_PROFILE}
+          title="33km tiles are ~25MB per year and its cell history ~166MB, served from the gitignored temp/ folder in dev only"
+          onclick={cycleTopoProfile}
+        >
+          MAP RES: {topoProfile()}{topoProfile() === '33km' ? ' (temp/)' : ''}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>

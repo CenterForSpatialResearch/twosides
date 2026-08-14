@@ -3,12 +3,16 @@
   import WaffleChart from './lib/WaffleChart.svelte';
   import CellHistoryBar from './lib/CellHistoryBar.svelte';
   import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
+  import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
+  import { topoProfile, setTopoProfile, TOPO_PROFILES } from '../shared/topoProfile.svelte.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
+  import ArcLabel from '../shared/ArcLabel.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
+  import { uiOption } from '../shared/uiOption.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -56,17 +60,11 @@
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
 
-  // Country-first primary filter (Phase 3). Parity with biomes side.
-  // Seeded from ?country=ISO3 so a selection carries across the two sides.
-  let selectedCountryIso3 = $state(readCountryParam());
-  // Overlay-annotation state — multi-country highlight from the biomes side.
-  // MapCanvas populates these from URL params on mount; App reads them to
-  // render the dismissible rail tag.
-  let rangeIso3s = $state(new Set());
-  let rangeSource = $state(null); // { kind, label, sgbId, from } | null
-  let primaryCountries = $state(null);
-  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
-  let countryTimeseries = $state(null);
+  // Declared BEFORE selectedCountryIso3: its initialiser calls
+  // readCountryParam(), which validates against PRIMARY_ORDER. `const` is not
+  // hoisted, so with these below the state declaration any load carrying
+  // ?country=ISO3 — i.e. every hand-off from the biomes side — threw a TDZ
+  // ReferenceError and rendered a blank page.
   const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
   const SHORT_LABELS = {
     SWE: 'Sweden',
@@ -78,6 +76,18 @@
     PER: 'Peru',
     TZA: 'Tanzania'
   };
+
+  // Country-first primary filter (Phase 3). Parity with biomes side.
+  // Seeded from ?country=ISO3 so a selection carries across the two sides.
+  let selectedCountryIso3 = $state(readCountryParam());
+  // Overlay-annotation state — multi-country highlight from the biomes side.
+  // MapCanvas populates these from URL params on mount; App reads them to
+  // render the dismissible rail tag.
+  let rangeIso3s = $state(new Set());
+  let rangeSource = $state(null); // { kind, label, sgbId, from } | null
+  let primaryCountries = $state(null);
+  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
+  let countryTimeseries = $state(null);
 
   function readCountryParam() {
     if (typeof window === 'undefined') return null;
@@ -112,6 +122,107 @@
     selectedCountryIso3 && primaryCountries ? primaryCountries[selectedCountryIso3] : null
   );
 
+  // Option 1 moves the per-year anthrome breakdown out of the details panel and
+  // onto the ring itself: with a country picked, the waffle plots that
+  // country's distribution instead of the world's. Null = plot the world.
+  const countryRingDistribution = $derived(
+    uiOption() === 1 && selectedCountryIso3
+      ? countryTimeseries?.[selectedCountryIso3]?.distribution ?? null
+      : null
+  );
+
+  // The world in the same { year: { code: fraction } } shape the country
+  // timeseries uses, so the details panel's pixel timeline can plot either
+  // without caring which it has. summary.json's percentages are exact to
+  // floating point, so no renormalising is needed here.
+  const worldDistribution = $derived.by(() => {
+    const out = {};
+    for (const row of data) {
+      const shares = {};
+      for (const [code, pct] of Object.entries(row.percentages ?? {})) {
+        shares[code] = pct / 100;
+      }
+      out[row.year] = shares;
+    }
+    return out;
+  });
+
+  // { id, byYear: { year: code } } for the isolated cell — the pixel ladder's
+  // input. Null whenever no cell is isolated.
+  let cellSeries = $state(null);
+
+  // The details panel shows exactly one of three scales, widest first, each
+  // superseded by the more specific selection: world → country → cell. The key
+  // is what the pixel timeline watches to know it must animate.
+  const detailScale = $derived(
+    cellSeries ? 'cell' : selectedCountryIso3 ? 'country' : 'world'
+  );
+  const detailSourceKey = $derived(
+    detailScale === 'cell'
+      ? `cell:${cellSeries.id}`
+      : detailScale === 'country'
+        ? `country:${selectedCountryIso3}`
+        : 'world'
+  );
+  const detailTitle = $derived(
+    detailScale === 'cell'
+      ? 'Cell history'
+      : detailScale === 'country'
+        ? 'Anthrome timeline'
+        : 'World anthrome timeline'
+  );
+
+  // Every country in the study, for the scope pill. primary_countries.json only
+  // covers the eight in the picker, but an isolated cell can land in any of
+  // them — so the pill reads from the full index.
+  let countryIndex = $state(null);
+
+  // Sample and species totals across the whole study, so the world scale gets
+  // the same pill the country and cell scales get. Species is the UNION of each
+  // country's SGB list, not the sum: a species reported in five countries is
+  // one species.
+  const earthTotals = $derived.by(() => {
+    if (!countryIndex) return null;
+    let samples = 0;
+    const sgbs = new Set();
+    for (const entry of Object.values(countryIndex)) {
+      samples += entry.samples_total || 0;
+      for (const s of entry.sgbs || []) sgbs.add(s);
+    }
+    return { label: 'Earth', samples, species: sgbs.size };
+  });
+
+  // One pill shape for all three scales: { label, samples, species }.
+  const scopePill = $derived.by(() => {
+    if (detailScale === 'country' && selectedCountryMeta) {
+      return {
+        label: selectedCountryMeta.label,
+        samples: selectedCountryMeta.samples_total,
+        species: selectedCountryMeta.sgbs.length
+      };
+    }
+    if (detailScale === 'cell') {
+      // The cell's present-day country. Most land is in countries the study
+      // never sampled, so there are three cases: sampled (counts), known but
+      // unsampled (name + why there are no counts), and no country at all
+      // (ocean, ice) which falls through to Earth.
+      const iso3 = detailMeta?.countryIso3;
+      if (iso3) {
+        const entry = countryIndex?.[iso3];
+        const label = detailMeta.countryName || iso3;
+        if (entry) {
+          return {
+            label,
+            samples: entry.samples_total || 0,
+            species: (entry.sgbs || []).length
+          };
+        }
+        return { label, note: 'not sampled in this study' };
+      }
+    }
+    return earthTotals;
+  });
+
   // Cell history chart state (lifted from MapCanvas via WaffleChart bindings)
   let showBarChart = $state(false);
   let barChartData = $state(null);
@@ -128,6 +239,12 @@
   let historyChartW = $state(340);
   const CELL_BAR_H = 92;
   const COUNTRY_BAR_H = 160;
+
+  // The Option 1 pixel timeline sizes to its own box in BOTH axes (the bar
+  // charts take a fixed height), so it gets its own measured element.
+  let pixelChartEl = $state(null);
+  let pixelChartW = $state(800);
+  let pixelChartH = $state(300);
 
   // Current-year land-cover percentages (drives the bottom filter key sizing)
   let currentPercentages = $derived.by(() => {
@@ -217,27 +334,46 @@
     return () => ro.disconnect();
   });
 
+  $effect(() => {
+    if (!pixelChartEl) return;
+    const update = () => {
+      pixelChartW = Math.max(200, pixelChartEl.clientWidth);
+      pixelChartH = Math.max(80, pixelChartEl.clientHeight);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(pixelChartEl);
+    return () => ro.disconnect();
+  });
+
   // Connector (leader line) from the isolated map cell to the docked detail panel
   let connectorStart = $state(null);
   let connectorEnd = $state(null);
   let detailPanelEl = $state(null);
+  // The swatch + anthrome-name row; the leader points at its vertical centre.
+  let detailAnchorEl = $state(null);
 
   $effect(() => {
     const start = connectorStart;
     const panel = detailPanelEl;
     const open = detailContent;
-    // Recompute when the Cell History chart appears or resizes, since the seam
-    // the leader targets moves with it.
-    barChartData; historyChartSize;
+    // Recompute when the panel's contents shift under the anchor: the chart
+    // appearing or resizing, the scope pill resolving, or the anchor row itself
+    // mounting. Under Option 1 the anchor also moves when the year changes,
+    // because the anthrome name can get longer or shorter.
+    barChartData; historyChartSize; detailAnchorEl; scopePill; detailMeta;
     untrack(() => {
       if (!panel || !start || !open) { connectorEnd = null; return; }
       const rect = panel.getBoundingClientRect();
-      // Panel docks on the left; leader ends at its right edge (rail edge),
-      // vertically in line with the "Cell History" chart title. Falls back to the
-      // panel title when no chart is shown.
+      // Panel docks on the left; the leader ends at its right edge (the rail
+      // seam), vertically in line with the anthrome colour + title. Older
+      // arrangements have no such row, so they fall back to the chart title.
       // getBoundingClientRect is in screen px but the overlay draws in design px.
-      const histTitle = panel.querySelector('.history-chart-title');
-      const anchor = histTitle || panel.querySelector('.menu-title') || panel;
+      const anchor =
+        detailAnchorEl ||
+        panel.querySelector('.history-chart-title') ||
+        panel.querySelector('.menu-title') ||
+        panel;
       const ar = anchor.getBoundingClientRect();
       connectorEnd = screenToDesign(rect.right, ar.top + ar.height / 2);
     });
@@ -270,13 +406,17 @@
       // Country-picker data (parity with biomes side)
       try {
         const base = import.meta.env.BASE_URL;
-        const [pcRes, boundariesRes, tsRes] = await Promise.all([
+        const [pcRes, boundariesRes, tsRes, ciRes] = await Promise.all([
           fetch(`${base}data/primary_countries.json`),
           fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`),
-          fetch(`${base}data/country-anthrome-timeseries.json`)
+          fetch(`${base}data/country-anthrome-timeseries.json`),
+          // Also fetched by MapCanvas; the browser serves the second hit from
+          // cache, so this costs nothing beyond the parse.
+          fetch(`${base}data/country_index.json`)
         ]);
         if (pcRes.ok) primaryCountries = await pcRes.json();
         if (tsRes.ok) countryTimeseries = await tsRes.json();
+        if (ciRes.ok) countryIndex = await ciRes.json();
         if (boundariesRes.ok) {
           const topo = await boundariesRes.json();
           const objName = Object.keys(topo.objects)[0];
@@ -335,9 +475,14 @@
     detailContent = null;
     detailMeta = null;
     // Reset also drops the multi-country range overlay so the map returns to
-    // a completely clean baseline. Country picker selection persists — the
-    // reset button is a "view reset," not a picker reset.
+    // a completely clean baseline.
     if (rangeIso3s?.size || rangeSource) clearRange();
+    // ...and the country picker with it. Under Option 1 a country selection is
+    // no longer a side note in the details panel: it holds the highlight, the
+    // framing AND the ring's distribution, so leaving it behind would not be a
+    // reset. Clearing it here is what makes the ring animate back to the world.
+    // The older arrangements kept the picker (reset = "view reset" only).
+    if (uiOption() === 1) selectedCountryIso3 = null;
   }
 
   // "All" restores the filter to every anthrome (the default, everything shown)
@@ -502,6 +647,22 @@
         </select>
       </label>
 
+      <label>
+        <span>Map Resolution</span>
+        <select value={topoProfile()} onchange={(e) => setTopoProfile(e.currentTarget.value)}>
+          {#each TOPO_PROFILES as p}
+            <option value={p}>{p}{p === '33km' ? ' (temp/, dev only)' : ''}</option>
+          {/each}
+        </select>
+      </label>
+      {#if topoProfile() === '33km'}
+        <div class="tip">
+          33km tiles are ~25MB per year and its cell history ~166MB. They are
+          served from the gitignored temp/ folder in dev only — expect a pause
+          on each year change, and a 404 (map stays blank) if temp/ is missing.
+        </div>
+      {/if}
+
       <label class="checkbox-label">
         <input type="checkbox" bind:checked={debugMenuVisible} />
         <span>Show Projection Debug Menu</span>
@@ -523,12 +684,26 @@
 
     <div class="layout">
       <div class="filter-rail">
-        <!-- Top tier: large control circles -->
-        <div class="control-circles">
-          <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-          <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel === ZOOM_LEVELS[0]} aria-disabled={zoomLevel === ZOOM_LEVELS[0]}>−</button>
-          <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetView}>◎</button>
-          <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
+        <!-- Top tier: large control circles. Option 1 spreads them across the
+             full rail width and hangs an arced caption off the LEFT of each
+             bubble (mirroring the biomes rail, which captions to the right). -->
+        <div class="control-circles" class:control-circles--arced={uiOption() === 1}>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
+            {#if uiOption() === 1}<ArcLabel text="Info" side="left" />{/if}
+          </div>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel === ZOOM_LEVELS[0]} aria-disabled={zoomLevel === ZOOM_LEVELS[0]}>−</button>
+            {#if uiOption() === 1}<ArcLabel text="Zoom Out" side="left" />{/if}
+          </div>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetView}>◎</button>
+            {#if uiOption() === 1}<ArcLabel text="Reset" side="left" />{/if}
+          </div>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
+            {#if uiOption() === 1}<ArcLabel text="Zoom In" side="left" />{/if}
+          </div>
         </div>
 
         <!-- Country picker (parity with biomes side) -->
@@ -594,12 +769,78 @@
               This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${selectedCountryMeta.label}` : ''}.
             {:else if selectedCountryMeta}
               Anthrome composition of {selectedCountryMeta.label} across 12 025 years.
+            {:else if uiOption() === 1}
+              Anthrome composition of the whole world across 12 025 years.
+              Pick a country or a cell to narrow it.
             {:else}
               Select a country above, or click a cell on the map.
             {/if}
           </p>
           <div class="detail-body">
-            {#if detailContent}
+            {#if uiOption() === 1}
+              <!-- Option 1: the panel is never empty. World, country and cell
+                   are three scales of one chart, so they share a single slot —
+                   which is also what lets the swap between them animate: the
+                   component instance survives, sees its sourceKey change, and
+                   drains/refills in place. The header above and the cell's
+                   tooltip text below update immediately; only the field
+                   animates, exactly as the ring does. -->
+              <!-- The scope pill sits in the same place at all three scales:
+                   Earth for the world, the picked country, or an isolated
+                   cell's present-day country. Same shape, same position, so
+                   moving between scales reads as one continuous panel. -->
+              {#if scopePill}
+                <div class="detail-subhead">
+                  <span class="country-badge">{scopePill.label}</span>
+                  <span class="country-meta">
+                    {#if scopePill.note}{scopePill.note}
+                    {:else}{scopePill.samples.toLocaleString()} samples · {scopePill.species.toLocaleString()} species{/if}
+                  </span>
+                </div>
+              {/if}
+
+              {#if detailScale === 'cell'}
+                <!-- Anthrome identity, then the "In <year>, X covers …"
+                     sentence that comes with it. The country key/values and the
+                     biomes cross-link that used to live in this HTML are gone —
+                     the pill above states the same facts. -->
+                {#if detailMeta?.label}
+                  <div class="detail-subhead" bind:this={detailAnchorEl}>
+                    {#if detailMeta?.color}
+                      <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
+                    {/if}
+                    <span>{detailMeta.label}</span>
+                  </div>
+                {/if}
+                {#if detailContent}
+                  <div class="panel-content" onclick={handleDetailPanelClick}>
+                    {@html detailContent}
+                  </div>
+                {/if}
+              {/if}
+
+              <div class="history-chart-section history-chart-section--fill" bind:this={historyChartEl}>
+                <div class="history-chart-title">{detailTitle}</div>
+                <div class="pixel-chart-box" bind:this={pixelChartEl}>
+                  <PixelTimeline
+                    mode={detailScale === 'cell' ? 'ladder' : 'stack'}
+                    distribution={detailScale === 'country'
+                      ? countryTimeseries?.[selectedCountryIso3]?.distribution ?? null
+                      : worldDistribution}
+                    series={cellSeries?.byYear ?? null}
+                    sourceKey={detailSourceKey}
+                    {colorMapping}
+                    {labelMapping}
+                    {orderedCodes}
+                    families={LEGEND_CATEGORIES}
+                    {selectedYear}
+                    onSelectYear={(y) => (selectedYear = y)}
+                    width={pixelChartW}
+                    height={pixelChartH}
+                  />
+                </div>
+              </div>
+            {:else if detailContent}
               <!-- Cell selection takes precedence: fine-grained detail wins.
                    When a country is also active, its label surfaces here as
                    context, and returning to the country overview happens by
@@ -710,12 +951,17 @@
           bind:mapPanY
           bind:showBarChart
           bind:barChartData
+          bind:cellSeries
           bind:isolationReset
           bind:connectorStart
           panelCloseSignal={panelCloseSignal}
           bind:focusIso3={selectedCountryIso3}
           bind:rangeIso3s
           bind:rangeSource
+          countryDistribution={countryRingDistribution}
+          strictCountryFocus={uiOption() === 1}
+          compactCellDetail={uiOption() === 1}
+          profile={topoProfile()}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
         />
@@ -793,7 +1039,7 @@
 {/if}
 </div>
 <!-- Outside .stage so it renders at true screen px, unscaled -->
-<DevHud />
+<DevHud showMapResolution />
 </div>
 
 <style>
@@ -892,6 +1138,23 @@
     flex-wrap: wrap;
     gap: 28px;
     align-items: center;
+  }
+
+  /* Option 1: the row spans the rail's full content width, evenly distributed,
+     so the controls read as one measure with the menu items below them. */
+  .control-circles--arced {
+    flex-wrap: nowrap;
+    gap: 0;
+    justify-content: space-between;
+  }
+
+  /* Positioning context for ArcLabel, which paints centred on the button and
+     overflows it. */
+  .ctl-slot {
+    position: relative;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
   }
 
   .ctl-btn {
@@ -1285,6 +1548,24 @@
     min-height: 0;
     max-height: 75%;
     justify-content: flex-start;
+  }
+
+  /* Option 1's pixel timeline is the whole point of the dock when a country is
+     picked, so it takes all of it — no 75% ceiling, and the body stops
+     scrolling so the field can size to the box instead of overflowing it. */
+  .detail-dock .history-chart-section--fill {
+    max-height: none;
+    align-items: stretch;
+  }
+
+  .detail-body:has(.history-chart-section--fill) {
+    overflow: hidden;
+  }
+
+  .pixel-chart-box {
+    flex: 1 1 auto;
+    min-height: 120px;
+    width: 100%;
   }
 
   /* Info modal: centered on the design canvas (longer read).

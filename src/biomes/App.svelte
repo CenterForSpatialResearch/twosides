@@ -15,6 +15,7 @@
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
+  import ArcLabel from '../shared/ArcLabel.svelte';
   import PhylumBubbles from './lib/PhylumBubbles.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   import { uiOption } from '../shared/uiOption.svelte.js';
@@ -942,7 +943,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() === 1 && selectedCountryIso3 !== null}
+          lifestyleColor={uiOption() <= 2 && selectedCountryIso3 !== null}
           bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -952,18 +953,33 @@
       </div>
 
       <div class="rail">
-        <!-- Top tier: largest control circles -->
-        <div class="control-circles">
-          <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
-          <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetAll}>◎</button>
-          <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
-          <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
+        <!-- Top tier: largest control circles. Option 1 spreads them across the
+             full rail width and hangs an arced caption off the RIGHT of each
+             bubble (the anthromes rail mirrors this to the left). -->
+        <div class="control-circles" class:control-circles--arced={uiOption() === 1}>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
+            {#if uiOption() === 1}<ArcLabel text="Zoom Out" side="right" />{/if}
+          </div>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetAll}>◎</button>
+            {#if uiOption() === 1}<ArcLabel text="Reset" side="right" />{/if}
+          </div>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
+            {#if uiOption() === 1}<ArcLabel text="Zoom In" side="right" />{/if}
+          </div>
+          <div class="ctl-slot">
+            <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
+            {#if uiOption() === 1}<ArcLabel text="Info" side="right" />{/if}
+          </div>
         </div>
 
         <!-- Details panel, shared by both options but placed differently:
-             Option 1 renders it at the TOP (right below the controls) so the
-             marker leader lines up with its title; Option 2 renders it after
-             Cohort. Defined once as a snippet, rendered per option below. -->
+             Option 5 renders it at the TOP (right below the controls) so the
+             marker leader lines up with its title; the others render it after
+             their own blocks. Defined once as a snippet, rendered per option
+             below. -->
         {#snippet detailPanel()}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1097,14 +1113,18 @@
           </section>
         {/snippet}
 
-        {#if uiOption() === 1}
-        <!-- Option 1 (Lifestyle): the eight countries split into the two
+        {#if uiOption() <= 2}
+        <!-- Options 1-2 (Lifestyle): the eight countries split into the two
              categories the study itself assigns, each row ranked by the share
              of that country's species previously unknown to science. Selecting
              a country recolours the disk by lifestyle exclusivity; the magenta
              key only appears for a non-Westernized selection, since magenta is
              structurally absent from every Westernized country (any species
-             found there is by definition in a Westernized sample). -->
+             found there is by definition in a Westernized sample).
+
+             Option 1 differs only in the row head: the "Western"/"Non-Western"
+             titles are dropped and each row's description is promoted into
+             that slot (see lifestyleRow below). -->
         <section class="fblock">
           <div class="fblock-headrow">
             <h3 class="fblock-title">Country</h3>
@@ -1123,8 +1143,15 @@
 
           {#snippet lifestyleRow(title, blurb, rowItems)}
             <div class="ls-row">
-              <div class="ls-row-head">
-                <span class="ls-row-title">{title}</span>
+              <!-- Option 1 drops the "Western"/"Non-Western" title and promotes
+                   the description into the title's slot: the country circles
+                   below already carry the lifestyle split visually, so the
+                   label was restating what the row shows. The title is kept
+                   for screen readers via aria-label. -->
+              <div class="ls-row-head" class:ls-row-head--promoted={uiOption() === 1} aria-label={title}>
+                {#if uiOption() !== 1}
+                  <span class="ls-row-title">{title}</span>
+                {/if}
                 <span class="ls-row-desc">{blurb}</span>
               </div>
               <div class="country-row country-row--ls">
@@ -1183,8 +1210,8 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 2}
-        <!-- Option 2 (Country): Country is the primary filter. Known/Unknown and
+        {:else if uiOption() === 3}
+        <!-- Option 3 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
              selected. -->
@@ -1291,8 +1318,8 @@
         {/if}
 
         {@render detailPanel()}
-        {:else if uiOption() === 3}
-        <!-- Option 3 (Split): Known/Unknown and Non/Western share a row. No
+        {:else if uiOption() === 4}
+        <!-- Option 4 (Split): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
         <div class="filter-row">
@@ -1455,8 +1482,8 @@
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          {#if uiOption() === 1}
-            <!-- Option 1 uses the flat pill key (same vocabulary as the
+          {#if uiOption() <= 2}
+            <!-- Options 1-2 use the flat pill key (same vocabulary as the
                  anthromes legend) rather than the bubble pack: the disk is
                  already carrying the magenta/white lifestyle encoding, so the
                  phylum key stays a quiet filter instead of a second chart.
@@ -1498,8 +1525,8 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 4}
-          <!-- Option 4: details panel is at the top, so the leader runs
+        {#if uiOption() === 5}
+          <!-- Option 5: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns
                to end in line with the panel title. -->
@@ -1508,7 +1535,7 @@
             points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
           />
         {:else}
-          <!-- Options 1–3: the details panel sits inline in the rail, so the
+          <!-- Options 1–4: the details panel sits inline in the rail, so the
                leader is a straight horizontal run from the marker to the rail edge. -->
           <line
             class="leader-line"
@@ -1644,6 +1671,24 @@
     gap: 28px;
     justify-content: flex-end;
     align-items: center;
+  }
+
+  /* Option 1: the row spans the rail's full content width, evenly distributed,
+     so the controls read as one measure with the menu items below them. */
+  .control-circles--arced {
+    flex-wrap: nowrap;
+    gap: 0;
+    justify-content: space-between;
+  }
+
+  /* Positioning context for ArcLabel, which paints centred on the button and
+     overflows it. Zero-sized in flow terms beyond the button itself, so the
+     legacy options lay out exactly as they did before. */
+  .ctl-slot {
+    position: relative;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
   }
 
   .ctl-btn {
@@ -2275,7 +2320,7 @@
     max-height: none;
   }
 
-  /* ===== Option 1: Western / Non-Western lifestyle rows ===== */
+  /* ===== Options 1-2: Western / Non-Western lifestyle rows ===== */
   .ls-row {
     display: flex;
     flex-direction: column;
@@ -2302,6 +2347,16 @@
     font-size: 16px;
     line-height: 1.3;
     opacity: 0.62;
+  }
+
+  /* Option 1: the description IS the row head, so it takes the title's weight
+     — larger, full white, no dimming. Sized between .ls-row-title (21px) and
+     .ls-row-desc (16px) so it reads as a lead-in rather than a heading. */
+  .ls-row-head--promoted .ls-row-desc {
+    font-size: 18.5px;
+    line-height: 1.32;
+    color: #fff;
+    opacity: 1;
   }
 
   .country-row--ls {

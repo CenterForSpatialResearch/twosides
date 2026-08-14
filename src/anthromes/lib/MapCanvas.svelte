@@ -39,9 +39,25 @@
     tooltipPinned = $bindable(false),
     showBarChart = $bindable(false),
     barChartData = $bindable(null),
+    // The isolated cell's raw history, { id, byYear: { year: code } }. The
+    // pixel ladder in the details panel plots one class per sampled year, so
+    // it needs the unmerged series rather than barChartData's merged periods.
+    cellSeries = $bindable(null),
     cellIsolated = $bindable(false),
     isolationReset = 0,
-    focusIso3 = null,
+    // Bindable: under strictCountryFocus, isolating a single cell is a
+    // finer-grained question than "show me this country", so a pixel click
+    // releases the country lock upward.
+    focusIso3 = $bindable(null),
+    // See WaffleChart: Option 1 makes the picked country the primary state.
+    strictCountryFocus = false,
+    // Option 1 renders the cell's country facts as a pill in the rail, so the
+    // detail HTML omits its key/value block and biomes cross-link.
+    compactCellDetail = false,
+    // Where the isolated cell currently sits, in DESIGN px, or null. Tracked
+    // continuously so the leader line follows the cell through pans and zooms
+    // instead of staying pinned to wherever the click happened to land.
+    isolatedPoint = $bindable(null),
     // Overlay annotation: multi-country highlight coming from the biomes side.
     // Kept separate from the primary picker highlight so we can render both
     // with distinct visual language (primary = bold white ring, range =
@@ -160,6 +176,10 @@
       ctx.stroke();
     }
 
+    // Recomputed on every overlay paint — which is every pan, zoom and year
+    // change — so the leader line always points at the cell as it is now.
+    updateIsolatedPoint(circle, dpr);
+
     if (hoveredFeature && hoveredFeature !== isolatedFeature) {
       ctx.beginPath();
       path(hoveredFeature);
@@ -169,6 +189,42 @@
     }
 
     ctx.restore();
+  }
+
+  /**
+   * Publish the isolated cell's centre in design px, or null when there is no
+   * cell (or it has been panned outside the disk, where a leader pointing at it
+   * would leave the map). The overlay draws with the pan applied as a canvas
+   * translate, so the same offset has to be added here by hand.
+   */
+  function updateIsolatedPoint(circle, dpr) {
+    if (!isolatedFeature || !projection) {
+      if (isolatedPoint !== null) isolatedPoint = null;
+      return;
+    }
+    const centroid = d3.geoPath(projection).centroid(isolatedFeature);
+    if (!Number.isFinite(centroid?.[0]) || !Number.isFinite(centroid?.[1])) {
+      if (isolatedPoint !== null) isolatedPoint = null;
+      return;
+    }
+    const x = centroid[0] / dpr + (mapPanX || 0);
+    const y = centroid[1] / dpr + (mapPanY || 0);
+    const dx = x - circle.cx;
+    const dy = y - circle.cy;
+    if (dx * dx + dy * dy > circle.r * circle.r) {
+      if (isolatedPoint !== null) isolatedPoint = null;
+      return;
+    }
+    // Design px are what the leader overlay draws in; screenToDesign converts
+    // the canvas box, which is already design-space here, so only the stage
+    // offset of the canvas itself is needed.
+    const rect = overlayCanvasEl?.getBoundingClientRect();
+    if (!rect) return;
+    const s = rect.width ? rect.width / Math.max(1, width) : 1;
+    const p = screenToDesign(rect.left + x * s, rect.top + y * s);
+    if (!isolatedPoint || Math.abs(isolatedPoint.x - p.x) > 0.5 || Math.abs(isolatedPoint.y - p.y) > 0.5) {
+      isolatedPoint = p;
+    }
   }
 
   const POINT_EPS = 1e-6;
@@ -311,7 +367,7 @@
     cellHistoryLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
-      const url = `${base}data/cell-history-${TOPO_PROFILE}.json`;
+      const url = `${base}data/cell-history-${profile}.json`;
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
       if (!res.ok) {
@@ -776,31 +832,6 @@
     hoveredFeature = feature;
     drawOverlay();
 
-    const legendEntry = legend[code];
-    const label = legendEntry?.label || 'Unknown';
-    const color = legendEntry?.color || '#ffffff';
-    const areaSr = d3.geoArea(feature);
-    const areaKm2 = areaSr * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
-    const yearEntry = yearDataLookup?.get?.(year);
-    const percent = yearEntry?.percentages?.[String(code)];
-    const percentDisplay = percent != null ? `${percent.toFixed(2)}%` : '—';
-    const globalAreaKm2 = percent != null ? (percent / 100) * EARTH_SURFACE_KM2 : null;
-    const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
-    const yearLabel = formatYearLabel(year) || '';
-    const countryISO3 = feature.properties?.c || null;
-
-    // Lookup crosswalk data for this country
-    const crosswalk = countryData?.get(countryISO3);
-
-    // Calculate westernized percentage
-    let westPercent = 0;
-    if (crosswalk) {
-      const westYes = crosswalk.westernized_counts?.Yes || 0;
-      const westNo = crosswalk.westernized_counts?.No || 0;
-      const westTotal = westYes + westNo;
-      westPercent = westTotal > 0 ? ((westYes / westTotal) * 100).toFixed(1) : 0;
-    }
-
     // Only update position if not pinned or if manually called from click.
     // Design px: this position ends up as the leader line's start point, which
     // is drawn in the design-space overlay.
@@ -810,8 +841,74 @@
       tooltipY = p.y;
     }
 
-    tooltipMeta = { color, label, year: yearLabel, code };
-    tooltipContent = `
+    const detail = buildFeatureDetail(feature);
+    if (!detail) return;
+    tooltipMeta = detail.meta;
+    tooltipContent = detail.html;
+    tooltipVisible = true;
+  }
+
+  /**
+   * The rail's copy for one map feature at the current year: a head (swatch +
+   * name), the "In <year>, <anthrome> covers ..." sentence, and — for the older
+   * arrangements — a key/value block plus the cross-link to biomes.
+   *
+   * Option 1 drops that block (compactCellDetail): App renders the same country
+   * facts as a pill above the head, in the format the country and world scales
+   * already use, so all three read identically.
+   *
+   * Split out of handlePointerMove because the isolated cell has to be restated
+   * whenever the YEAR changes — its anthrome is a function of the year, so
+   * scrubbing time with a cell open must rewrite the panel, not stale it.
+   */
+  function buildFeatureDetail(feature) {
+    const code = feature?.properties?.a;
+    if (code == null) return null;
+
+    const legendEntry = legend[code];
+    const label = legendEntry?.label || 'Unknown';
+    const color = legendEntry?.color || '#ffffff';
+    const yearEntry = yearDataLookup?.get?.(year);
+    const percent = yearEntry?.percentages?.[String(code)];
+    const percentDisplay = percent != null ? `${percent.toFixed(2)}%` : '—';
+    const globalAreaKm2 = percent != null ? (percent / 100) * EARTH_SURFACE_KM2 : null;
+    const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
+    const yearLabel = formatYearLabel(year) || '';
+    const countryISO3 = feature.properties?.c || null;
+    const crosswalk = countryData?.get(countryISO3);
+
+    let westPercent = 0;
+    if (crosswalk) {
+      const westYes = crosswalk.westernized_counts?.Yes || 0;
+      const westNo = crosswalk.westernized_counts?.No || 0;
+      const westTotal = westYes + westNo;
+      westPercent = westTotal > 0 ? ((westYes / westTotal) * 100).toFixed(1) : 0;
+    }
+
+    const meta = {
+      color,
+      label,
+      year: yearLabel,
+      code,
+      // Present-day country of this cell, for App's scope pill.
+      countryIso3: countryISO3,
+      countryName: countryISO3
+        ? iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3
+        : null
+    };
+
+    const kvBlock = compactCellDetail || !(countryISO3 || crosswalk) ? '' : `
+      <div class="kv">
+        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${meta.countryName}</div>` : ''}
+        ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
+        ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
+      </div>`;
+
+    const linkBlock = !compactCellDetail && crosswalk?.sgbs?.length
+      ? `<a class="detail-link" data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">Highlight gut microbes found in this country →</a>`
+      : '';
+
+    const html = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
         <div>
@@ -820,17 +917,11 @@
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
-      ${countryISO3 || crosswalk ? `
-      <div class="kv">
-        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3}</div>` : ''}
-        ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
-        ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
-      </div>` : ''}
-      ${crosswalk && crosswalk.sgbs && crosswalk.sgbs.length > 0
-        ? `<a class="detail-link" data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">Highlight gut microbes found in this country →</a>`
-        : ''}
+      ${kvBlock}
+      ${linkBlock}
     `;
-    tooltipVisible = true;
+
+    return { html, meta };
   }
 
   function handlePointerLeave() {
@@ -1015,6 +1106,7 @@
     cellIsolated = false;
     showBarChart = false;
     barChartData = null;
+    cellSeries = null;
     tooltipPinned = false;
     tooltipVisible = false;
     tooltipMeta = null;
@@ -1030,6 +1122,12 @@
 
     // Clear cross-highlighting only — isolation/tooltip/chart are closed via
     // isolationReset signal from App so the full state clears together.
+    //
+    // Under strictCountryFocus a picker selection is NOT a cross-highlight:
+    // clicking dead space outside the disk must leave the country highlighted
+    // and its ring in place. Only the ?highlightSGB overlay (which has no rail
+    // control of its own) is dismissed this way.
+    if (strictCountryFocus && focusIso3) return;
     if (crossHighlightActive) {
       highlightedCountries = new Set();
       crossHighlightActive = false;
@@ -1065,6 +1163,11 @@
 
     // Otherwise, pin the tooltip and isolate this cell
     if (cellId != null) {
+      // Under strictCountryFocus, isolating a cell supersedes the country
+      // lens: the picker bubble deselects, the boundary highlight drops, and
+      // the ring animates back to the world distribution. Only a real cell does
+      // this — clicking empty ocean (handled above) leaves the country alone.
+      if (strictCountryFocus && focusIso3) focusIso3 = null;
       isolatedCellId = cellId;
       cellIsolated = true;
       isolatedFeature = feature;
@@ -1081,11 +1184,13 @@
       if (cellHistory && cellHistory[cellId]) {
         const history = cellHistory[cellId];
         barChartData = processHistoryData(history);
+        cellSeries = { id: cellId, byYear: history };
         showBarChart = true;
       }
     } else {
       showBarChart = false;
       barChartData = null;
+      cellSeries = null;
     }
   }
 
@@ -1136,9 +1241,12 @@
     };
   });
 
-  // Reload data when year or profile changes
+  // Reload data when year or profile changes. `profile` is read here (not just
+  // inside loadYearData) so switching resolution actually refetches — the
+  // effect has to depend on it, and the tile cache is keyed by profile:year.
   $effect(() => {
     if (!year) return;
+    profile;
 
     untrack(() => {
       (async () => {
@@ -1202,6 +1310,7 @@
       highlightedCountries = new Set();
       crossHighlightActive = false;
       focusPanApplied = null;
+      focusNeedsCorrection = false;
     }
   });
 
@@ -1219,9 +1328,14 @@
     untrack(() => applyFocusFraming());
   });
 
+  // Set once the first pass has moved the map; the next projection rebuild then
+  // gets one corrective pass. See the note in applyFocusFraming.
+  let focusNeedsCorrection = false;
+
   function applyFocusFraming() {
     if (!focusIso3 || !projection || !boundariesGeo || innerRadiusPx <= 0) return;
-    if (focusPanApplied === focusIso3) return;
+    const firstPass = focusPanApplied !== focusIso3;
+    if (!firstPass && !focusNeedsCorrection) return;
 
     const feature = boundariesGeo.features.find(f => {
       const id = f?.id ?? f?.properties?.id ?? f?.properties?.iso_a3 ?? f?.properties?.ISO_A3;
@@ -1234,37 +1348,66 @@
 
     const dpr = window.devicePixelRatio || 1;
     const circle = getCircle();
-    const path = d3.geoPath(projection);
+
+    const projected = projection(centroid);
+    if (!projected) return;
+    const pxDesign = projected[0] / dpr;
+    const pyDesign = projected[1] / dpr;
 
     // Bounds are in canvas coords (dpr); span in design px.
+    const path = d3.geoPath(projection);
     const [[minX, minY], [maxX, maxY]] = path.bounds(feature);
+
+    // Second pass: the projection has now been rebuilt at the target scale, so
+    // the country's position is a measurement rather than a prediction. Centre
+    // on the projected BOUNDING BOX rather than the spherical centroid — they
+    // agree for compact countries but not for China (the western bulge drags
+    // the centroid off the shape's visual middle) or the USA (Alaska lifts the
+    // box well above it). The box is what the eye reads as centred.
+    if (!firstPass) {
+      const boxCx = (minX + maxX) / 2 / dpr;
+      const boxCy = (minY + maxY) / 2 / dpr;
+      // A country straddling the antimeridian can project to a box spanning the
+      // whole plane; fall back to the centroid, which is computed on the sphere
+      // and has no such seam.
+      const sane =
+        Number.isFinite(boxCx) && Number.isFinite(boxCy) &&
+        (maxX - minX) / dpr < circle.r * 4 && (maxY - minY) / dpr < circle.r * 4;
+      mapPanX = circle.cx - (sane ? boxCx : pxDesign);
+      mapPanY = circle.cy - (sane ? boxCy : pyDesign);
+      focusNeedsCorrection = false;
+      return;
+    }
+
     const spanPx = Math.max(1, Math.max(maxX - minX, maxY - minY)) / dpr;
     const targetDiameter = circle.r * 2 * 0.55;
     const scaleMultiplier = spanPx > 0 ? targetDiameter / spanPx : 1;
     const currentScale = mapScale || 1;
     const nextScale = Math.max(1, Math.min(7, currentScale * scaleMultiplier));
 
-    // Project centroid at the CURRENT scale, then predict where it lands at
-    // the new scale using the linear-around-center property of fitExtent: a
-    // point offset by (dx, dy) from the map center at scale k1 sits at
-    // (dx, dy) * k2/k1 at scale k2. Compute the pan that would bring the
-    // predicted point to the circle center — no wait-for-refit loop needed.
-    const projected = projection(centroid);
-    if (!projected) return;
-    const pxDesign = projected[0] / dpr;
-    const pyDesign = projected[1] / dpr;
+    // Predict where the centroid lands at the new scale. The fixed point of a
+    // scale change is the projection's TRANSLATE, not the circle centre: draw()
+    // runs fitExtent (which sets translate so the whole world's bbox centres in
+    // the circle) and only then multiplies the scale, leaving translate alone.
+    // Those two points differ — the world's projected bbox centre is not the
+    // circle centre — so centring on the circle instead put every country off
+    // by that constant, which is why the miss always leaned the same way.
+    const [tx, ty] = projection.translate();
+    const txDesign = tx / dpr;
+    const tyDesign = ty / dpr;
     const scaleRatio = nextScale / currentScale;
-    const predictedX = circle.cx + (pxDesign - circle.cx) * scaleRatio;
-    const predictedY = circle.cy + (pyDesign - circle.cy) * scaleRatio;
-    const nextPanX = circle.cx - predictedX;
-    const nextPanY = circle.cy - predictedY;
+    const predictedX = txDesign + (pxDesign - txDesign) * scaleRatio;
+    const predictedY = tyDesign + (pyDesign - tyDesign) * scaleRatio;
 
-    // Batch both writes; Svelte flushes them in one tick so only one draw
+    // Batch all three writes; Svelte flushes them in one tick so only one draw
     // runs downstream instead of a scale-draw-refit-effect-pan-draw chain.
     mapScale = nextScale;
-    mapPanX = nextPanX;
-    mapPanY = nextPanY;
+    mapPanX = circle.cx - predictedX;
+    mapPanY = circle.cy - predictedY;
     focusPanApplied = focusIso3;
+    // The refit that follows gives this effect one more run; take it as a
+    // chance to correct any residue (odd-shaped countries, clamped scale).
+    focusNeedsCorrection = true;
   }
 
   // Clear isolation when filtering changes
@@ -1288,6 +1431,45 @@
     if (!cellHistory && !cellHistoryLoading) {
       loadCellHistory();
     }
+  });
+
+  // Switching resolution invalidates everything keyed to the old grid: cell ids
+  // are per-profile, so an isolated cell would point at a different patch of
+  // land, and the cell history file has to be refetched for the new grid.
+  let loadedHistoryProfile = null;
+  $effect(() => {
+    const p = profile;
+    untrack(() => {
+      if (loadedHistoryProfile === null) { loadedHistoryProfile = p; return; }
+      if (loadedHistoryProfile === p) return;
+      loadedHistoryProfile = p;
+      clearAll();
+      cellHistory = null;
+      cellHistoryLoading = false;
+      loadCellHistory();
+    });
+  });
+
+  // An isolated cell's anthrome is a function of the year, so scrubbing time
+  // has to restate the panel rather than leave last year's reading in place.
+  // currentGeo is a new object for each year; re-find the same cell id in it.
+  $effect(() => {
+    year;
+    currentGeo;
+    untrack(() => {
+      if (isolatedCellId == null || !currentGeo) return;
+      const next = currentGeo.features.find(f => f.properties?.i === isolatedCellId);
+      if (!next) return;
+      isolatedFeature = next;
+      const detail = buildFeatureDetail(next);
+      if (detail) {
+        tooltipMeta = detail.meta;
+        tooltipContent = detail.html;
+        tooltipVisible = true;
+        tooltipPinned = true;
+      }
+      drawOverlay();
+    });
   });
 
   // Clear all isolation state when isolationReset signal increments
