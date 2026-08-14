@@ -15,17 +15,20 @@
   // of each other, which is what pairs the biomes rail (right) with the
   // anthromes rail (left).
   //
-  // Alignment: labels are NOT centred on the circle. Every label's lower
-  // terminus is pinned to the same height — a quarter of the circle's height up
-  // from its bottom — and the word runs upward from there. So the four captions
-  // in a rail start on one line regardless of length, instead of each being
-  // centred and therefore starting somewhere different.
+  // Alignment: labels are NOT centred on the circle. Both sides anchor the
+  // START of the word — so the captions in a rail begin on one line regardless
+  // of length — a quarter of the circle's height in from the near edge, and the
+  // word runs away from there in its natural reading direction.
   //
-  // A quarter of the height (2r) above the bottom (y = +r) is y = +r/2, which
-  // on the guide circle is 120deg clockwise from the top on the right side and
-  // 240deg on the left — i.e. 1/3 and 2/3 of the way round. Anchoring 'end'
-  // there on the right (the word reads down INTO the anchor) and 'start' on the
-  // left (the word reads up OUT of it) puts both lower termini at that height.
+  // Because reading direction is opposite on the two sides, so is the anchor:
+  //   left  (anthromes) — reads bottom-to-top, so it starts at the BOTTOM, a
+  //                       quarter of the height up from there: y = +r/2, which
+  //                       is 240deg clockwise from the top (2/3 round).
+  //   right (biomes)    — reads top-to-bottom, so it starts at the TOP, a
+  //                       quarter of the height down from there: y = -r/2,
+  //                       which is 60deg clockwise from the top (1/6 round).
+  // Anchoring the right side at the bottom instead would put the word's END on
+  // the shared line and leave its start floating, which read as misaligned.
 
   let {
     text,
@@ -50,9 +53,10 @@
     ` A ${baselineR},${baselineR} 0 1,1 0,${baselineR}` +
     ` A ${baselineR},${baselineR} 0 1,1 0,${-baselineR}`
   );
-  // 1/3 and 2/3 round the guide circle — see the alignment note above.
-  const startOffset = $derived(side === 'left' ? '66.667%' : '33.333%');
-  const textAnchor = $derived(side === 'left' ? 'start' : 'end');
+  // 2/3 and 1/6 round the guide circle — see the alignment note above. Both
+  // sides anchor the word's start.
+  const startOffset = $derived(side === 'left' ? '66.667%' : '16.667%');
+  const textAnchor = 'start';
 </script>
 
 <script module>

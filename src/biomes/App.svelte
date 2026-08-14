@@ -943,7 +943,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() <= 2 && selectedCountryIso3 !== null}
+          lifestyleColor={uiOption() === 2 && selectedCountryIso3 !== null}
           bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -1189,24 +1189,29 @@
             nonWesternRow
           )}
 
-          <!-- Reserved space: the key only resolves once a non-Westernized
-               country is selected, but the slot is always present so the rail
-               below it doesn't reflow on selection. -->
-          <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
-            {#if selectedIsNonWestern}
-              <span class="ls-key-item">
-                <span class="ls-key-swatch" style="background:{LIFESTYLE_MAGENTA}"></span>
-                Found only in non-Westernized populations
-                {#if countryRowStats[selectedCountryIso3]}
-                  · {countryRowStats[selectedCountryIso3].magentaPct}%
-                {/if}
-              </span>
-              <span class="ls-key-item">
-                <span class="ls-key-swatch" style="background:{LIFESTYLE_SHARED}"></span>
-                Also found in Westernized populations
-              </span>
-            {/if}
-          </div>
+          <!-- Option 2 only. Reserved space: the key resolves once a
+               non-Westernized country is selected, but the slot is always
+               present so the rail below it doesn't reflow on selection.
+               Option 1 drops the magenta encoding entirely, so it needs
+               neither the key nor the space it reserved — the details panel
+               moves up into it. -->
+          {#if uiOption() === 2}
+            <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
+              {#if selectedIsNonWestern}
+                <span class="ls-key-item">
+                  <span class="ls-key-swatch" style="background:{LIFESTYLE_MAGENTA}"></span>
+                  Found only in non-Westernized populations
+                  {#if countryRowStats[selectedCountryIso3]}
+                    · {countryRowStats[selectedCountryIso3].magentaPct}%
+                  {/if}
+                </span>
+                <span class="ls-key-item">
+                  <span class="ls-key-swatch" style="background:{LIFESTYLE_SHARED}"></span>
+                  Also found in Westernized populations
+                </span>
+              {/if}
+            </div>
+          {/if}
         </section>
 
         {@render detailPanel()}

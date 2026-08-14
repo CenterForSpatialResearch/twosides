@@ -1163,11 +1163,11 @@
 
     // Otherwise, pin the tooltip and isolate this cell
     if (cellId != null) {
-      // Under strictCountryFocus, isolating a cell supersedes the country
-      // lens: the picker bubble deselects, the boundary highlight drops, and
-      // the ring animates back to the world distribution. Only a real cell does
-      // this — clicking empty ocean (handled above) leaves the country alone.
-      if (strictCountryFocus && focusIso3) focusIso3 = null;
+      // The country lens SURVIVES a cell click: the picker stays selected, the
+      // boundary highlight stays, and the ring keeps plotting the country. A
+      // cell is a finer reading *within* the current lens, not a replacement
+      // for it — so the ring has nothing to change and does not animate. Only
+      // the details panel narrows, country -> cell.
       isolatedCellId = cellId;
       cellIsolated = true;
       isolatedFeature = feature;
