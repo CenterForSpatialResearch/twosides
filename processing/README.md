@@ -1,17 +1,56 @@
 # Data Processing Pipeline
 
-Converts HYDE 3.5 anthrome GeoTIFF files to optimized GeoJSON/TopoJSON for D3 rendering (projection-flexible).
+Converts HYDE 3.5 anthrome GeoTIFF files into a compact form the map can render (projection-flexible).
 
 **Development Environment:** This project is developed on Windows using PowerShell. Python and Node.js commands work cross-platform, but file paths may need adjustment for your environment.
 
 ## Overview
 
-Generally, the processing flow is:
+There are two pipelines. **The grid pipeline is the one to use** — the GeoJSON/TopoJSON pipeline is kept because the boundary layers still need it and because it is the reference the grid output is verified against.
+
+### Grid pipeline (current)
 
 - Input: GeoTIFF at `data/HYDE-3.5/baseline/anthromes_geotiff`
+- `processing/2b_generate_grid.py`: reads the GeoTIFFs **directly** and writes one small binary bundle per profile. No GeoJSON, no polygonization.
+- Output: `temp/grid/<profile>/` — read at runtime by [src/anthromes/lib/gridSource.js](../src/anthromes/lib/gridSource.js).
+
+Run it with `./run_grid_profiles.sh`. All six profiles, all 76 years, take about a minute.
+
+### GeoJSON/TopoJSON pipeline (legacy)
+
 - `processing/1_extract_geojson.py`: resample to geojson features. Option to decrease resolution, dissolve features, sieve small features (such as islands), or simplify features. Output to `processing/geojson/` according to name in `--profile`. The contents of this folder are not tracked.
 - `processing/2_generate_topojson.js`: convert to topojson features (and combine shared boundaries). Option to simplify.
 - Output: TopoJSON per year for rendering at `public/topojson/`. Contents of this folder are tracked using Git LFS. Changes will not be tracked, but still, **only push data that will be used in production.**
+
+Still required for the admin-boundary layers (see the addendum). Steps 3–7 also still read `processing/geojson/`.
+
+### Why the grid format replaced TopoJSON
+
+The intuition that dissolving was the missing optimization turned out to be wrong. Measured on `33km/2025AD`:
+
+| | |
+|---|---|
+| GeoJSON, 5-point ring per cell | 912,515 coordinate points |
+| TopoJSON arc points | **938,797** |
+
+Topology emitted *more* coordinates than the GeoJSON it replaced. In a regular grid every cell corner is a junction where four rings meet, so `topology()` cuts a 2-point arc at every corner, and each arc repeats the node it shares with its neighbour — the duplication removed along shared edges comes straight back at the nodes.
+
+Worse, coordinates were only 35% of the file. The other 65% was the per-feature object table (properties 5.0MB, arc-index arrays 3.5MB, the literal string `"type":"Polygon"` 1.6MB, plus JSON structure), which topology cannot touch.
+
+And geometry, `cellId` and `country` are byte-identical across all 76 years — verified on 5,000/5,000 sampled cells. Only the anthrome code changes, so the rest needs shipping exactly once.
+
+The data is a raster to begin with. The grid format ships it as one, and derives each cell's rectangle arithmetically at load time.
+
+| profile | cells | TopoJSON, 76 years | grid, 76 years |
+|---|---|---|---|
+| 100km | 22,192 | ~209 MB | **2.1 MB** |
+| 75km | 38,234 | ~381 MB | 3.1 MB |
+| 50km | 83,183 | — | 6.3 MB |
+| 33km | 182,503 | ~1.8 GB | 14 MB |
+| 25km | 319,973 | — | 25 MB |
+| 10km | 2,215,829 | ~22 GB (infeasible) | 164 MB |
+
+The per-cell history files are also subsumed: `cell-history-33km.json` was 166MB of this same data transposed, with the year string repeated once per cell. `historyForCell()` reads it out of the codes blob instead.
 
 ## Setup
 
@@ -49,9 +88,63 @@ cd processing/
 npm install
 ```
 
-## Usage
+## Usage — grid pipeline
 
-Above is all you need to get started, but below is more information on the flags in each script, and examples from the `33km` and `100km` profiles.
+```bash
+cd processing/
+./setup_env.sh              # once — creates processing/.venv
+
+./run_grid_profiles.sh      # all six profiles into temp/grid/
+./run_grid_profiles.sh 33km 10km    # or a named subset
+```
+
+Env overrides: `PYTHON_BIN`, and `YEARS_FROM` (a directory whose filenames define the year list, default `../temp/topojson/33km`; `all` uses every GeoTIFF — the folder carries the full annual 1951–2024 series, ~128 years, against the 76 the app displays).
+
+To run one profile directly:
+
+```bash
+python3 2b_generate_grid.py --profile=25km --target-res=0.225
+python3 2b_generate_grid.py --profile=10km --target-res=0     # 0 = native grid, no resampling
+```
+
+### Output format
+
+Four files in `temp/grid/<profile>/`:
+
+| file | contents |
+|---|---|
+| `manifest.json` | `res`, `originX/Y`, `ncols/nrows`, `nLand`, `years[]`, `countryTable[]` |
+| `mask.bin` | 1 bit per grid cell, row-major, MSB-first. Set = land. |
+| `codes.bin` | `nLand * nYears` bytes, **year-major**: year *k* at `[k*nLand, (k+1)*nLand)`, land cells in ascending cellId order. One anthrome code per byte; `0` = nodata. |
+| `countries.bin` | `nLand` bytes, index into `manifest.countryTable`. |
+
+`cellId = row * ncols + col`, matching `compute_cell_id()` in `1_extract_geojson.py`, so `anthrome-change-years-*.json` and the `zooms-*.json` files stay valid.
+
+Anthrome codes run 11–70 and never use 0, which is what makes 0 safe as the nodata sentinel; the script asserts this against the legend.
+
+### Verifying
+
+`verify_grid.py` rebuilds a year from the blobs exactly as the browser does and diffs it against the old pipeline:
+
+```bash
+python3 verify_grid.py --profile=75km --year=2025AD --against=geojson   # exact coords
+python3 verify_grid.py --profile=33km --year=2025AD --against=topojson  # quantized, compared within one lattice step
+```
+
+It checks cell count, `{a, i, c}` per cellId, and ring geometry **including winding** — a reversed ring makes d3 fill the complement of every cell, which is this format's one silent failure mode.
+
+Two differences are expected and reported rather than failed:
+
+- **ISO3 fixes.** The grid producer reads `ISO_A3_EH`; the old pipeline reads `ISO_A3`, which Natural Earth 110m sets to `-99` for France, Norway, N. Cyprus, Somaliland and Kosovo. France and Norway now resolve correctly; the other three have no ISO3 in either field and become `null`.
+- **Ring rotation.** TopoJSON stitches rings from arcs, so a ring may start at a different corner. Same rectangle, invisible to d3.
+
+### Country lookup
+
+`2b_generate_grid.py` burns country indices with a single `rasterize()` call over the target grid, once per profile. `1_extract_geojson.py` instead does a per-cell point-in-polygon lookup for every cell of every year — at 10km that would be 2.2M tests × 76 years.
+
+## Usage — legacy GeoJSON/TopoJSON pipeline
+
+Below is more information on the flags in each script, and examples from the `33km` and `100km` profiles.
 
 ### Step 1: Extract + Dissolve GeoJSON
 ```bash
@@ -175,14 +268,46 @@ Run commands from `processing/`. Each profile writes to its own directories so y
 | 0.30 | 18.0' | ~33.4 km |
 | 0.45 | 27.0' | ~50.1 km |
 | 0.60 | 36.0' | ~66.8 km |
+| 0.675 | 40.5' | ~75.1 km |
 | 0.75 | 45.0' | ~83.5 km |
 | 0.90 | 54.0' | ~100.2 km |
 
+### Scratch Profiles (output to `temp/`)
+
+**For map data, use `./run_grid_profiles.sh` instead** — it is faster, produces ~100x smaller output, and needs no GeoJSON intermediate. This runner remains for generating the `processing/geojson/` folder that steps 3–7 read, and for producing TopoJSON to verify grid output against.
+
+It chains Step 1 and Step 2, always with `--skip-dissolve` so cells stay individually addressable.
+
+```bash
+cd processing/
+./setup_env.sh                  # once — creates processing/.venv with rasterio et al.
+
+./run_temp_50_75.sh             # both profiles
+./run_temp_50_75.sh 75km        # or just one
+
+# arbitrary resolution:
+./run_temp_profile.sh 60km 0.54
+```
+
+TopoJSON lands in `temp/topojson/<profile>/`; intermediate GeoJSON stays in `processing/geojson/<profile>/` (Step 3 needs it).
+
+⚠️ Step 1 skips extraction when the GeoJSON folder is already populated. If that folder holds output from an older run with different settings, the result is silently wrong — pass `FORCE=1`.
+
+By default the runner only processes the years present in `temp/topojson/33km/`, so profiles are directly comparable. The GeoTIFF folder holds 128 years — the full annual series from 1951–2024 — while the display set is 76. Set `YEARS_FROM=all` to process everything, or point it at another reference folder.
+
+Env overrides: `QUANTIZATION` (default `1e4`, matching 33km), `KEEP_GEOJSON=0` to drop the intermediates, `FORCE=1` to re-extract, `YEARS_FROM` as above, `PYTHON_BIN` to pick an interpreter.
+
 ## Troubleshooting
-- `ModuleNotFoundError`: `pip install rasterio shapely numpy pyshp geopy`
+- `ModuleNotFoundError`: run `./setup_env.sh`, or `pip install rasterio shapely numpy pyshp geopy`
 - `Cannot find module 'topojson-server'`: run `npm install` in `processing/`
 - Files too jagged: lower `--simplify` or `--target-res` (more detail)
 - Files too big: increase `--target-res`, `--simplify`, or `--quantization`
+
+Grid pipeline:
+- **Map blank on a grid profile**: that profile hasn't been generated. Run `./run_grid_profiles.sh <profile>`. `temp/` is gitignored, so a fresh clone has none of them.
+- **Every cell renders inverted / the map looks like a negative**: ring winding is reversed. Run `verify_grid.py`; it checks winding explicitly.
+- **`codes.bin is N bytes, expected M`**: the manifest and blobs are from different runs. Regenerate the profile.
+- **Land set varies between years**: the producer warns and takes the union, so cells absent in some years read as 0 there. Not expected with HYDE, but it will say so rather than silently misalign.
 
 ---
 

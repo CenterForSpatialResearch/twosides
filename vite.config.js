@@ -3,20 +3,33 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve, join, normalize } from 'path';
 import { existsSync, statSync, createReadStream } from 'fs';
 
-// The 33km tile set is ~1.8GB (25MB per year) and its cell history is another
-// 166MB — far too large for the repo, for Git LFS, or for a Pages deploy. It
-// lives in the gitignored temp/ folder instead, and this middleware serves it
-// at the same URLs the 100km set uses so the app needs no special-casing:
+// Map data too large for the repo, Git LFS, or a Pages deploy lives in the
+// gitignored temp/ folder, and this middleware serves it at the URLs the app
+// expects:
 //
-//   /topojson/33km/<year>.topojson  ->  temp/topojson/33km/<year>.topojson
-//   /data/cell-history-33km.json    ->  temp/data/cell-history-33km.json
+//   /grid/<profile>/<file>               ->  temp/grid/<profile>/<file>
+//   /topojson/<profile>/<year>.topojson  ->  temp/topojson/<profile>/<year>.topojson
+//   /data/cell-history-<profile>.json    ->  temp/data/cell-history-<profile>.json
+//
+// The grid routes are the ones that matter now — all six profiles together are
+// ~214MB, against 1.8GB for the 33km TopoJSON set alone. The topojson and
+// cell-history routes stay so the two formats can be compared on screen.
+//
+// Kept in sync with TEMP_TOPO_PROFILES in src/shared/topoProfile.svelte.js.
 //
 // DEV ONLY, and only when the file is actually present — without temp/ the
 // request falls through to public/ and 404s, which is what the resolution
 // toggle reports. Nothing here affects `npm run build`.
+const TEMP_PROFILES = ['10km', '25km', '33km', '50km', '75km', '100km'];
+
 function serveTempAssets() {
   const root = process.cwd();
   const tempDir = join(root, 'temp');
+  const profiles = TEMP_PROFILES.join('|');
+  const tileRe = new RegExp(`^/topojson/(?:${profiles})/[A-Za-z0-9_.-]+\\.topojson$`);
+  const historyRe = new RegExp(`^/data/cell-history-(?:${profiles})\\.json$`);
+  // Grid format: manifest.json plus the mask/codes/countries blobs.
+  const gridRe = new RegExp(`^/grid/(?:${profiles})/[A-Za-z0-9_-]+\\.(?:json|bin)$`);
 
   return {
     name: 'serve-temp-assets',
@@ -26,16 +39,17 @@ function serveTempAssets() {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const path = (req.url || '').split('?')[0];
-        const m =
-          /^\/topojson\/33km\/[A-Za-z0-9_.-]+\.topojson$/.test(path) ||
-          /^\/data\/cell-history-33km\.json$/.test(path);
+        const m = tileRe.test(path) || historyRe.test(path) || gridRe.test(path);
         if (!m) return next();
 
         const file = normalize(join(tempDir, path));
         // normalize + prefix check keeps a crafted ../ out of the rest of disk.
         if (!file.startsWith(tempDir) || !existsSync(file)) return next();
 
-        res.setHeader('Content-Type', 'application/json');
+        res.setHeader(
+          'Content-Type',
+          path.endsWith('.bin') ? 'application/octet-stream' : 'application/json'
+        );
         res.setHeader('Content-Length', statSync(file).size);
         // These are immutable snapshots; let the browser keep them so flipping
         // years back and forth doesn't refetch 25MB each time.

@@ -5,7 +5,7 @@
   import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
   import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
-  import { topoProfile, setTopoProfile, TOPO_PROFILES } from '../shared/topoProfile.svelte.js';
+  import { topoProfile, setTopoProfile, TOPO_PROFILES, isTempProfile, tempProfileSizes } from '../shared/topoProfile.svelte.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
@@ -651,15 +651,16 @@
         <span>Map Resolution</span>
         <select value={topoProfile()} onchange={(e) => setTopoProfile(e.currentTarget.value)}>
           {#each TOPO_PROFILES as p}
-            <option value={p}>{p}{p === '33km' ? ' (temp/, dev only)' : ''}</option>
+            <option value={p}>{p}{isTempProfile(p) ? ' (temp/, dev only)' : ''}</option>
           {/each}
         </select>
       </label>
-      {#if topoProfile() === '33km'}
+      {#if isTempProfile(topoProfile())}
         <div class="tip">
-          33km tiles are ~25MB per year and its cell history ~166MB. They are
-          served from the gitignored temp/ folder in dev only — expect a pause
-          on each year change, and a 404 (map stays blank) if temp/ is missing.
+          {tempProfileSizes(topoProfile())}, fetched once from the gitignored
+          temp/ folder in dev only — expect a pause on the first load, then no
+          network on year changes. Blank map means that profile hasn't been
+          generated yet (run processing/run_grid_profiles.sh).
         </div>
       {/if}
 

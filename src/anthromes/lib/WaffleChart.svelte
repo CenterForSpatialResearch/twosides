@@ -55,7 +55,7 @@
     compactCellDetail = false,
     // The isolated cell's live position in design px — the leader's start.
     isolatedPoint = $bindable(null),
-    // Map tile resolution ('100km' | '33km'); switchable from the settings panel.
+    // Map tile resolution (see TOPO_PROFILES); switchable from the settings panel.
     profile = TOPO_PROFILE,
   } = $props();
 

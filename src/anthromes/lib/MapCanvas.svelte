@@ -3,6 +3,9 @@
   import * as d3 from 'd3';
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
+  import {
+    loadGrid, featuresForYear, historyForCell, meshForGrid, featureAt, featureIndex
+  } from './gridSource.js';
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
@@ -10,6 +13,43 @@
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+
+  // --- render batching -------------------------------------------------------
+  // Cells are drawn grouped by anthrome code rather than one at a time. Canvas
+  // state changes and colour parsing are per-batch instead of per-cell, so the
+  // ~21 legend codes cost 21 beginPath/fill/stroke cycles instead of 182,503 at
+  // 33km. The geometry still goes through d3.geoPath, so every projection stays
+  // correct — only the bookkeeping around it collapses.
+  const codeGroupCache = new WeakMap();   // FeatureCollection -> Map<code, Feature[]>
+
+  function groupByCode(fc) {
+    let groups = codeGroupCache.get(fc);
+    if (!groups) {
+      groups = new Map();
+      for (const f of fc.features) {
+        const code = f.properties?.a;
+        let bucket = groups.get(code);
+        if (!bucket) groups.set(code, (bucket = []));
+        bucket.push(f);
+      }
+      codeGroupCache.set(fc, groups);
+    }
+    return groups;
+  }
+
+  // rgba strings, memoised per colour+opacity so d3.color() runs once per code
+  // per draw style rather than once per cell.
+  const rgbaCache = new Map();
+  function rgbaFor(color, opacity) {
+    const key = `${color}|${opacity}`;
+    let out = rgbaCache.get(key);
+    if (out === undefined) {
+      const rgb = d3.color(color);
+      out = rgb ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})` : color;
+      rgbaCache.set(key, out);
+    }
+    return out;
+  }
 
   let {
     width = 0,
@@ -78,6 +118,10 @@
   let boundariesLoading = $state(false);
   let cellHistory = $state(null);
   let cellHistoryLoading = $state(false);
+  // Decoded grid blobs for the current profile, or null if this profile is still
+  // served as per-year TopoJSON. Holding both paths is what lets the two be
+  // compared on screen during the migration.
+  let gridData = $state(null);
   let countryData = $state(null);
   let countryDataLoading = $state(false);
   let iso3ToName = $state(new Map());
@@ -289,25 +333,37 @@
     const fetchPromise = (async () => {
       performance.mark('topo-load-start');
       const base = import.meta.env.BASE_URL;
-      const url = `${base}topojson/${profile}/${targetYear}.topojson`;
 
       try {
         mapReady = false;
-        const res = await fetch(url, { cache: 'no-cache' });
-        if (!res.ok) {
-          throw new Error(`Failed to load ${url} (${res.status})`);
+
+        // Grid profiles fetch their blobs once, then every year is assembled
+        // locally — no per-year request. Profiles without a grid manifest fall
+        // through to the original per-year TopoJSON path.
+        let geo, mesh;
+        const grid = await tryLoadGrid(profile);
+        if (grid) {
+          geo = featuresForYear(grid, targetYear);
+          mesh = meshForGrid(grid);
+        } else {
+          const url = `${base}topojson/${profile}/${targetYear}.topojson`;
+          const res = await fetch(url, { cache: 'no-cache' });
+          if (!res.ok) {
+            throw new Error(`Failed to load ${url} (${res.status})`);
+          }
+
+          const text = await res.text();
+          const topo = JSON.parse(text);
+
+          const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
+          if (!objKey || !topo.objects[objKey]) {
+            throw new Error(`TopoJSON missing objects at ${url}`);
+          }
+
+          geo = topojson.feature(topo, topo.objects[objKey]);
+          mesh = topojson.mesh(topo, topo.objects[objKey]);
         }
 
-        const text = await res.text();
-        const topo = JSON.parse(text);
-
-        const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
-        if (!objKey || !topo.objects[objKey]) {
-          throw new Error(`TopoJSON missing objects at ${url}`);
-        }
-
-        const geo = topojson.feature(topo, topo.objects[objKey]);
-        const mesh = topojson.mesh(topo, topo.objects[objKey]);
         cache.set(key, { geo, mesh });
         currentGeo = geo;
         currentMesh = mesh;
@@ -363,8 +419,28 @@
     }
   }
 
+  // Resolve a profile's grid blobs, remembering the result so a profile without
+  // a manifest doesn't re-request it on every year change.
+  const gridMissing = new Set();
+  async function tryLoadGrid(p) {
+    if (gridMissing.has(p)) return null;
+    try {
+      const grid = await loadGrid(p);
+      gridData = grid;
+      return grid;
+    } catch (err) {
+      gridMissing.add(p);
+      if (gridData?.manifest?.profile === p) gridData = null;
+      return null;
+    }
+  }
+
+  // Grid profiles read history straight out of the codes blob — a strided read
+  // over data already in memory, so there is nothing to fetch. The separate
+  // cell-history JSON exists only for profiles still on the TopoJSON path; it is
+  // the same data transposed, which is why it reaches 166MB at 33km.
   async function loadCellHistory() {
-    if (cellHistory || cellHistoryLoading) return;
+    if (gridData || cellHistory || cellHistoryLoading) return;
     cellHistoryLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
@@ -380,6 +456,21 @@
     } finally {
       cellHistoryLoading = false;
     }
+  }
+
+  function getCellHistory(cellId) {
+    if (gridData) return historyForCell(gridData, cellId);
+    return cellHistory ? cellHistory[cellId] : null;
+  }
+
+  // Which cell is under a lng/lat. On a grid this is arithmetic — two divisions
+  // and a map lookup — instead of scanning every feature with d3.geoContains,
+  // which ran a spherical point-in-polygon test per cell on every pointer move.
+  // Profiles still on TopoJSON keep the scan.
+  function findCellAt(lnglat) {
+    if (!currentGeo) return null;
+    if (gridData) return featureAt(currentGeo, gridData, lnglat[0], lnglat[1]);
+    return currentGeo.features.find(f => d3.geoContains(f, lnglat)) || null;
   }
 
   async function loadCountryData() {
@@ -536,66 +627,44 @@
     performance.measure('path-setup', 'path-setup-start', 'path-setup-end');
 
     performance.mark('feature-render-start');
-    // Draw features directly (matches test-anthromes-d3.html approach)
-    if (showAll) {
-      for (let i = 0; i < currentGeo.features.length; i++) {
-        const feature = currentGeo.features[i];
-        const code = feature.properties?.a;
-        const cellId = feature.properties?.i;
-        const color = legend[code]?.color || '#ffffff';
+    // One path per anthrome code, not per cell. The stroke is what covers the
+    // hairline seams between adjacent cells, so it still runs — just once per
+    // batch, at the same width as before (1px showing all, 0.5px when filtered).
+    const selectedSet = showAll ? null : new Set(selectedCodes);
+    const lineWidth = (showAll ? 1 : 0.5) * dpr;
+    // Isolating a cell dims everything else to 10%; the isolated cell is drawn
+    // on its own afterwards so it can stay fully opaque.
+    const isolating = isolatedCellId !== null;
+    const baseOpacity = isolating ? 0.1 : 1.0;
 
-        // Determine opacity for isolate pixel feature
-        let opacity = 1.0;
-        if (isolatedCellId !== null && cellId !== isolatedCellId) {
-          opacity = 0.1; // 90% transparent
-        }
+    ctx.lineWidth = lineWidth;
+    for (const [code, bucket] of groupByCode(currentGeo)) {
+      if (selectedSet && !selectedSet.has(code)) continue;
 
-        // Parse color and apply opacity
-        const rgb = d3.color(color);
-        if (rgb) {
-          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-          ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-        } else {
-          ctx.fillStyle = color;
-          ctx.strokeStyle = color;
-        }
+      const style = rgbaFor(legend[code]?.color || '#ffffff', baseOpacity);
+      ctx.fillStyle = style;
+      ctx.strokeStyle = style;
 
-        ctx.beginPath();
+      ctx.beginPath();
+      for (let i = 0; i < bucket.length; i++) {
+        const feature = bucket[i];
+        if (isolating && feature.properties.i === isolatedCellId) continue;
         path(feature);
-        ctx.fill();
-        ctx.lineWidth = 1 * dpr;
-        ctx.stroke();
       }
-    } else {
-      const selectedSet = new Set(selectedCodes);
-      for (let i = 0; i < currentGeo.features.length; i++) {
-        const feature = currentGeo.features[i];
-        const code = feature.properties?.a;
-        if (!selectedSet.has(code)) continue;
+      ctx.fill();
+      ctx.stroke();
+    }
 
-        const cellId = feature.properties?.i;
-        const color = legend[code]?.color || '#ffffff';
-
-        // Determine opacity for isolate pixel feature
-        let opacity = 1.0;
-        if (isolatedCellId !== null && cellId !== isolatedCellId) {
-          opacity = 0.1; // 90% transparent
-        }
-
-        // Parse color and apply opacity
-        const rgb = d3.color(color);
-        if (rgb) {
-          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-          ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-        } else {
-          ctx.fillStyle = color;
-          ctx.strokeStyle = color;
-        }
-
+    if (isolating) {
+      const isolated = featureIndex(currentGeo).get(isolatedCellId);
+      const code = isolated?.properties?.a;
+      if (isolated && (!selectedSet || selectedSet.has(code))) {
+        const style = rgbaFor(legend[code]?.color || '#ffffff', 1.0);
+        ctx.fillStyle = style;
+        ctx.strokeStyle = style;
         ctx.beginPath();
-        path(feature);
+        path(isolated);
         ctx.fill();
-        ctx.lineWidth = 0.5 * dpr;
         ctx.stroke();
       }
     }
@@ -809,7 +878,7 @@
       return;
     }
 
-    const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
+    const feature = findCellAt(lnglat);
     if (!feature) {
       hoveredFeature = null;
       drawOverlay();
@@ -1148,7 +1217,7 @@
       return;
     }
 
-    const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
+    const feature = findCellAt(lnglat);
     if (!feature) {
       clearAll();
       return;
@@ -1182,8 +1251,8 @@
       handlePointerMove(e);
 
       // Get historical data for this cell
-      if (cellHistory && cellHistory[cellId]) {
-        const history = cellHistory[cellId];
+      const history = getCellHistory(cellId);
+      if (history) {
         barChartData = processHistoryData(history);
         cellSeries = { id: cellId, byYear: history };
         showBarChart = true;
@@ -1427,9 +1496,10 @@
     }
   });
 
-  // Load cell history on mount (needed for historical bar chart)
+  // Load cell history on mount (needed for historical bar chart). No-ops for
+  // grid profiles, which serve history from the codes blob already in memory.
   $effect(() => {
-    if (!cellHistory && !cellHistoryLoading) {
+    if (!gridData && !cellHistory && !cellHistoryLoading) {
       loadCellHistory();
     }
   });
@@ -1447,6 +1517,7 @@
       clearAll();
       cellHistory = null;
       cellHistoryLoading = false;
+      gridData = null;
       loadCellHistory();
     });
   });

@@ -12,6 +12,9 @@ node_modules/
 processing/geojson/
 processing/unoptimized_backup/
 processing/utilities/
+processing/.venv/
+processing/.tif-subset/
+processing/__pycache__/
 
 #working docs
 .claude/
