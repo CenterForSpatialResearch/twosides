@@ -51,6 +51,10 @@
   let mapReady = $state(false);
   let initialLoad = $state(true);
   let zoomLevel = $state(1);
+  // Draw diagnostics from MapCanvas, shown in the dev HUD.
+  let mapDrawMs = $state(0);
+  let mapLayerReused = $state(false);
+  let mapDrawPhases = $state(null);
   let rotation = $state(0);
   let mapPanX = $state(0);
   let mapPanY = $state(0);
@@ -946,6 +950,9 @@
           {debugMenuVisible}
           {showBoundaries}
           bind:mapScale={zoomLevel}
+          bind:mapDrawMs
+          bind:mapLayerReused
+          bind:mapDrawPhases
           mapRotation={rotation}
           bind:mapPanX
           bind:mapPanY
@@ -1039,7 +1046,7 @@
 {/if}
 </div>
 <!-- Outside .stage so it renders at true screen px, unscaled -->
-<DevHud showMapResolution />
+<DevHud showMapResolution drawMs={mapDrawMs} layerReused={mapLayerReused} phases={mapDrawPhases} zoom={zoomLevel} />
 </div>
 
 <style>

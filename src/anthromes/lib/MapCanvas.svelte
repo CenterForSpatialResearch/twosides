@@ -83,14 +83,138 @@
     return !!gridData && clipAngle >= 180 && gridData.yearIndex.has(year);
   }
 
+  // --- cached map layer ------------------------------------------------------
+  // Panning does not refit the projection — only ctx.translate changes — so the
+  // emitted geometry is identical frame to frame. Rendering it once into an
+  // offscreen canvas turns a pan into a single drawImage, which costs the same
+  // at 50km as at 100km and is the only way panning gets cheap when zoomed out,
+  // where there is nothing for the viewport cull to remove.
+  //
+  // The offscreen holds PROJECTION-space content: offscreen pixel (0,0) is
+  // projection coordinate (ox, oy). Because draw() blits while still inside
+  // ctx.translate(pan), drawing it at (ox, oy) lands every pixel exactly where
+  // drawing directly would have.
+  let layerCanvas = null;
+  let layerOx = 0, layerOy = 0, layerKey = null;
+  const LAYER_MARGIN = 320;   // device px of slack, so small pans stay cached
+
+  // Everything that changes what the layer looks like. The projection is
+  // identified by its own parameters rather than object identity, since draw()
+  // rebuilds it on refit even when nothing visible changed.
+  function computeLayerKey(projection, dpr, circle) {
+    const t = projection.translate();
+    return [
+      gridData?.manifest?.profile, year, dpr, circle.r,
+      projection.scale(), t[0], t[1], clipAngle,
+      isolatedCellId, selectedCodes?.join(','),
+      Object.keys(legend || {}).length
+    ].join('|');
+  }
+
+  function layerCovers(cx, cy, r) {
+    if (!layerCanvas) return false;
+    return cx - r >= layerOx && cy - r >= layerOy &&
+           cx + r <= layerOx + layerCanvas.width &&
+           cy + r <= layerOy + layerCanvas.height;
+  }
+
+  // Cached result of fitExtent: the scale and translate that fit the land
+  // outline into the map circle. Keyed on everything the fit depends on —
+  // notably NOT the zoom, which is applied afterwards as a plain multiplier.
+  // currentMesh is compared by identity; gridSource caches one mesh per profile,
+  // so it is stable until the profile changes.
+  let fitCache = null;
+
+  function fittedBase(points, clipAngle, extent, mesh) {
+    const key = [
+      points[0][0], points[0][1], points[1][0], points[1][1],
+      clipAngle, extent[0][0], extent[0][1], extent[1][0], extent[1][1]
+    ].join(',');
+
+    if (fitCache && fitCache.key === key && fitCache.mesh === mesh) {
+      return fitCache;
+    }
+
+    const probe = geoTwoPointEquidistant(points[0], points[1]).clipAngle(clipAngle);
+    probe.fitExtent(extent, mesh);
+    fitCache = { key, mesh, scale: probe.scale(), translate: probe.translate() };
+    return fitCache;
+  }
+
+  // A coarse visibility mask over the grid, used to reject runs before spending
+  // any projection on them.
+  //
+  // This forward-projects a lattice of block corners rather than inverting the
+  // visible circle. Inversion was the wrong tool: projection.invert is undefined
+  // wherever the disc reaches past the edge of the projected world, and bailing
+  // on that put a hard cliff in the frame time — culling was simply off below
+  // zoom ~3 at a 2560px viewport, costing 274ms a frame where 57ms was
+  // available. Forward projection is defined everywhere, so the mask works at
+  // every zoom and pan.
+  //
+  // Cost is one projection per block corner: ~5,000 at 50km, under a
+  // millisecond, against the ~2,000 canvas operations each culled run avoids.
+  const CULL_BLOCK = 8;   // grid cells per block edge
+
+  function buildCullMask(projection, cx, cy, r, manifest) {
+    const { res, originX, originY, ncols, nrows } = manifest;
+    const bcols = Math.ceil(ncols / CULL_BLOCK);
+    const brows = Math.ceil(nrows / CULL_BLOCK);
+
+    // Corner lattice, shared between neighbouring blocks so each is projected once.
+    const lx = new Float64Array((bcols + 1) * (brows + 1));
+    const ly = new Float64Array((bcols + 1) * (brows + 1));
+    const ok = new Uint8Array((bcols + 1) * (brows + 1));
+    for (let br = 0; br <= brows; br++) {
+      const lat = originY - Math.min(br * CULL_BLOCK, nrows) * res;
+      for (let bc = 0; bc <= bcols; bc++) {
+        const lng = originX + Math.min(bc * CULL_BLOCK, ncols) * res;
+        const p = projection([lng, lat]);
+        const i = br * (bcols + 1) + bc;
+        if (p && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+          lx[i] = p[0]; ly[i] = p[1]; ok[i] = 1;
+        }
+      }
+    }
+
+    // A block counts as visible when its corner bbox meets the disc's bbox. The
+    // margin covers the slight bow of an edge between two corners — a block is
+    // 8 cells wide, where that bow is a fraction of a pixel — plus the stroke.
+    const margin = 8;
+    const visible = new Uint8Array(bcols * brows);
+    let anyVisible = false;
+    for (let br = 0; br < brows; br++) {
+      for (let bc = 0; bc < bcols; bc++) {
+        const i0 = br * (bcols + 1) + bc;
+        const i1 = i0 + 1;
+        const i2 = i0 + (bcols + 1);
+        const i3 = i2 + 1;
+        // A corner that will not project leaves the block's extent unknown;
+        // keep it rather than risk a hole.
+        if (!ok[i0] || !ok[i1] || !ok[i2] || !ok[i3]) {
+          visible[br * bcols + bc] = 1; anyVisible = true; continue;
+        }
+        const minX = Math.min(lx[i0], lx[i1], lx[i2], lx[i3]) - margin;
+        const maxX = Math.max(lx[i0], lx[i1], lx[i2], lx[i3]) + margin;
+        const minY = Math.min(ly[i0], ly[i1], ly[i2], ly[i3]) - margin;
+        const maxY = Math.max(ly[i0], ly[i1], ly[i2], ly[i3]) + margin;
+        if (maxX >= cx - r && minX <= cx + r && maxY >= cy - r && minY <= cy + r) {
+          visible[br * bcols + bc] = 1; anyVisible = true;
+        }
+      }
+    }
+    return anyVisible ? { visible, bcols, brows } : null;
+  }
+
   // Scratch buffer for one run's outline, reused across runs to keep the draw
   // allocation-free. A run of N columns needs 2*(N+1) points.
   const runPts = new Float64Array(4 * (64 + 1) + 4);
 
   function drawGridRuns(ctx, projection, dpr, opts) {
-    const { runs, legend, selectedSet, baseOpacity, lineWidth, maxEdgePx } = opts;
+    const { runs, legend, selectedSet, baseOpacity, lineWidth, maxEdgePx, cull, motion } = opts;
     const { res, originX, originY } = gridData.manifest;
     let dropped = 0;
+    let culled = 0;
 
     ctx.lineWidth = lineWidth;
     for (const [code, runArr] of runs) {
@@ -107,6 +231,21 @@
         // south edge and the next row's north edge is a visible hairline seam.
         const north = originY - row * res;
         const south = originY - (row + 1) * res;
+
+        // Reject off-screen runs before spending a single projection on them.
+        // A run sits in one block row and spans a few block columns; it survives
+        // if any of those blocks is on screen.
+        if (cull) {
+          const br = (row / 8) | 0;
+          const bc0 = (c0 / 8) | 0;
+          const bc1 = (c1 / 8) | 0;
+          let anyVisible = false;
+          const base = br * cull.bcols;
+          for (let b = bc0; b <= bc1; b++) {
+            if (cull.visible[base + b]) { anyVisible = true; break; }
+          }
+          if (!anyVisible) { culled++; continue; }
+        }
 
         // Walk the south edge east->west, then the north edge west->east,
         // stopping at every column boundary. Same orientation as the Feature
@@ -142,9 +281,12 @@
       }
 
       ctx.fill();
-      ctx.stroke();
+      // The stroke only covers the hairline seams antialiasing leaves between
+      // adjacent quads. It roughly doubles rasterisation, and during a transient
+      // (a focus animation) the seams are never on screen long enough to read.
+      if (!motion) ctx.stroke();
     }
-    return dropped;
+    return { dropped, culled };
   }
 
   let {
@@ -168,6 +310,10 @@
     mapPanX = $bindable(0),
     mapPanY = $bindable(0),
     mapScale = $bindable(1),
+    // Draw diagnostics, surfaced by the dev HUD.
+    mapDrawMs = $bindable(0),
+    mapLayerReused = $bindable(false),
+    mapDrawPhases = $bindable(null),
     tooltipVisible = $bindable(false),
     tooltipX = $bindable(0),
     tooltipY = $bindable(0),
@@ -608,8 +754,17 @@
     handlePositions = next;
   }
 
+  // Set by the last draw: whether the map layer was blitted from cache rather
+  // than re-rendered. Surfaced in the dev HUD.
+  let lastLayerReused = false;
+  let lastDrawMs = 0;
+
   function draw(currentPoints = points, options = {}) {
-    const { projectionOverride = null, skipCache = false } = options;
+    const { projectionOverride = null, skipCache = false, motion = false } = options;
+    const drawStart = performance.now();
+    // Phase timestamps for the dev HUD. Guessing at where draw time goes has
+    // been wrong twice; this reports it instead.
+    const phaseT = { proj: 0, features: 0, boundaries: 0, handles: 0, overlay: 0 };
     if (!canvasEl || !currentGeo || !currentMesh) return;
     if (width <= 0 || height <= 0 || innerRadiusPx <= 0) return;
     if (!currentPoints || currentPoints.length < 2) return;
@@ -669,11 +824,17 @@
           [circle.cx * dpr + circle.r * dpr, circle.cy * dpr + circle.r * dpr]
         ];
         performance.mark('projection-fit-start');
-        // Use mesh (shared arcs) for bounds; fewer coords than full feature collection
-        nextProj.fitExtent(extent, currentMesh);
+        // fitExtent walks the whole land outline — 11,008 mesh segments at 50km,
+        // measured at ~45ms — and it ran on every refit, including a plain zoom
+        // change. But its result does NOT depend on the zoom: the code fits and
+        // only then multiplies the scale. So the fit is cached against the
+        // things it actually depends on (points, clip angle, mesh, extent), and
+        // a zoom change now just re-applies scale and translate.
+        const fit = fittedBase(currentPoints, clipAngle, extent, currentMesh);
         performance.mark('projection-fit-end');
         performance.measure('projection-fit', 'projection-fit-start', 'projection-fit-end');
-        nextProj.scale(nextProj.scale() * 0.98 * (zoom?.k || 1));
+        nextProj.scale(fit.scale * 0.98 * (zoom?.k || 1));
+        nextProj.translate(fit.translate);
         if (!skipCache) {
           projectionCache = {
             geo: currentGeo,
@@ -702,6 +863,7 @@
     const panAbsY = Math.abs((mapPanY || 0) * dpr);
     projection.clipExtent([[-panAbsX, -panAbsY], [canvasEl.width + panAbsX, canvasEl.height + panAbsY]]);
     performance.mark('projection-create-end');
+    phaseT.proj = performance.now();
     performance.measure('projection-create', 'projection-create-start', 'projection-create-end');
 
     performance.mark('path-setup-start');
@@ -736,17 +898,76 @@
     if (canUseFastPath()) {
       // Runs already exclude nothing; the isolated cell is redrawn opaque below,
       // and an opaque fill fully covers the dimmed one underneath.
-      const dropped = drawGridRuns(ctx, projection, dpr, {
-        runs: runsForYear(gridData, year),
-        legend,
-        selectedSet,
-        baseOpacity,
-        lineWidth,
-        maxEdgePx: Math.max(canvasEl.width, canvasEl.height)
-      });
-      if (dropped > 0 && debugMenuVisible) {
-        console.debug(`MapCanvas: ${dropped} quad(s) failed the projection sanity guard`);
+      // ctx.clip() runs on the circle BEFORE ctx.translate(pan), so in projection
+      // coordinates the visible disc sits at the circle centre minus the pan.
+      const discCx = (circle.cx - (mapPanX || 0)) * dpr;
+      const discCy = (circle.cy - (mapPanY || 0)) * dpr;
+      const discR = circle.r * dpr;
+
+      const key = computeLayerKey(projection, dpr, circle);
+      const reusable = key === layerKey && layerCovers(discCx, discCy, discR)
+        && !motion;
+
+      if (!reusable) {
+        // Cover the visible disc plus slack, in projection coordinates, so an
+        // ordinary drag stays inside what has already been rendered.
+        const size = Math.ceil(2 * discR + 2 * LAYER_MARGIN);
+        if (!layerCanvas || layerCanvas.width !== size || layerCanvas.height !== size) {
+          layerCanvas = document.createElement('canvas');
+          layerCanvas.width = size;
+          layerCanvas.height = size;
+        }
+        layerOx = Math.round(discCx - discR - LAYER_MARGIN);
+        layerOy = Math.round(discCy - discR - LAYER_MARGIN);
+
+        const lctx = layerCanvas.getContext('2d');
+        lctx.setTransform(1, 0, 0, 1, 0, 0);
+        lctx.clearRect(0, 0, layerCanvas.width, layerCanvas.height);
+        lctx.translate(-layerOx, -layerOy);
+
+        const cull = buildCullMask(
+          projection, discCx, discCy, discR + LAYER_MARGIN, gridData.manifest);
+
+        const { dropped, culled } = drawGridRuns(lctx, projection, dpr, {
+          runs: runsForYear(gridData, year),
+          legend,
+          selectedSet,
+          baseOpacity,
+          lineWidth,
+          maxEdgePx: Math.max(canvasEl.width, canvasEl.height),
+          cull,
+          motion
+        });
+
+        // A layer rendered mid-motion is deliberately lower fidelity, so do not
+        // let it be reused once the map settles.
+        layerKey = motion ? null : key;
+
+        if (debugMenuVisible) {
+          if (dropped > 0) {
+            console.debug(`MapCanvas: ${dropped} quad(s) failed the projection sanity guard`);
+          }
+          if (culled > 0) {
+            console.debug(`MapCanvas: culled ${culled} off-screen run(s)`);
+          }
+        }
       }
+
+      // Already inside ctx.translate(pan), so (layerOx, layerOy) is exactly where
+      // direct drawing would have put it — but the pan is fractional, and
+      // drawImage at a fractional offset resamples, which softens every cell
+      // edge. Nudge the blit so it lands on whole device pixels: the transform
+      // is translate-only at scale 1, so an integral offset is a pure copy.
+      // The cost is a sub-pixel shift of the layer, invisible next to the blur
+      // it avoids.
+      const panDX = (mapPanX || 0) * dpr;
+      const panDY = (mapPanY || 0) * dpr;
+      ctx.drawImage(
+        layerCanvas,
+        Math.round(layerOx + panDX) - panDX,
+        Math.round(layerOy + panDY) - panDY
+      );
+      lastLayerReused = reusable;
     } else {
       ctx.lineWidth = lineWidth;
       for (const [code, bucket] of groupByCode(currentGeo)) {
@@ -780,6 +1001,7 @@
         ctx.stroke();
       }
     }
+    phaseT.features = performance.now();
     performance.mark('feature-render-end');
     performance.measure('feature-render', 'feature-render-start', 'feature-render-end');
 
@@ -850,18 +1072,35 @@
         ctx.setLineDash([]);
       }
 
+      phaseT.boundaries = performance.now();
       performance.mark('boundaries-render-end');
       performance.measure('boundaries-render', 'boundaries-render-start', 'boundaries-render-end');
     }
 
+    if (phaseT.boundaries === 0) phaseT.boundaries = phaseT.features;
     performance.mark('draw-cleanup-start');
     ctx.restore();
     updateHandles(currentPoints);
     initialDrawDone = true;
     mapReady = true;
+    phaseT.handles = performance.now();
     drawOverlay();
+    phaseT.overlay = performance.now();
     performance.mark('draw-cleanup-end');
     performance.measure('draw-cleanup', 'draw-cleanup-start', 'draw-cleanup-end');
+
+    // Wall-clock cost of the whole draw, including rasterisation the JS-side
+    // benchmarks cannot see. Reported in the dev HUD.
+    lastDrawMs = performance.now() - drawStart;
+    mapDrawMs = lastDrawMs;
+    mapLayerReused = lastLayerReused;
+    mapDrawPhases = {
+      proj: (phaseT.proj || drawStart) - drawStart,
+      features: (phaseT.features || phaseT.proj || drawStart) - (phaseT.proj || drawStart),
+      boundaries: (phaseT.boundaries || phaseT.features || drawStart) - (phaseT.features || drawStart),
+      handles: (phaseT.handles || drawStart) - (phaseT.boundaries || drawStart),
+      overlay: (phaseT.overlay || drawStart) - (phaseT.handles || drawStart)
+    };
   }
 
   function animateProjection(fromPts, toPts) {
@@ -939,7 +1178,7 @@
       proj.translate([lerpTx, lerpTy]);
       proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
 
-      draw(pts, { projectionOverride: proj, skipCache: true });
+      draw(pts, { projectionOverride: proj, skipCache: true, motion: true });
       if (t < 1) {
         animRaf = requestAnimationFrame(step);
       } else {

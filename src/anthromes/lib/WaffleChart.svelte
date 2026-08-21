@@ -26,6 +26,9 @@
     showBoundaries = false,
     mapReady = $bindable(false),
     mapScale = $bindable(1),
+    mapDrawMs = $bindable(0),
+    mapLayerReused = $bindable(false),
+    mapDrawPhases = $bindable(null),
     mapRotation = 0,
     mapPanX = $bindable(0),
     mapPanY = $bindable(0),
@@ -968,6 +971,9 @@
     bind:mapPanX
     bind:mapPanY
     bind:mapScale
+    bind:mapDrawMs
+    bind:mapLayerReused
+    bind:mapDrawPhases
     bind:tooltipVisible={mapTooltipVisible}
     bind:tooltipX={mapTooltipX}
     bind:tooltipY={mapTooltipY}
