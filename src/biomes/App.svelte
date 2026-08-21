@@ -53,11 +53,14 @@
   let settingsOpen = $state(false);
   let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
   let selectedStudyKey = $state(null);
-  // Country-first primary filter (Phase 2). ISO3 or null.
-  // Seeded from ?country=ISO3 so a selection carries across the two sides.
-  let selectedCountryIso3 = $state(readCountryParam());
-  let primaryCountries = $state(null);        // { ISO3: {label, sgbs, ...} } from primary_countries.json
-  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
+  // Declared BEFORE selectedCountryIso3: its initialiser calls
+  // readCountryParam(), which validates against PRIMARY_ORDER. `const` is not
+  // hoisted, so with these below the state declaration any load carrying
+  // ?country=ISO3 — i.e. every hand-off from the anthromes side — threw a TDZ
+  // ReferenceError and rendered a blank page. It only ever showed up WITH the
+  // param, because `p && PRIMARY_ORDER.includes(p)` short-circuits before
+  // touching PRIMARY_ORDER when there is no param to check. Same fix, same
+  // reason, as on the anthromes side.
   const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
   // Compact display labels — iso3_names.json expands SWE→"Sweden", USA→"United
   // States of America", GBR→"United Kingdom" etc. The picker needs short,
@@ -72,6 +75,12 @@
     PER: 'Peru',
     TZA: 'Tanzania'
   };
+
+  // Country-first primary filter (Phase 2). ISO3 or null.
+  // Seeded from ?country=ISO3 so a selection carries across the two sides.
+  let selectedCountryIso3 = $state(readCountryParam());
+  let primaryCountries = $state(null);        // { ISO3: {label, sgbs, ...} } from primary_countries.json
+  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
 
   // ── UI Option 1: lifestyle rows ─────────────────────────────────────────────
   // Pasolli assigns Westernized per cohort, but cohorts are country-bounded: of
@@ -233,6 +242,13 @@
   let detailPanelAnchor = $state(null);
   // 8/21: the rule under the SGB name — the leader's terminus on this side.
   let sgbRuleEl = $state(null);
+  // 8/21: design px of blank lead-in above the SGB title. The leader runs DEAD
+  // STRAIGHT out of the disk, so the rule has to come to the marker's height
+  // rather than the line bending to find the rule — everything else in the
+  // panel then follows below it. Measured rather than assumed: the panel sits
+  // under a country block whose height is data-dependent, and a margin
+  // translates the rule 1:1, so one correction lands it exactly.
+  let sgbLeadIn = $state(0);
   let viewportW = $state(0);
   let viewportH = $state(0);
 
@@ -269,8 +285,21 @@
     leaderTo = screenToDesign(panelRect.left, r.top + r.height / 2);
   }
 
+  function alignSgbToMarker() {
+    if (!refined0821() || !sgbRuleEl || !leaderFrom) return;
+    const rr = sgbRuleEl.getBoundingClientRect();
+    const ruleY = screenToDesign(rr.left, rr.top + rr.height / 2).y;
+    const delta = leaderFrom.y - ruleY;
+    // Sub-pixel drift is not worth a reflow, and stopping at it is also what
+    // terminates the measure → adjust → re-measure cycle the ResizeObserver
+    // below drives. Never negative: the title cannot climb into the block above.
+    if (Math.abs(delta) < 0.5) return;
+    sgbLeadIn = Math.max(0, sgbLeadIn + delta);
+  }
+
   function handleMarker(event) {
     leaderFrom = event.detail || null;
+    alignSgbToMarker();
     updateLeaderTo();
   }
 
@@ -279,10 +308,11 @@
   // observe its box so the leader endpoint tracks those late layout shifts.
   $effect(() => {
     const el = detailPanelEl;
-    detailContent; viewportW; viewportH; sgbRuleEl;
+    detailContent; viewportW; viewportH; sgbRuleEl; leaderFrom;
+    alignSgbToMarker();
     updateLeaderTo();
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => updateLeaderTo());
+    const ro = new ResizeObserver(() => { alignSgbToMarker(); updateLeaderTo(); });
     ro.observe(el);
     return () => ro.disconnect();
   });
@@ -1036,7 +1066,7 @@
                        the glyph with a rule under it, and the line terminates
                        on that rule's LEFT end — the end facing the disk — so
                        the dashed run and the underline read as one stroke. -->
-                  <div class="species-title">
+                  <div class="species-title" style={`margin-top: ${6 + sgbLeadIn}px`}>
                     <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
                     <span class="species-sgb-rule" bind:this={sgbRuleEl}></span>
                   </div>
@@ -1181,9 +1211,7 @@
             >All</button>
           </div>
           <p class="fblock-desc">
-            Select a country to lens the tree to species found in samples collected there.
-            The percentage is the share of that country's bacteria species that were
-            unknown to science before this study.
+            Select a country to view the species found in samples collected there.
           </p>
 
           {#snippet lifestyleRow(title, blurb, rowItems)}
@@ -1275,7 +1303,7 @@
               aria-label="Clear country selection"
             >All</button>
           </div>
-          <p class="fblock-desc">Select a country to lens the tree to species found in samples collected there.</p>
+          <p class="fblock-desc">Select a country to view the species found in samples collected there.</p>
           <div class="country-row">
             {#each PRIMARY_ORDER as iso3 (iso3)}
               {@const feature = countryFeatureByIso.get(iso3)}
@@ -1590,11 +1618,14 @@
                Option 1 lands on the vertical centre of the SGB title, so the
                line slopes; the others stay level with the marker. The x
                endpoint is the same either way. -->
+          <!-- 8/21 takes its y from the MARKER, not from leaderTo: the run is
+               horizontal by construction, so it still reads straight during the
+               frame before the title's lead-in has settled on the rule. -->
           <line
             class="leader-line"
             x1={leaderFrom.x} y1={leaderFrom.y}
             x2={refined0821() ? leaderTo.x : leaderTo.x - 8}
-            y2={refinedLayout() ? leaderTo.y : leaderFrom.y}
+            y2={refined0821() ? leaderFrom.y : refinedLayout() ? leaderTo.y : leaderFrom.y}
           />
         {/if}
       </svg>
@@ -1680,10 +1711,14 @@
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
+  /* Rail rhythm. Looser than the anthromes rail's 23px: this side's blocks
+     leave a lot of the column empty, so the separators spend that height
+     rather than pooling it at the foot. The anthromes rail has no such slack
+     and stays tight — see the note there. */
   .rail > * + * {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 23px;
-    padding-top: 23px;
+    margin-top: 32px;
+    padding-top: 32px;
   }
 
   .control-circles,
@@ -1782,7 +1817,7 @@
   .fblock {
     display: flex;
     flex-direction: column;
-    gap: 13px;
+    gap: 17px;              /* looser than the anthromes .detail-dock's 13px */
     min-width: 0;
   }
 
@@ -1934,7 +1969,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 15px;
-    margin-bottom: 6px;
+    margin-bottom: 9px;
   }
 
   /* Range annotation tag — mirrors the anthromes-side treatment so both
@@ -2599,7 +2634,13 @@
     color: var(--muted);
     line-height: 1.5;
     display: grid;
-    gap: 11px;              /* unified with the anthromes detail panel */
+    /* Rows size to their content and stack from the top. Without this, grid's
+       default align-content:stretch spreads the panel's leftover height evenly
+       across every row — so each block (the SGB title, the glyph row, the
+       genome meter) sat in a box ~37px taller than itself, reading as slack
+       under each heading rather than as space at the foot of the panel. */
+    align-content: start;
+    gap: 14px;              /* looser than the anthromes detail panel's 11px */
     overflow: auto;
   }
 

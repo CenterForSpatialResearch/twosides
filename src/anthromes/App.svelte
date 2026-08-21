@@ -55,10 +55,6 @@
   let mapReady = $state(false);
   let initialLoad = $state(true);
   let zoomLevel = $state(1);
-  // Draw diagnostics from MapCanvas, shown in the dev HUD.
-  let mapDrawMs = $state(0);
-  let mapLayerReused = $state(false);
-  let mapDrawPhases = $state(null);
   let rotation = $state(0);
   let mapPanX = $state(0);
   let mapPanY = $state(0);
@@ -172,6 +168,25 @@
         ? `country:${selectedCountryIso3}`
         : 'world'
   );
+  // 8/21: the panel names what it is showing rather than being labelled
+  // "Details" — matching the biomes side, where the SGB name is the heading.
+  // Three scales, three headings; the line underneath restates the span, and at
+  // world scale says how to narrow it.
+  const detailHeading = $derived(
+    detailScale === 'cell'
+      ? 'Anthrome composition of a cell'
+      : detailScale === 'country'
+        ? `Anthrome composition of ${selectedCountryMeta?.label ?? 'this country'}`
+        : 'Anthrome composition of the world'
+  );
+  const detailBlurb = $derived(
+    detailScale === 'cell'
+      ? "This cell's anthrome transitions over 12,025 years."
+      : detailScale === 'country'
+        ? `${selectedCountryMeta?.label ?? 'This country'}'s anthrome transitions over 12,025 years.`
+        : "The world's anthrome transitions over 12,025 years. Pick a country or cell to narrow it."
+  );
+
   const detailTitle = $derived(
     detailScale === 'cell'
       ? 'Cell history'
@@ -871,19 +886,24 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-          <h3 class="menu-title">Details</h3>
-          <p class="menu-desc">
-            {#if detailContent}
-              This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${selectedCountryMeta.label}` : ''}.
-            {:else if selectedCountryMeta}
-              Anthrome composition of {selectedCountryMeta.label} across 12 025 years.
-            {:else if refinedLayout()}
-              Anthrome composition of the whole world across 12 025 years.
-              Pick a country or a cell to narrow it.
-            {:else}
-              Select a country above, or click a cell on the map.
-            {/if}
-          </p>
+          {#if refined0821()}
+            <h3 class="menu-title">{detailHeading}</h3>
+            <p class="menu-desc">{detailBlurb}</p>
+          {:else}
+            <h3 class="menu-title">Details</h3>
+            <p class="menu-desc">
+              {#if detailContent}
+                This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${selectedCountryMeta.label}` : ''}.
+              {:else if selectedCountryMeta}
+                Anthrome composition of {selectedCountryMeta.label} across 12 025 years.
+              {:else if refinedLayout()}
+                Anthrome composition of the whole world across 12 025 years.
+                Pick a country or a cell to narrow it.
+              {:else}
+                Select a country above, or click a cell on the map.
+              {/if}
+            </p>
+          {/if}
           <div class="detail-body">
             {#if refinedLayout()}
               <!-- Option 1: the panel is never empty. World, country and cell
@@ -1068,9 +1088,6 @@
           {debugMenuVisible}
           {showBoundaries}
           bind:mapScale={zoomLevel}
-          bind:mapDrawMs
-          bind:mapLayerReused
-          bind:mapDrawPhases
           mapRotation={rotation}
           bind:mapPanX
           bind:mapPanY
@@ -1177,7 +1194,7 @@
 {/if}
 </div>
 <!-- Outside .stage so it renders at true screen px, unscaled -->
-<DevHud showMapResolution drawMs={mapDrawMs} layerReused={mapLayerReused} phases={mapDrawPhases} zoom={zoomLevel} />
+<DevHud showMapResolution />
 </div>
 
 <style>
@@ -1259,6 +1276,10 @@
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
+  /* Rail rhythm. Deliberately tighter than the biomes rail's: this side has
+     no vertical slack — the country picker, the details chart and the full
+     anthrome key all have to fit — so it keeps the original 23px while biomes
+     spends its leftover height on a looser rhythm. */
   .filter-rail > * + * {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
     margin-top: 23px;
@@ -1821,7 +1842,7 @@
     line-height: 1.5;
     display: flex;
     flex-direction: column;
-    gap: 11px;              /* unified with the biomes detail panel */
+    gap: 11px;              /* tighter than biomes' — no slack on this side */
     overflow: hidden;
     flex: 1;
     min-height: 0;

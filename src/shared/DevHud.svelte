@@ -11,60 +11,8 @@
   // Only the anthromes side has a map, so only it opts into the resolution
   // toggle. Biomes leaves it off.
   let {
-    showMapResolution = false,
-    // Wall-clock cost of the last map draw, and whether it was blitted from the
-    // cached layer rather than re-rendered. JS benchmarks cannot see
-    // rasterisation cost, so this is the only honest read on frame time.
-    drawMs = 0,
-    layerReused = false,
-    // Per-phase breakdown of the last draw, so the expensive part is visible
-    // rather than inferred.
-    phases = null,
-    zoom = null
+    showMapResolution = false
   } = $props();
-
-  // Snapshot of the draw readout, for pasting somewhere useful. Values move
-  // every frame, so this captures them at the moment of the click.
-  let copied = $state(false);
-  let copyTimer = null;
-
-  function drawReport() {
-    const parts = [
-      `anthromes draw — ${topoProfile()}` +
-        (zoom != null ? `, zoom ${Number(zoom).toFixed(2)}` : '') +
-        `, dpr ${dpr.toFixed(2)}, viewport ${vw}x${vh}`,
-      `  total ${drawMs.toFixed(1)} ms (${layerReused ? 'blit' : 'render'})`
-    ];
-    if (phases) {
-      parts.push(
-        `  proj ${phases.proj.toFixed(1)} · cells ${phases.features.toFixed(1)}` +
-        ` · bounds ${phases.boundaries.toFixed(1)} · handles ${phases.handles.toFixed(1)}` +
-        ` · overlay ${phases.overlay.toFixed(1)}`
-      );
-    }
-    return parts.join('\n');
-  }
-
-  async function copyDraw() {
-    const text = drawReport();
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Clipboard API needs a secure context; fall back to a hidden textarea so
-      // this still works over plain http on a gallery machine.
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch { /* nothing else to try */ }
-      ta.remove();
-    }
-    copied = true;
-    clearTimeout(copyTimer);
-    copyTimer = setTimeout(() => (copied = false), 1200);
-  }
 
   const LENS_W = 420;
   const LENS_H = 280;
@@ -200,27 +148,6 @@
       >
         UI OPTION: {uiOption()}/{UI_OPTION_COUNT} &middot; {uiOptionLabel()}
       </button>
-      {#if showMapResolution && drawMs > 0}
-        <div class="hud-row">
-          DRAW:&nbsp;&nbsp;&nbsp;&nbsp; {drawMs.toFixed(1)} ms {layerReused ? '(blit)' : '(render)'}
-        </div>
-        {#if phases}
-          <div class="hud-row">
-            &nbsp;&nbsp;proj {phases.proj.toFixed(0)} &middot; cells {phases.features.toFixed(0)} &middot; bounds {phases.boundaries.toFixed(0)}
-          </div>
-          <div class="hud-row">
-            &nbsp;&nbsp;handles {phases.handles.toFixed(0)} &middot; overlay {phases.overlay.toFixed(0)}
-          </div>
-        {/if}
-        <button
-          class="hud-btn"
-          class:on={copied}
-          title="Copy the draw breakdown to the clipboard"
-          onclick={copyDraw}
-        >
-          {copied ? '✓ COPIED' : '⧉ COPY DRAW'}
-        </button>
-      {/if}
       {#if showMapResolution}
         <button
           class="hud-btn"

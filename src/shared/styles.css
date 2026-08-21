@@ -339,9 +339,11 @@ body {
   background: rgba(255, 255, 255, 0.5);
 }
 
-/* The title already carries the block's top margin. */
+/* Title and glyph row are one unit — the name and the thing it names — so they
+   sit tighter than the 11px rhythm the panel uses between blocks. The graphic's
+   own 6px top margin is cancelled and pulled in a little further. */
 .panel-content .species-title + .species-graphic {
-  margin-top: 9px;
+  margin-top: -4px;
 }
 
 /* 2x the original 64px. The SVG's viewBox is cropped to the path's extent
