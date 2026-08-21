@@ -11,29 +11,37 @@
 // 76-year series as one blob per profile instead of a TopoJSON per year. The
 // entire set is ~214MB against 1.8GB for the 33km TopoJSON alone, and switching
 // years costs no network at all.
-export const TOPO_PROFILES = ['100km', '75km', '50km', '33km', '25km', '10km'];
+// Limited to the 50-100km band: below 50km the per-frame cost of projecting and
+// filling every cell stops being interactive, and the finer profiles were only
+// ever there to prove the format scales. 33km/25km/10km can still be generated
+// (processing/run_grid_profiles.sh) and are served from temp/ in dev — they just
+// aren't offered in the picker.
+//
+// All five ship in public/grid/ (Git LFS), 18MB total, so the deployed build and
+// a local dev server behave identically.
+export const TOPO_PROFILES = ['100km', '75km', '70km', '60km', '50km'];
 
 export const DEFAULT_TOPO_PROFILE = '100km';
 
-// One-time download for the full series, per profile. Cell count scales with
-// 1/res², so 10km is ~100x the cells of 100km.
-export const TEMP_TOPO_PROFILES = {
-  '100km': { total: '2.1MB', cells: '22K' },
-  '75km': { total: '3.1MB', cells: '38K' },
-  '50km': { total: '6.3MB', cells: '83K' },
-  '33km': { total: '14MB', cells: '183K' },
-  '25km': { total: '25MB', cells: '320K' },
-  '10km': { total: '164MB', cells: '2.2M' }
+// One-time download for the full 76-year series, per profile — after which
+// changing years costs no network at all. Cell count scales with 1/res², so
+// 50km is ~4x the cells of 100km.
+export const PROFILE_INFO = {
+  '100km': { total: '1.6MB', cells: '22K' },
+  '75km': { total: '2.8MB', cells: '38K' },
+  '70km': { total: '3.2MB', cells: '44K' },
+  '60km': { total: '4.3MB', cells: '59K' },
+  '50km': { total: '6.1MB', cells: '83K' }
 };
 
-export function isTempProfile(p) {
-  return Object.hasOwn(TEMP_TOPO_PROFILES, p);
+export function hasProfileInfo(p) {
+  return Object.hasOwn(PROFILE_INFO, p);
 }
 
-// "33km is 183K cells, 14MB for all 76 years" — used by both the DevHud tooltip
+// "50km is 83K cells, 6.1MB for all 76 years" — used by both the DevHud tooltip
 // and the settings-panel tip so they can't drift apart.
-export function tempProfileSizes(p) {
-  const s = TEMP_TOPO_PROFILES[p];
+export function profileSizes(p) {
+  const s = PROFILE_INFO[p];
   return s ? `${p} is ${s.cells} cells, ${s.total} for all 76 years` : '';
 }
 

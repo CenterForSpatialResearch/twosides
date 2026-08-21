@@ -130,10 +130,11 @@ export function featuresForYear(grid, year) {
     const row = (cellId / ncols) | 0;
     const col = cellId - row * ncols;
 
+    // Canonical boundary expressions — see lngAt/latAt.
     const minX = originX + col * res;
-    const maxX = minX + res;
+    const maxX = originX + (col + 1) * res;
     const maxY = originY - row * res;
-    const minY = maxY - res;
+    const minY = originY - (row + 1) * res;
 
     features.push({
       type: 'Feature',
@@ -151,6 +152,96 @@ export function featuresForYear(grid, year) {
   featureCache.set(key, fc);
   return fc;
 }
+
+// Longest horizontal run emitted as a single rectangle. Splitting long runs
+// bounds how wrong a quad can be if it straddles a projection discontinuity,
+// and costs almost nothing — runs are rarely near this long.
+const MAX_RUN_COLS = 64;
+
+/**
+ * Horizontal runs of same-code cells, grouped by anthrome code.
+ *
+ * Adjacent cells in a row sharing an anthrome value are one rectangle, which is
+ * how 182,503 cells at 33km become ~55,000 rectangles. Combined with projecting
+ * corners directly rather than streaming each cell through d3.geoPath, this is
+ * the difference between ~430ms and ~40ms of JS per draw.
+ *
+ * Returns Map<code, Int32Array> where each run is 3 consecutive ints:
+ * row, colStart, colEnd (inclusive). Cached per profile+year.
+ */
+export function runsForYear(grid, year) {
+  const key = `${grid.manifest.profile}:${year}`;
+  const hit = runCache.get(key);
+  if (hit) return hit;
+
+  const { manifest, landIds, codes } = grid;
+  const yi = grid.yearIndex.get(year);
+  if (yi === undefined) throw new Error(`${year} not in ${manifest.profile} manifest`);
+
+  const { nLand, ncols } = manifest;
+  const offset = yi * nLand;
+  const buckets = new Map();          // code -> number[]
+
+  let curCode = 0, curRow = -1, curStart = -1, curEnd = -1;
+
+  const flush = () => {
+    if (curCode === 0) return;
+    let b = buckets.get(curCode);
+    if (!b) buckets.set(curCode, (b = []));
+    b.push(curRow, curStart, curEnd);
+  };
+
+  // landIds is ascending cellId, and cellId = row*ncols + col, so this walk is
+  // already in row-major order — runs fall out of a single pass.
+  for (let j = 0; j < nLand; j++) {
+    const code = codes[offset + j];
+    if (code === 0) continue;
+
+    const cellId = landIds[j];
+    const row = (cellId / ncols) | 0;
+    const col = cellId - row * ncols;
+
+    const continues = code === curCode && row === curRow && col === curEnd + 1 &&
+      (curEnd - curStart + 1) < MAX_RUN_COLS;
+
+    if (continues) {
+      curEnd = col;
+    } else {
+      flush();
+      curCode = code; curRow = row; curStart = col; curEnd = col;
+    }
+  }
+  flush();
+
+  const out = new Map();
+  for (const [code, arr] of buckets) out.set(code, Int32Array.from(arr));
+  runCache.set(key, out);
+  return out;
+}
+
+const runCache = new Map();
+
+/**
+ * The lng/lat corners of a run, as [west, east, north, south].
+ * Runs cover columns colStart..colEnd inclusive on the given row.
+ */
+export function runBounds(grid, row, colStart, colEnd) {
+  const { res, originX, originY } = grid.manifest;
+  return [
+    lngAt(originX, res, colStart),
+    lngAt(originX, res, colEnd + 1),
+    latAt(originY, res, row),
+    latAt(originY, res, row + 1)
+  ];
+}
+
+// Every lattice boundary must come from ONE expression. Deriving a cell's south
+// edge as `north - res` while the row below derives its north edge as
+// `originY - (row+1)*res` gives two values that differ by an ULP, so the shared
+// boundary projects to two nearly-identical points and leaves a hairline seam.
+// Same story horizontally with `minX + res`.
+function lngAt(originX, res, col) { return originX + col * res; }
+function latAt(originY, res, row) { return originY - row * res; }
 
 /**
  * The cellId containing a lng/lat, or -1 if the point is off-grid.
@@ -284,9 +375,9 @@ export function meshForGrid(grid) {
     const col = cellId - row * ncols;
 
     const minX = originX + col * res;
-    const maxX = minX + res;
+    const maxX = originX + (col + 1) * res;
     const maxY = originY - row * res;
-    const minY = maxY - res;
+    const minY = originY - (row + 1) * res;
 
     if (!isLand(row - 1, col)) segments.push([[minX, maxY], [maxX, maxY]]);
     if (!isLand(row + 1, col)) segments.push([[minX, minY], [maxX, minY]]);

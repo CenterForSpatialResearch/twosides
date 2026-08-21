@@ -6,7 +6,7 @@
   import { onMount } from 'svelte';
   import { DESIGN_W, DESIGN_H, stageScale, getStageEl, screenToDesign } from './stage.svelte.js';
   import { uiOption, cycleUiOption, uiOptionLabel, UI_OPTION_COUNT } from './uiOption.svelte.js';
-  import { topoProfile, cycleTopoProfile, DEFAULT_TOPO_PROFILE, isTempProfile, tempProfileSizes } from './topoProfile.svelte.js';
+  import { topoProfile, cycleTopoProfile, DEFAULT_TOPO_PROFILE, hasProfileInfo, profileSizes } from './topoProfile.svelte.js';
 
   // Only the anthromes side has a map, so only it opts into the resolution
   // toggle. Biomes leaves it off.
@@ -150,12 +150,12 @@
         <button
           class="hud-btn"
           class:on={topoProfile() !== DEFAULT_TOPO_PROFILE}
-          title={isTempProfile(topoProfile())
-            ? `${tempProfileSizes(topoProfile())}, served from the gitignored temp/ folder in dev only`
+          title={hasProfileInfo(topoProfile())
+            ? `${profileSizes(topoProfile())}, fetched once`
             : 'Map tile resolution'}
           onclick={cycleTopoProfile}
         >
-          MAP RES: {topoProfile()}{isTempProfile(topoProfile()) ? ' (temp/)' : ''}
+          MAP RES: {topoProfile()}
         </button>
       {/if}
     </div>

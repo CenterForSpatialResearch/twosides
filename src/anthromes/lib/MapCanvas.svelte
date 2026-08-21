@@ -4,7 +4,8 @@
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
   import {
-    loadGrid, featuresForYear, historyForCell, meshForGrid, featureAt, featureIndex
+    loadGrid, featuresForYear, historyForCell, meshForGrid, featureAt, featureIndex,
+    runsForYear, runBounds
   } from './gridSource.js';
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
@@ -49,6 +50,101 @@
       rgbaCache.set(key, out);
     }
     return out;
+  }
+
+  // --- direct-projection fast path -------------------------------------------
+  // d3.geoPath costs ~2.8x the raw projection math it wraps: stream machinery,
+  // clipping, and adaptive resampling that subdivides every cell edge into ~10
+  // canvas ops instead of 5. Measured at 33km, one draw: 433ms of geoPath
+  // against 155ms to project the same corners directly.
+  //
+  // So this projects the rectangles itself. Crucially it subdivides each run's
+  // long edges at every column boundary rather than drawing corner to corner: a
+  // 64-column run spans 19.2 degrees at 33km, and the projection curves visibly
+  // across that, so a straight chord pulls the edge away from its neighbours and
+  // opens seams — worst exactly where one anthrome repeats across many cells.
+  // Subdividing puts the outline through the same projected vertices the
+  // per-cell path used, so adjacent runs and adjacent rows share them exactly
+  // and the tiling is seamless by construction.
+  //
+  // Within one cell the remaining difference from geoPath is the ~0.02px
+  // geodesic bow it would have resampled in — the same sub-pixel difference the
+  // grid hit-test accepts.
+  //
+  // What geoPath does that this cannot is clip. Raw projection(point) ignores
+  // clipAngle, so geometry straddling the projection's far rim would draw across
+  // the disc. Guarded two ways: runs are capped at 64 columns (MAX_RUN_COLS),
+  // and any run whose projected span exceeds maxEdgePx is dropped. The path is
+  // only used when the whole sphere is visible (clipAngle >= 180); anything
+  // narrower falls back to geoPath, which clips properly.
+  // `year` and `currentGeo` update independently, so confirm the manifest really
+  // covers this year rather than letting runsForYear throw mid-draw.
+  function canUseFastPath() {
+    return !!gridData && clipAngle >= 180 && gridData.yearIndex.has(year);
+  }
+
+  // Scratch buffer for one run's outline, reused across runs to keep the draw
+  // allocation-free. A run of N columns needs 2*(N+1) points.
+  const runPts = new Float64Array(4 * (64 + 1) + 4);
+
+  function drawGridRuns(ctx, projection, dpr, opts) {
+    const { runs, legend, selectedSet, baseOpacity, lineWidth, maxEdgePx } = opts;
+    const { res, originX, originY } = gridData.manifest;
+    let dropped = 0;
+
+    ctx.lineWidth = lineWidth;
+    for (const [code, runArr] of runs) {
+      if (selectedSet && !selectedSet.has(code)) continue;
+
+      const style = rgbaFor(legend[code]?.color || '#ffffff', baseOpacity);
+      ctx.fillStyle = style;
+      ctx.strokeStyle = style;
+      ctx.beginPath();
+
+      for (let k = 0; k < runArr.length; k += 3) {
+        const row = runArr[k], c0 = runArr[k + 1], c1 = runArr[k + 2];
+        // Canonical boundary expressions: an ULP difference here between a row's
+        // south edge and the next row's north edge is a visible hairline seam.
+        const north = originY - row * res;
+        const south = originY - (row + 1) * res;
+
+        // Walk the south edge east->west, then the north edge west->east,
+        // stopping at every column boundary. Same orientation as the Feature
+        // path, so winding is unchanged.
+        let n = 0;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let ok = true;
+
+        for (let col = c1 + 1; col >= c0 && ok; col--) {
+          const p = projection([originX + col * res, south]);
+          if (!p) { ok = false; break; }
+          runPts[n++] = p[0]; runPts[n++] = p[1];
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        }
+        for (let col = c0; col <= c1 + 1 && ok; col++) {
+          const p = projection([originX + col * res, north]);
+          if (!p) { ok = false; break; }
+          runPts[n++] = p[0]; runPts[n++] = p[1];
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        }
+
+        // NaN-safe: a non-finite point fails these comparisons too.
+        if (!ok || !(maxX - minX <= maxEdgePx) || !(maxY - minY <= maxEdgePx)) {
+          dropped++;
+          continue;
+        }
+
+        ctx.moveTo(runPts[0], runPts[1]);
+        for (let i = 2; i < n; i += 2) ctx.lineTo(runPts[i], runPts[i + 1]);
+        ctx.closePath();
+      }
+
+      ctx.fill();
+      ctx.stroke();
+    }
+    return dropped;
   }
 
   let {
@@ -637,22 +733,38 @@
     const isolating = isolatedCellId !== null;
     const baseOpacity = isolating ? 0.1 : 1.0;
 
-    ctx.lineWidth = lineWidth;
-    for (const [code, bucket] of groupByCode(currentGeo)) {
-      if (selectedSet && !selectedSet.has(code)) continue;
-
-      const style = rgbaFor(legend[code]?.color || '#ffffff', baseOpacity);
-      ctx.fillStyle = style;
-      ctx.strokeStyle = style;
-
-      ctx.beginPath();
-      for (let i = 0; i < bucket.length; i++) {
-        const feature = bucket[i];
-        if (isolating && feature.properties.i === isolatedCellId) continue;
-        path(feature);
+    if (canUseFastPath()) {
+      // Runs already exclude nothing; the isolated cell is redrawn opaque below,
+      // and an opaque fill fully covers the dimmed one underneath.
+      const dropped = drawGridRuns(ctx, projection, dpr, {
+        runs: runsForYear(gridData, year),
+        legend,
+        selectedSet,
+        baseOpacity,
+        lineWidth,
+        maxEdgePx: Math.max(canvasEl.width, canvasEl.height)
+      });
+      if (dropped > 0 && debugMenuVisible) {
+        console.debug(`MapCanvas: ${dropped} quad(s) failed the projection sanity guard`);
       }
-      ctx.fill();
-      ctx.stroke();
+    } else {
+      ctx.lineWidth = lineWidth;
+      for (const [code, bucket] of groupByCode(currentGeo)) {
+        if (selectedSet && !selectedSet.has(code)) continue;
+
+        const style = rgbaFor(legend[code]?.color || '#ffffff', baseOpacity);
+        ctx.fillStyle = style;
+        ctx.strokeStyle = style;
+
+        ctx.beginPath();
+        for (let i = 0; i < bucket.length; i++) {
+          const feature = bucket[i];
+          if (isolating && feature.properties.i === isolatedCellId) continue;
+          path(feature);
+        }
+        ctx.fill();
+        ctx.stroke();
+      }
     }
 
     if (isolating) {
@@ -1425,26 +1537,57 @@
     const pyDesign = projected[1] / dpr;
 
     // Bounds are in canvas coords (dpr); span in design px.
-    const path = d3.geoPath(projection);
-    const [[minX, minY], [maxX, maxY]] = path.bounds(feature);
+    //
+    // Measure with clipping OFF. The live projection carries a clipExtent sized
+    // to the current pan, so a country outside the current view projects to an
+    // empty bounds of [[Inf,Inf],[-Inf,-Inf]] — and the Math.max(1, ...) below
+    // silently turned that into a 1px span, a huge multiplier, and a maximal
+    // zoom. Focusing China after Tanzania hit exactly this: China fell wholly
+    // outside the clip window, so it framed at 7 instead of 2.02. The framing
+    // needs the whole country's extent, not the visible part of it.
+    const savedClip = projection.clipExtent();
+    let bounds;
+    try {
+      projection.clipExtent(null);
+      bounds = d3.geoPath(projection).bounds(feature);
+    } finally {
+      projection.clipExtent(savedClip);
+    }
+    const [[minX, minY], [maxX, maxY]] = bounds;
+
+    // An unclipped bounds should always be finite; if it isn't, the geometry is
+    // degenerate and any scale derived from it would be nonsense. Leave the view
+    // alone rather than snapping to a wrong one.
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX) ||
+        !Number.isFinite(minY) || !Number.isFinite(maxY)) return;
+
+    // Centre on the projected BOUNDING BOX rather than the spherical centroid —
+    // they agree for compact countries but not for China (the western bulge
+    // drags the centroid off the shape's visual middle) or the USA (Alaska lifts
+    // the box well above it). The box is what the eye reads as centred.
+    //
+    // BOTH passes anchor on this same point. When the first pass predicted the
+    // centroid and the second measured the box, the difference between them
+    // showed up as a visible drift a frame or two after the click — the second
+    // pass was correcting the first rather than confirming it.
+    const boxCx = (minX + maxX) / 2 / dpr;
+    const boxCy = (minY + maxY) / 2 / dpr;
+    // A country straddling the antimeridian can project to a box spanning the
+    // whole plane; fall back to the centroid, which is computed on the sphere
+    // and has no such seam.
+    const boxSane =
+      Number.isFinite(boxCx) && Number.isFinite(boxCy) &&
+      (maxX - minX) / dpr < circle.r * 4 && (maxY - minY) / dpr < circle.r * 4;
+    const anchorX = boxSane ? boxCx : pxDesign;
+    const anchorY = boxSane ? boxCy : pyDesign;
 
     // Second pass: the projection has now been rebuilt at the target scale, so
-    // the country's position is a measurement rather than a prediction. Centre
-    // on the projected BOUNDING BOX rather than the spherical centroid — they
-    // agree for compact countries but not for China (the western bulge drags
-    // the centroid off the shape's visual middle) or the USA (Alaska lifts the
-    // box well above it). The box is what the eye reads as centred.
+    // the country's position is a measurement rather than a prediction. With the
+    // first pass anchored on the same box centre this should be a no-op; it
+    // stays as a safety net for clamped scales and odd shapes.
     if (!firstPass) {
-      const boxCx = (minX + maxX) / 2 / dpr;
-      const boxCy = (minY + maxY) / 2 / dpr;
-      // A country straddling the antimeridian can project to a box spanning the
-      // whole plane; fall back to the centroid, which is computed on the sphere
-      // and has no such seam.
-      const sane =
-        Number.isFinite(boxCx) && Number.isFinite(boxCy) &&
-        (maxX - minX) / dpr < circle.r * 4 && (maxY - minY) / dpr < circle.r * 4;
-      mapPanX = circle.cx - (sane ? boxCx : pxDesign);
-      mapPanY = circle.cy - (sane ? boxCy : pyDesign);
+      mapPanX = circle.cx - anchorX;
+      mapPanY = circle.cy - anchorY;
       focusNeedsCorrection = false;
       return;
     }
@@ -1455,7 +1598,10 @@
     const currentScale = mapScale || 1;
     const nextScale = Math.max(1, Math.min(7, currentScale * scaleMultiplier));
 
-    // Predict where the centroid lands at the new scale. The fixed point of a
+    // Predict where that anchor lands at the new scale. Every projected point
+    // scales about the projection's translate, so the bounds box — and its
+    // centre — moves the same way, which makes this prediction exact rather
+    // than approximate. The fixed point of a
     // scale change is the projection's TRANSLATE, not the circle centre: draw()
     // runs fitExtent (which sets translate so the whole world's bbox centres in
     // the circle) and only then multiplies the scale, leaving translate alone.
@@ -1466,8 +1612,8 @@
     const txDesign = tx / dpr;
     const tyDesign = ty / dpr;
     const scaleRatio = nextScale / currentScale;
-    const predictedX = txDesign + (pxDesign - txDesign) * scaleRatio;
-    const predictedY = tyDesign + (pyDesign - tyDesign) * scaleRatio;
+    const predictedX = txDesign + (anchorX - txDesign) * scaleRatio;
+    const predictedY = tyDesign + (anchorY - tyDesign) * scaleRatio;
 
     // Batch all three writes; Svelte flushes them in one tick so only one draw
     // runs downstream instead of a scale-draw-refit-effect-pan-draw chain.

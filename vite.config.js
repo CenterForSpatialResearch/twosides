@@ -15,12 +15,17 @@ import { existsSync, statSync, createReadStream } from 'fs';
 // ~214MB, against 1.8GB for the 33km TopoJSON set alone. The topojson and
 // cell-history routes stay so the two formats can be compared on screen.
 //
-// Kept in sync with TEMP_TOPO_PROFILES in src/shared/topoProfile.svelte.js.
+// Profiles offered in the picker are listed in src/shared/topoProfile.svelte.js;
+// those all live in public/grid/ and never reach this middleware.
 //
 // DEV ONLY, and only when the file is actually present — without temp/ the
 // request falls through to public/ and 404s, which is what the resolution
 // toggle reports. Nothing here affects `npm run build`.
-const TEMP_PROFILES = ['10km', '25km', '33km', '50km', '75km', '100km'];
+// Only profiles that are NOT shipped. 50-100km live in public/grid/ and are
+// served by Vite's own static handler in dev and prod alike, so what you see
+// locally is what deploys. These finer ones stay dev-only for inspection;
+// the middleware 404s anything not actually present on disk.
+const TEMP_PROFILES = ['10km', '25km', '33km'];
 
 function serveTempAssets() {
   const root = process.cwd();

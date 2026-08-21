@@ -13,8 +13,38 @@ There are two pipelines. **The grid pipeline is the one to use** — the GeoJSON
 - Input: GeoTIFF at `data/HYDE-3.5/baseline/anthromes_geotiff`
 - `processing/2b_generate_grid.py`: reads the GeoTIFFs **directly** and writes one small binary bundle per profile. No GeoJSON, no polygonization.
 - Output: `temp/grid/<profile>/` — read at runtime by [src/anthromes/lib/gridSource.js](../src/anthromes/lib/gridSource.js).
+- `processing/promote_grid.sh <profile>...`: copies a profile from `temp/grid/` to `public/grid/`, making it shipped rather than local-only.
 
-Run it with `./run_grid_profiles.sh`. All six profiles, all 76 years, take about a minute.
+Run it with `./run_grid_profiles.sh`. All eight profiles, all 76 years, take about a minute.
+
+### Shipped vs local
+
+| location | tracked | served in dev | served in prod |
+|---|---|---|---|
+| `public/grid/<profile>/` | yes, `.bin` via Git LFS | yes, by Vite's static handler | yes |
+| `temp/grid/<profile>/` | no, gitignored | yes, via `serveTempAssets` | **no** |
+
+Currently shipped: **100km, 75km, 70km, 60km, 50km** — 18MB total, and the five offered in the resolution picker. 33km, 25km and 10km stay in `temp/` for inspection.
+
+A profile under `public/` behaves identically in dev and in a production build, so what you test locally is what deploys. That matters for anything running the built site — a `temp/`-only profile renders a blank map there, because `serveTempAssets` is `apply: 'serve'` and does not exist in a build.
+
+To ship a new profile:
+
+```bash
+./run_grid_profiles.sh 60km          # generate into temp/
+./promote_grid.sh 60km               # copy into public/
+./promote_grid.sh --list             # see what is where
+```
+
+then drop it from `TEMP_PROFILES` in [vite.config.js](../vite.config.js) and add it to `TOPO_PROFILES` in [src/shared/topoProfile.svelte.js](../src/shared/topoProfile.svelte.js) to put it in the picker.
+
+### Running the built site locally
+
+```bash
+npm run build && npm run preview
+```
+
+Use this rather than `npm run dev` for anything performance-sensitive — an installation, a demo, or judging render speed. `npm run dev` serves dev-mode Svelte with reactivity instrumentation and unminified code, which is dramatically slower on the data-heavy pages; the biomes page in particular takes about a minute under `dev` and a couple of seconds under `preview`. It is not a data-loading problem: the dev server serves the 16.6MB taxonomy tree in ~44ms.
 
 ### GeoJSON/TopoJSON pipeline (legacy)
 

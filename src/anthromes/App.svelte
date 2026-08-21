@@ -5,7 +5,7 @@
   import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
   import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
-  import { topoProfile, setTopoProfile, TOPO_PROFILES, isTempProfile, tempProfileSizes } from '../shared/topoProfile.svelte.js';
+  import { topoProfile, setTopoProfile, TOPO_PROFILES, hasProfileInfo, profileSizes } from '../shared/topoProfile.svelte.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
@@ -651,16 +651,15 @@
         <span>Map Resolution</span>
         <select value={topoProfile()} onchange={(e) => setTopoProfile(e.currentTarget.value)}>
           {#each TOPO_PROFILES as p}
-            <option value={p}>{p}{isTempProfile(p) ? ' (temp/, dev only)' : ''}</option>
+            <option value={p}>{p}</option>
           {/each}
         </select>
       </label>
-      {#if isTempProfile(topoProfile())}
+      {#if hasProfileInfo(topoProfile())}
         <div class="tip">
-          {tempProfileSizes(topoProfile())}, fetched once from the gitignored
-          temp/ folder in dev only — expect a pause on the first load, then no
-          network on year changes. Blank map means that profile hasn't been
-          generated yet (run processing/run_grid_profiles.sh).
+          {profileSizes(topoProfile())}. The whole series is fetched once, so
+          expect a brief pause on first load and no network at all when changing
+          years.
         </div>
       {/if}
 
