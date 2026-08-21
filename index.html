@@ -17,7 +17,8 @@
       --muted:#cfd3e0;
       --ring:#ffffff;
       --ringWidth: 3px;
-      --disk: min(70vmin, 860px);
+      /* Cap tighter — titles at r=650 with ascenders outward reach r≈720 */
+      --disk: min(66vmin, 900px);
     }
 
     html, body {
@@ -28,25 +29,6 @@
       font-family: "Pelikan", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       overflow: hidden;
     }
-
-    /* Fixed vertical side labels — always clickable; opacity tracks the coin's rotation */
-    .sideLink {
-      position: fixed;
-      top: 50%;
-      transform: translateY(-50%);
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      font-size: clamp(30px, 4vw, 52px);
-      font-weight: 700;
-      letter-spacing: .15em;
-      color: var(--fg);
-      user-select: none;
-      text-decoration: none;
-      z-index: 5;
-      will-change: opacity;
-    }
-    #leftLink  { left: 24px; }
-    #rightLink { right: 24px; }
 
     .stage {
       position: absolute;
@@ -61,10 +43,9 @@
       height: var(--disk);
     }
 
-    /* Central clickable target: disk + the radial caption ring around it */
     .enter {
       position: absolute;
-      inset: -24%;
+      inset: -50%;
       cursor: pointer;
       z-index: 2;
     }
@@ -103,7 +84,30 @@
       -webkit-user-drag: none;
     }
 
-    /* ---- Radial captions, curved along the ring outside the disk ---- */
+    .face-dim {
+      position: absolute;
+      inset: 0;
+      background: rgba(14, 11, 22, 0.62);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .face-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .face-svg text {
+      fill: var(--fg);
+      font-weight: 500;
+      letter-spacing: 0.005em;
+    }
+
+    /* ---- Radial captions ---- */
     .caption-svg {
       position: absolute;
       inset: 0;
@@ -114,50 +118,87 @@
       z-index: 3;
     }
     .caption-svg text {
-      fill: var(--muted);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      fill: var(--fg);
       will-change: opacity;
     }
-    .caption-svg text.enter-text {
-      fill: var(--fg);
+    .caption-svg text.title {
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
       font-weight: 700;
+    }
+    .caption-svg text.line {
+      letter-spacing: 0.02em;
+      font-weight: 500;
     }
   </style>
 </head>
 <body>
-  <a id="leftLink"  class="sideLink" href="src/biomes/">BIOMES</a>
-  <a id="rightLink" class="sideLink" href="src/anthromes/">ANTHROMES</a>
-
   <div class="stage">
     <div class="disk-area">
       <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
         <defs>
-          <path id="arc-left"  d="M 0 -575 A 575 575 0 0 0 0 575" />
-          <path id="arc-right" d="M 0 575 A 575 575 0 0 0 0 -575" />
+          <!--
+            TITLES: outside the disk at 3 and 9 o'clock. r=650, 90° span centered
+            on the horizontal axis. Both use sweep=1 to take the SHORT arc past
+            9 / 3 respectively — a bug in the earlier version had BIOMES taking
+            the long arc via 12, planting text on top of the disk.
+              BIOMES    arc: from 7:30 up through 9 to 10:30 (short arc, sweep=1)
+              ANTHROMES arc: from 1:30 down through 3 to 4:30 (short arc, sweep=1)
+            Ascenders point outward (away from disk center).
+          -->
+          <path id="arc-title-left"
+                d="M -459.62 459.62 A 650 650 0 0 1 -459.62 -459.62" />
+          <path id="arc-title-right"
+                d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
+
+          <!--
+            ONE-LINERS: OUTSIDE the disk, alternating between TOP and BOTTOM
+            semicircles at r=590 (just outside the disk edge, inside the title
+            ring). The 180° span meets each title at its endpoint (9 or 3), so
+            the one-liner reads as a continuation of the framing hierarchy.
+              TOP arc: L→R across the top; ascenders point OUTWARD (up, further
+                from the disk). Upright letters at the 12 o'clock midpoint.
+              BOTTOM arc: L→R across the bottom (path traverses 9→6→3, which
+                is CCW visually on the clock face); ascenders point INWARD
+                (up, toward the disk). Upright letters at 6 o'clock midpoint.
+          -->
+          <path id="arc-line-top"
+                d="M -590 0 A 590 590 0 0 1 590 0" />
+          <path id="arc-line-bottom"
+                d="M -590 0 A 590 590 0 0 0 590 0" />
         </defs>
 
-        <!-- Biomes face captions -->
-        <text id="cap-biomes-left" font-size="30">
-          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">AN EXTENSIVE HUMAN MICROBIOME</textPath>
-        </text>
-        <text id="cap-biomes-right" class="enter-text" font-size="30">
-          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
-        </text>
+        <text id="label-biomes"    class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle">BIOMES</textPath></text>
+        <text id="label-anthromes" class="title"><textPath href="#arc-title-right" startOffset="50%" text-anchor="middle">ANTHROMES</textPath></text>
 
-        <!-- Anthromes face captions -->
-        <text id="cap-anthromes-left" class="enter-text" font-size="30">
-          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
-        </text>
-        <text id="cap-anthromes-right" font-size="30">
-          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">MODELING 12,025 YEARS OF LAND USE</textPath>
-        </text>
+        <text id="line-top"    class="line"><textPath href="#arc-line-top"    startOffset="50%" text-anchor="middle"></textPath></text>
+        <text id="line-bottom" class="line"><textPath href="#arc-line-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
       </svg>
 
       <div class="coin-wrap">
         <div class="coin" id="coin">
-          <div class="face face--biomes"><img src="splash/biomes.webp" alt="Biomes visualization" /></div>
-          <div class="face face--anthromes"><img src="splash/anthromes.webp" alt="Anthromes visualization" /></div>
+          <div class="face face--biomes">
+            <img src="splash/biomes.webp" alt="Biomes visualization" />
+            <div class="face-dim"></div>
+            <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+              <defs>
+                <!-- Biomes dichotomy: TOP arc inside the face, letters outward. -->
+                <path id="face-arc-biomes" d="M -400 0 A 400 400 0 0 1 400 0" />
+              </defs>
+              <text id="biomes-text"><textPath href="#face-arc-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
+            </svg>
+          </div>
+          <div class="face face--anthromes">
+            <img src="splash/anthromes.webp" alt="Anthromes visualization" />
+            <div class="face-dim"></div>
+            <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+              <defs>
+                <!-- Anthromes dichotomy: BOTTOM arc inside the face, letters inward. -->
+                <path id="face-arc-anthromes" d="M -400 0 A 400 400 0 0 0 400 0" />
+              </defs>
+              <text id="anthromes-text"><textPath href="#face-arc-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -166,72 +207,206 @@
   </div>
 
   <script>
-    const URLS = { biomes: 'src/biomes/', anthromes: 'src/anthromes/' };
+    const URLS = { biomes: 'loading.html?side=biomes', anthromes: 'loading.html?side=anthromes' };
+
+    // Four framing one-liners, alternating top/bottom placement each rotation.
+    // Line 4 leaves its "microbial and planetary" tail to the in-disk dichotomy.
+    const OUTER_LINES = [
+      { pos: 'top',    text: "Two classifications describe life at radically different scales." },
+      { pos: 'bottom', text: "Both transform continuous worlds into categories that can be counted." },
+      { pos: 'top',    text: "Both are global datasets assembled from many local observations." },
+      { pos: 'bottom', text: "The disk moves between two scales of human life and relations",
+        dichotomyOverride: { biomes: "microbial", anthromes: "planetary" } }
+    ];
+
+    const DICHOTOMIES = [
+      { biomes:   "One begins inside the human body.",
+        anthromes: "The other begins with the inhabited Earth." },
+      { biomes:   "One organizes microbial genomes.",
+        anthromes: "The other organizes human-altered landscapes." }
+    ];
 
     const coin           = document.getElementById('coin');
-    const capBiomesLeft   = document.getElementById('cap-biomes-left');
-    const capBiomesRight  = document.getElementById('cap-biomes-right');
-    const capAnthroLeft   = document.getElementById('cap-anthromes-left');
-    const capAnthroRight  = document.getElementById('cap-anthromes-right');
-    const leftLink        = document.getElementById('leftLink');   // BIOMES
-    const rightLink       = document.getElementById('rightLink');  // ANTHROMES
-    const enter           = document.getElementById('enter');
+    const labelBiomes    = document.getElementById('label-biomes');
+    const labelAnthromes = document.getElementById('label-anthromes');
+    const lineTop        = document.getElementById('line-top');
+    const lineTopPath    = lineTop.querySelector('textPath');
+    const lineBottom     = document.getElementById('line-bottom');
+    const lineBottomPath = lineBottom.querySelector('textPath');
+    const biomesText     = document.getElementById('biomes-text');
+    const biomesPath     = biomesText.querySelector('textPath');
+    const anthromesText  = document.getElementById('anthromes-text');
+    const anthromesPath  = anthromesText.querySelector('textPath');
+    const enter          = document.getElementById('enter');
 
-    const PERIOD = 10000; // ms for a full 360° turn (5s per face)
+    const ARC_LINE  = Math.PI * 590;        // top/bottom one-liner arc, r=590, 180°
+    const ARC_FACE  = Math.PI * 400;        // in-disk dichotomy arc
+    // Title arc length is derived from ARC_TITLE_R (viewport-adaptive).
+    let ARC_TITLE_R = 650;                  // recomputed on boot + resize
+    let ARC_TITLE   = Math.PI * ARC_TITLE_R * 0.5;
+
+    // Position the title arcs so their midpoint (9 o'clock for BIOMES,
+    // 3 o'clock for ANTHROMES) sits halfway between the disk edge and the
+    // viewport edge. That anchor is viewport-relative — it moves with the
+    // window — so we recompute on every resize.
+    function updateTitleArcs() {
+      const vw = window.innerWidth;
+      const diskEl = document.querySelector('.disk-area');
+      const diskWidth = diskEl.offsetWidth;
+      if (!diskWidth) return;
+
+      // Anchor in pixels from disk center: (screen half-width + disk half-width) / 2.
+      // Converted to viewBox units (viewBox 1000 == diskWidth px):
+      //   r_viewbox = anchor_px × 1000 / diskWidth
+      //             = (vw/2 + diskWidth/2) / 2 × 1000 / diskWidth
+      //             = 250 × (vw/diskWidth + 1)
+      ARC_TITLE_R = Math.round(250 * (vw / diskWidth + 1));
+      ARC_TITLE   = Math.PI * ARC_TITLE_R * 0.5;
+
+      const off = (ARC_TITLE_R * Math.SQRT1_2).toFixed(2);
+      // BIOMES: from 7:30 → 10:30 via 9 (sweep=1, short arc).
+      document.getElementById('arc-title-left').setAttribute(
+        'd', `M -${off} ${off} A ${ARC_TITLE_R} ${ARC_TITLE_R} 0 0 1 -${off} -${off}`
+      );
+      // ANTHROMES: from 1:30 → 4:30 via 3 (sweep=1, short arc).
+      document.getElementById('arc-title-right').setAttribute(
+        'd', `M ${off} -${off} A ${ARC_TITLE_R} ${ARC_TITLE_R} 0 0 1 ${off} ${off}`
+      );
+    }
+
+    // Fixed font sizes shared with loading.html so the two screens read as
+    // one design. BASE_FONT covers one-liners / subheadlines; the title tier
+    // is a "meaningful step up" (1.55×); inside text is one step down (0.72×).
+    const BASE_FONT  = 34;
+    const TITLE_FONT = Math.round(BASE_FONT * 1.55); // 53
+    const INSIDE_CAP = Math.floor(BASE_FONT * 0.72); // 24
+    let oneLinerFont = BASE_FONT;
+    let titleFont    = TITLE_FONT;
+    function sizeOuterText() {
+      lineTop.setAttribute('font-size', BASE_FONT);
+      lineBottom.setAttribute('font-size', BASE_FONT);
+      labelBiomes.setAttribute('font-size', TITLE_FONT);
+      labelAnthromes.setAttribute('font-size', TITLE_FONT);
+    }
+
+    // In-disk dichotomy — capped smaller than the one-liner tier so the hierarchy
+    // reads as titles > one-liners > dichotomies. Override cases (single words
+    // like "microbial") get more headroom since they don't need to fit long text.
+    function fitInDisk(textEl, textPath, content, isOverride) {
+      textPath.textContent = content;
+      const cap = isOverride
+        ? Math.max(24, Math.floor(oneLinerFont * 1.0))   // single-word payoff, matches one-liner size
+        : Math.max(20, Math.floor(oneLinerFont * 0.72)); // multi-word dichotomy, one step down
+      let lo = 18, hi = cap, best = 18;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        textEl.setAttribute('font-size', mid);
+        if (textEl.getComputedTextLength() <= ARC_FACE * 0.9) { best = mid; lo = mid + 1; }
+        else                                                   { hi = mid - 1; }
+      }
+      textEl.setAttribute('font-size', best);
+    }
+
+    const PERIOD = 20000;
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     let currentFace = 'biomes';
     let startT = performance.now();
     let rafId;
+    let rotationsSeen = -1;
+
+    function setLines(rotCount) {
+      const outerIdx = ((rotCount % OUTER_LINES.length) + OUTER_LINES.length) % OUTER_LINES.length;
+      const dichIdx  = ((rotCount % DICHOTOMIES.length) + DICHOTOMIES.length) % DICHOTOMIES.length;
+      const line = OUTER_LINES[outerIdx];
+
+      // Only the arc slot this line uses gets text; the other stays blank.
+      lineTopPath.textContent    = '';
+      lineBottomPath.textContent = '';
+      if (line.pos === 'top') lineTopPath.textContent    = line.text;
+      else                    lineBottomPath.textContent = line.text;
+
+      const dich = line.dichotomyOverride || DICHOTOMIES[dichIdx];
+      const isOverride = !!line.dichotomyOverride;
+      fitInDisk(biomesText,    biomesPath,    dich.biomes,    isOverride);
+      fitInDisk(anthromesText, anthromesPath, dich.anthromes, isOverride);
+    }
 
     function render(now) {
-      const t = (now - startT) % PERIOD;
+      const t = now - startT;
       const angle = (t / PERIOD) * 360;
       coin.style.transform = `rotateY(${angle}deg)`;
 
-      const c = Math.cos(angle * Math.PI / 180); // 1 = biomes facing, -1 = anthromes facing
+      const rotNum = Math.floor(t / PERIOD);
+      if (rotNum !== rotationsSeen) {
+        rotationsSeen = rotNum;
+        setLines(rotNum);
+      }
+
+      const c = Math.cos(angle * Math.PI / 180);
       currentFace = c >= 0 ? 'biomes' : 'anthromes';
 
-      // Captions cross-fade with the flip (sharpened so they're readable across most of the face)
+      // Titles stay readable throughout; the one whose face is showing pops to
+      // full white, the other dims to low-emphasis.
       const sharpen = x => Math.min(1, Math.max(0, x) * 1.8);
-      const biomesOpacity = sharpen(c);
-      const anthromesOpacity = sharpen(-c);
-      capBiomesLeft.style.opacity = biomesOpacity;
-      capBiomesRight.style.opacity = biomesOpacity;
-      capAnthroLeft.style.opacity = anthromesOpacity;
-      capAnthroRight.style.opacity = anthromesOpacity;
+      const DIM = 0.32;
+      labelBiomes.style.opacity    = DIM + (1 - DIM) * sharpen(c);
+      labelAnthromes.style.opacity = DIM + (1 - DIM) * sharpen(-c);
 
-      // Side labels fade continuously with rotation: 1 when that side is facing,
-      // dropping to 0.75 at the opposite extreme (when the other face is fully shown).
-      leftLink.style.opacity  = 0.7 + 0.3 * c;
-      rightLink.style.opacity = 0.7 - 0.3 * c;
+      // Per-rotation fade envelope. Content swap happens at the rotation
+      // boundary while opacity is 0, so the transition is invisible.
+      const FADE_MS = 4000;
+      const inRot = t % PERIOD;
+      let raw;
+      if (inRot < FADE_MS)               raw = inRot / FADE_MS;
+      else if (inRot > PERIOD - FADE_MS) raw = (PERIOD - inRot) / FADE_MS;
+      else                                raw = 1;
+      const fade = raw * raw * (3 - 2 * raw);
+
+      // One-liners live outside the disk — they don't need the edge-on hide
+      // that was necessary when they overlaid the coin.
+      lineTop.style.opacity    = fade;
+      lineBottom.style.opacity = fade;
+
+      // In-disk dichotomies fade with the same envelope. Face backface-visibility
+      // already handles the edge-on hiding for these.
+      biomesText.style.opacity    = fade;
+      anthromesText.style.opacity = fade;
 
       rafId = requestAnimationFrame(render);
     }
 
-    if (reduce) {
-      // Hold on the biomes face; side labels remain fully visible
-      coin.style.transform = 'rotateY(0deg)';
-      capBiomesLeft.style.opacity = 1;
-      capBiomesRight.style.opacity = 1;
-      capAnthroLeft.style.opacity = 0;
-      capAnthroRight.style.opacity = 0;
-      currentFace = 'biomes';
-    } else {
-      rafId = requestAnimationFrame(render);
+    function boot() {
+      updateTitleArcs();
+      sizeOuterText();
+      setLines(0);
+      window.addEventListener('resize', () => {
+        updateTitleArcs();
+        sizeOuterText();
+        setLines(rotationsSeen >= 0 ? rotationsSeen : 0);
+      });
+      if (reduce) {
+        coin.style.transform = 'rotateY(0deg)';
+        labelBiomes.style.opacity = 1;
+        labelAnthromes.style.opacity = 0.32;
+        lineTop.style.opacity = 1;
+        lineBottom.style.opacity = 1;
+        biomesText.style.opacity = 1;
+        anthromesText.style.opacity = 1;
+        currentFace = 'biomes';
+      } else {
+        rafId = requestAnimationFrame(render);
+      }
     }
+
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(boot);
+    else boot();
 
     function go(which) { window.location.href = URLS[which]; }
-
-    // Click the disk / caption ring → whichever viz is currently facing us
     enter.addEventListener('click', () => go(currentFace));
     enter.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(currentFace); }
     });
-
-    // Side labels always route to their own side (don't also trigger the disk click)
-    leftLink.addEventListener('click', (e) => e.stopPropagation());
-    rightLink.addEventListener('click', (e) => e.stopPropagation());
   </script>
 </body>
 </html>

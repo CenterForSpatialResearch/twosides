@@ -57,6 +57,7 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
+        loading: resolve(__dirname, 'loading.html'),
         anthromes: resolve(__dirname, 'src/anthromes/index.html'),
         biomes: resolve(__dirname, 'src/biomes/index.html')
       }

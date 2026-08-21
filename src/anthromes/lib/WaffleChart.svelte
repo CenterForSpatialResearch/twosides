@@ -220,7 +220,7 @@
       if (sgbs) {
         const base = import.meta.env.BASE_URL;
         sessionStorage.setItem('highlightSGBs', sgbs);
-        window.location.href = `${base}src/biomes/index.html?highlightSGBs=session`;
+        window.location.href = `${base}loading.html?side=biomes&highlightSGBs=session`;
       }
     }
   }

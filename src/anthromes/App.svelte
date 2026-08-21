@@ -109,10 +109,10 @@
   const crossLinkHref = $derived.by(() => {
     const base = import.meta.env.BASE_URL;
     const params = new URLSearchParams();
+    params.set('side', 'biomes');
     if (selectedCountryIso3) params.set('country', selectedCountryIso3);
     if (rangeSource?.sgbId != null) params.set('highlightSGB', String(rangeSource.sgbId));
-    const q = params.toString();
-    return `${base}src/biomes/${q ? `?${q}` : ''}`;
+    return `${base}loading.html?${params.toString()}`;
   });
 
   $effect(() => {
@@ -615,15 +615,11 @@
     <p>{error}</p>
   </div>
 {:else}
-  <!-- Loading overlay -->
-  {#if loading}
-    <div class="loading-overlay">
-      <p>Loading anthromes data...</p>
-    </div>
-  {:else if !mapReady && initialLoad}
-    <div class="loading-overlay">
-      <p>Rendering map...</p>
-    </div>
+  <!-- Blank overlay: users arrive via loading.html which already showed the
+       loading UI. Keep the overlay for background continuity, but drop the
+       "Loading anthromes data..." / "Rendering map..." text. -->
+  {#if loading || (!mapReady && initialLoad)}
+    <div class="loading-overlay" aria-hidden="true"></div>
   {/if}
 
   <div class="app">

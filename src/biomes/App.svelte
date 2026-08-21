@@ -126,11 +126,11 @@
   const crossLinkHref = $derived.by(() => {
     const base = import.meta.env.BASE_URL;
     const params = new URLSearchParams();
+    params.set('side', 'anthromes');
     if (selectedCountryIso3) params.set('country', selectedCountryIso3);
     const sgbId = detailMeta?.metadata?.SGB_ID;
     if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
-    const q = params.toString();
-    return `${base}src/anthromes/${q ? `?${q}` : ''}`;
+    return `${base}loading.html?${params.toString()}`;
   });
 
   // Persist current selection in the URL so a page reload or cross-side link
@@ -826,12 +826,12 @@
   function goToAnthromes(iso3) {
     const base = import.meta.env.BASE_URL;
     const params = new URLSearchParams();
+    params.set('side', 'anthromes');
     if (iso3) params.set('country', iso3);
     const sgbId = detailMeta?.metadata?.SGB_ID;
     // See carrySgbAcross: Option 1 hands over the country only.
     if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
-    const q = params.toString();
-    window.location.href = `${base}src/anthromes/${q ? `?${q}` : ''}`;
+    window.location.href = `${base}loading.html?${params.toString()}`;
   }
 
   const speciesPhylumColor = $derived.by(() => {
@@ -923,9 +923,10 @@
 <div class="viewport">
 <div class="stage" bind:this={stageEl}>
 {#if loading}
-  <div class="loading">
-    <p>Loading biomes data...</p>
-  </div>
+  <!-- Blank overlay: users arrive via loading.html which already showed the
+       loading UI. Keep the state so data can still fetch, but hide the text
+       so the transition into the viz reads as one continuous dark screen. -->
+  <div class="loading" aria-hidden="true"></div>
 {:else if error}
   <div class="error">
     <h2>Error</h2>
@@ -1001,7 +1002,8 @@
         {#snippet detailPanel()}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <section class="fblock detail-block" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
+          <section class="fblock detail-block detail-block--compact" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
+            <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
             {#if !detailContent}
               <p class="detail-hint">Spin the disk to inspect a species.</p>
             {:else if detailMeta}
@@ -1145,7 +1147,7 @@
              that slot (see lifestyleRow below). -->
         <section class="fblock">
           <div class="fblock-headrow">
-            <h3 class="fblock-title">Country</h3>
+            <h3 class="fblock-oneliner">Samples become cohorts; cohorts become a geography of microbial observation.</h3>
             <button
               class="mini-link"
               class:active={selectedCountryIso3 === null}
@@ -1153,11 +1155,6 @@
               aria-label="Clear country selection"
             >All</button>
           </div>
-          <p class="fblock-desc">
-            Select a country to lens the tree to species found in samples collected there.
-            The percentage is the share of that country's bacteria species that were
-            unknown to science before this study.
-          </p>
 
           {#snippet lifestyleRow(title, blurb, rowItems)}
             <div class="ls-row">
@@ -1500,7 +1497,7 @@
         <!-- Bottom tier: phylum key (bubble cluster; area ∝ SGB count) -->
         <section class="phylum-band">
           <div class="phylum-band-head">
-            <span class="phylum-band-title">Phylum</span>
+            <span class="fblock-oneliner">Phyla group species into major microbial lineages.</span>
             <div class="phylum-band-actions">
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
@@ -1603,7 +1600,12 @@
 </div>
 
 <style>
-  .loading,
+  .loading {
+    position: absolute;
+    inset: 0;
+    background: var(--bg);
+    z-index: 10000;
+  }
   .error {
     display: flex;
     align-items: center;
@@ -1764,6 +1766,41 @@
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--fg);
+  }
+
+  /* Curatorial one-liner — replaces a category label with a full sentence from
+     the exhibit copy. Sized above .fblock-title (larger tier) but lighter
+     weight so it reads as a "phrase" rather than a heading label. Sits in the
+     same fblock-headrow flex slot as the old title, so `flex: 1 1 auto` +
+     `min-width: 0` lets it wrap while the sibling "All" mini-link stays
+     anchored to the right. */
+  .fblock-oneliner {
+    margin: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 27px;
+    font-weight: 500;
+    line-height: 1.28;
+    letter-spacing: 0.005em;
+    color: var(--fg);
+  }
+
+  .detail-oneliner {
+    margin-bottom: 6px;
+  }
+
+  /* Compact detail panel — tighter internal gaps + smaller section margins so
+     the added one-liner header fits without pushing content off-rail. */
+  .detail-block--compact .panel-content {
+    gap: 7px;
+  }
+  .detail-block--compact .species-graphic {
+    gap: 10px;
+  }
+  .detail-block--compact .genome-meter,
+  .detail-block--compact .sp-statline,
+  .detail-block--compact .sp-countries {
+    padding: 0;
   }
 
   .fblock-desc {
