@@ -18,7 +18,11 @@
   import ArcLabel from '../shared/ArcLabel.svelte';
   import PhylumBubbles from './lib/PhylumBubbles.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
-  import { uiOption } from '../shared/uiOption.svelte.js';
+  // Option numbers live in shared/uiOption.svelte.js. Comments below that say
+  // "Option 1" mean the refined arrangement, which is now BOTH option 1 (the
+  // 8/21 pass) and option 2 (8/14) — hence refinedLayout() for anything the two
+  // share, and refined0821() for what only the newer pass does.
+  import { uiOption, refinedLayout, refined0821 } from '../shared/uiOption.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -121,7 +125,7 @@
   // resting the disk on a leaf lit up every country it occurs in on arrival —
   // a selection the reader never made, competing with the country lens that
   // now drives the whole anthromes view.
-  const carrySgbAcross = $derived(uiOption() !== 1);
+  const carrySgbAcross = $derived(!refinedLayout());
 
   const crossLinkHref = $derived.by(() => {
     const base = import.meta.env.BASE_URL;
@@ -227,6 +231,8 @@
   }
   let detailPanelEl = $state(null);
   let detailPanelAnchor = $state(null);
+  // 8/21: the rule under the SGB name — the leader's terminus on this side.
+  let sgbRuleEl = $state(null);
   let viewportW = $state(0);
   let viewportH = $state(0);
 
@@ -236,15 +242,25 @@
 
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
-    // Anchor on the panel TITLE (not the panel mid-height) so the leader lands
-    // in line with "Bacteria Species Details". Option 1's detail block has no
-    // such title — its head is the species glyph with the SGB label beside it —
-    // so the leader lines up with the GLYPH's centre, which is the taller of
-    // the two and reads as the head's true middle. X always comes from the
-    // panel's own left edge, never the anchor's, so the horizontal landing
-    // point stays put regardless of which element supplies the height.
+    // 8/21: the leader points at the SGB by NAME, so it ends ON the rule under
+    // that name — x comes from the rule's own left edge, not the panel's. The
+    // rule sits at the rail's left padding, a few px inside the seam, so the
+    // run stays a single straight line; nothing of the panel lies between the
+    // two, unlike the anthromes side where the chart forces an elbow.
     // Rects are screen px; the overlay is design px.
-    const headEl = uiOption() === 1
+    if (refined0821() && sgbRuleEl) {
+      const rr = sgbRuleEl.getBoundingClientRect();
+      leaderTo = screenToDesign(rr.left, rr.top + rr.height / 2);
+      return;
+    }
+    // Otherwise anchor on the panel TITLE (not the panel mid-height) so the
+    // leader lands in line with "Bacteria Species Details". The 8/14 detail
+    // block has no such title — its head is the species glyph with the SGB
+    // label beside it — so the leader lines up with the GLYPH's centre, which
+    // is the taller of the two and reads as the head's true middle. X comes
+    // from the panel's own left edge, never the anchor's, so the horizontal
+    // landing point stays put regardless of which element supplies the height.
+    const headEl = refinedLayout()
       ? detailPanelEl.querySelector('.species-glyph') || detailPanelEl.querySelector('.species-sgb')
       : null;
     const anchor = headEl || detailPanelEl.querySelector('.fblock-title') || detailPanelEl;
@@ -263,7 +279,7 @@
   // observe its box so the leader endpoint tracks those late layout shifts.
   $effect(() => {
     const el = detailPanelEl;
-    detailContent; viewportW; viewportH;
+    detailContent; viewportW; viewportH; sgbRuleEl;
     updateLeaderTo();
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => updateLeaderTo());
@@ -961,7 +977,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() === 2 && selectedCountryIso3 !== null}
+          lifestyleColor={uiOption() === 3 && selectedCountryIso3 !== null}
           bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -974,27 +990,27 @@
         <!-- Top tier: largest control circles. Option 1 spreads them across the
              full rail width and hangs an arced caption off the RIGHT of each
              bubble (the anthromes rail mirrors this to the left). -->
-        <div class="control-circles" class:control-circles--arced={uiOption() === 1}>
+        <div class="control-circles" class:control-circles--arced={refinedLayout()}>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
-            {#if uiOption() === 1}<ArcLabel text="Zoom Out" side="right" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Zoom Out" side="right" />{/if}
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetAll}>◎</button>
-            {#if uiOption() === 1}<ArcLabel text="Reset" side="right" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Reset" side="right" />{/if}
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
-            {#if uiOption() === 1}<ArcLabel text="Zoom In" side="right" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Zoom In" side="right" />{/if}
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-            {#if uiOption() === 1}<ArcLabel text="Info" side="right" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Info" side="right" />{/if}
           </div>
         </div>
 
         <!-- Details panel, shared by both options but placed differently:
-             Option 5 renders it at the TOP (right below the controls) so the
+             Option 6 renders it at the TOP (right below the controls) so the
              marker leader lines up with its title; the others render it after
              their own blocks. Defined once as a snippet, rendered per option
              below. -->
@@ -1014,6 +1030,17 @@
                      traces this leaf's ancestor path through the tree in the
                      disk's polar coordinates, next to the SGB label + lineage
                      breadcrumbs. -->
+                {#if refined0821() && detailMeta.metadata?.SGB_ID != null}
+                  <!-- 8/21: the leader calls the species out by name, so the
+                       SGB label is lifted out of the ident column to sit ABOVE
+                       the glyph with a rule under it, and the line terminates
+                       on that rule's LEFT end — the end facing the disk — so
+                       the dashed run and the underline read as one stroke. -->
+                  <div class="species-title">
+                    <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
+                    <span class="species-sgb-rule" bind:this={sgbRuleEl}></span>
+                  </div>
+                {/if}
                 <div class="species-graphic">
                   {#if detailMeta.glyphPath}
                     <!-- viewBox is cropped to the glyph's actual extent:
@@ -1038,7 +1065,7 @@
                     </svg>
                   {/if}
                   <div class="species-ident">
-                    {#if detailMeta.metadata?.SGB_ID != null}
+                    {#if detailMeta.metadata?.SGB_ID != null && !refined0821()}
                       <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
                     {/if}
                     {#if detailMeta.ancestors?.length}
@@ -1131,8 +1158,8 @@
           </section>
         {/snippet}
 
-        {#if uiOption() <= 2}
-        <!-- Options 1-2 (Lifestyle): the eight countries split into the two
+        {#if uiOption() <= 3}
+        <!-- Options 1-3 (Lifestyle): the eight countries split into the two
              categories the study itself assigns, each row ranked by the share
              of that country's species previously unknown to science. Selecting
              a country recolours the disk by lifestyle exclusivity; the magenta
@@ -1166,8 +1193,8 @@
                    below already carry the lifestyle split visually, so the
                    label was restating what the row shows. The title is kept
                    for screen readers via aria-label. -->
-              <div class="ls-row-head" class:ls-row-head--promoted={uiOption() === 1} aria-label={title}>
-                {#if uiOption() !== 1}
+              <div class="ls-row-head" class:ls-row-head--promoted={refinedLayout()} aria-label={title}>
+                {#if !refinedLayout()}
                   <span class="ls-row-title">{title}</span>
                 {/if}
                 <span class="ls-row-desc">{blurb}</span>
@@ -1207,13 +1234,13 @@
             nonWesternRow
           )}
 
-          <!-- Option 2 only. Reserved space: the key resolves once a
+          <!-- Option 3 only. Reserved space: the key resolves once a
                non-Westernized country is selected, but the slot is always
                present so the rail below it doesn't reflow on selection.
                Option 1 drops the magenta encoding entirely, so it needs
                neither the key nor the space it reserved — the details panel
                moves up into it. -->
-          {#if uiOption() === 2}
+          {#if uiOption() === 3}
             <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
               {#if selectedIsNonWestern}
                 <span class="ls-key-item">
@@ -1233,8 +1260,8 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 3}
-        <!-- Option 3 (Country): Country is the primary filter. Known/Unknown and
+        {:else if uiOption() === 4}
+        <!-- Option 4 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
              selected. -->
@@ -1341,8 +1368,8 @@
         {/if}
 
         {@render detailPanel()}
-        {:else if uiOption() === 4}
-        <!-- Option 4 (Split): Known/Unknown and Non/Western share a row. No
+        {:else if uiOption() === 5}
+        <!-- Option 5 (Split): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
         <div class="filter-row">
@@ -1398,7 +1425,7 @@
 
         {@render detailPanel()}
         {:else}
-        <!-- Option 4 (Prevalence): details panel on top, then two stacked blocks —
+        <!-- Option 6 (Prevalence): details panel on top, then two stacked blocks —
              Prevalence (population type / samples / countries) then Known/Unknown
              with two compound buttons. Same tap-to-isolate / tap-again-to-reset
              pattern; each Block A button isolates its one dimension (clearing the
@@ -1505,8 +1532,8 @@
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          {#if uiOption() <= 2}
-            <!-- Options 1-2 use the flat pill key (same vocabulary as the
+          {#if uiOption() <= 3}
+            <!-- Options 1-3 use the flat pill key (same vocabulary as the
                  anthromes legend) rather than the bubble pack: the disk is
                  already carrying the magenta/white lifestyle encoding, so the
                  phylum key stays a quiet filter instead of a second chart.
@@ -1548,8 +1575,8 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 5}
-          <!-- Option 5: details panel is at the top, so the leader runs
+        {#if uiOption() === 6}
+          <!-- Option 6: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns
                to end in line with the panel title. -->
@@ -1558,7 +1585,7 @@
             points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
           />
         {:else}
-          <!-- Options 1–4: the details panel sits inline in the rail, so the
+          <!-- Options 1–5: the details panel sits inline in the rail, so the
                leader is a straight run from the marker to the rail edge.
                Option 1 lands on the vertical centre of the SGB title, so the
                line slopes; the others stay level with the marker. The x
@@ -1566,7 +1593,8 @@
           <line
             class="leader-line"
             x1={leaderFrom.x} y1={leaderFrom.y}
-            x2={leaderTo.x - 8} y2={uiOption() === 1 ? leaderTo.y : leaderFrom.y}
+            x2={refined0821() ? leaderTo.x : leaderTo.x - 8}
+            y2={refinedLayout() ? leaderTo.y : leaderFrom.y}
           />
         {/if}
       </svg>
@@ -2235,7 +2263,7 @@
     font-size: 11px;
   }
 
-  /* Cohort ranked bubbles — used by Option 2 (Split) */
+  /* Cohort ranked bubbles — used by the Split arrangement */
   .cohort-bubbles {
     display: flex;
     flex-wrap: nowrap;
@@ -2335,7 +2363,7 @@
     user-select: none;
   }
 
-  /* Option 1 only: flat pill key. Sized to content rather than the bubble
+  /* Options 1-3 only: flat pill key. Sized to content rather than the bubble
      pack's fixed 220–440px box, so it doesn't strand vertical space. */
   .phylum-key--pills {
     display: flex;
@@ -2346,7 +2374,7 @@
     max-height: none;
   }
 
-  /* ===== Options 1-2: Western / Non-Western lifestyle rows ===== */
+  /* ===== Options 1-3: Western / Non-Western lifestyle rows ===== */
   .ls-row {
     display: flex;
     flex-direction: column;

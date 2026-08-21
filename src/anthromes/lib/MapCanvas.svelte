@@ -10,7 +10,7 @@
   import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
-  import { uiOption } from '../../shared/uiOption.svelte.js';
+  import { refinedLayout, refined0821 } from '../../shared/uiOption.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -1206,7 +1206,14 @@
     animRaf = requestAnimationFrame(step);
   }
 
-  function handlePointerMove(e) {
+  /**
+   * `ignoreFilter` is set only by the click path under the 8/21 rules, where a
+   * cell click restores every anthrome anyway (App watches cellSeries). Without
+   * it, clicking a cell whose class the filter currently hides would bail out
+   * below and leave the panel with a ladder chart and no head — isolated, but
+   * unnamed and unleadered.
+   */
+  function handlePointerMove(e, ignoreFilter = false) {
     // Throttle pointer move events (but not when manually triggered from click)
     if (e.type === 'pointermove') {
       const now = performance.now();
@@ -1239,7 +1246,7 @@
     }
 
     const code = feature.properties?.a;
-    if (selectedCodes?.length) {
+    if (!ignoreFilter && selectedCodes?.length) {
       const selectedSet = new Set(selectedCodes);
       if (!selectedSet.has(code)) {
         hoveredFeature = null;
@@ -1599,7 +1606,7 @@
       tooltipX = p.x;
       tooltipY = p.y;
       // Manually trigger tooltip content update
-      handlePointerMove(e);
+      handlePointerMove(e, refined0821());
 
       // Get historical data for this cell
       const history = getCellHistory(cellId);
@@ -1865,9 +1872,18 @@
     focusNeedsCorrection = true;
   }
 
-  // Clear isolation when filtering changes
+  // Clear isolation when filtering changes.
+  //
+  // 8/21 owns this transition in App instead, in both directions: touching the
+  // filter closes the cell there (keyPointerUp), and clicking a CELL restores
+  // every anthrome — a filter change this effect must NOT read as "the user
+  // re-filtered", or it would tear down the isolation that same click just
+  // created. Read selectedCodes first so the effect still subscribes to it and
+  // picks the job back up if the arrangement is switched mid-session.
   $effect(() => {
-    if (selectedCodes?.length) {
+    const codes = selectedCodes;
+    if (refined0821()) return;
+    if (codes?.length) {
       isolatedCellId = null;
       isolatedFeature = null;
       untrack(() => drawOverlay());
@@ -1958,7 +1974,7 @@
   // param on a pasted or bookmarked URL.
   $effect(() => {
     if (!countryData) return;
-    if (uiOption() === 1) return;
+    if (refinedLayout()) return;
 
     const urlParams = new URLSearchParams(window.location.search);
     const highlightSGB = urlParams.get('highlightSGB');

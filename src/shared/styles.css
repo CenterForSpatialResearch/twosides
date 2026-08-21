@@ -318,6 +318,32 @@ body {
   margin: 6px 0 11px;
 }
 
+/* ui refinements 8/21: the SGB name is lifted out of the ident column to sit
+   above the glyph, with a rule beneath it for the leader line to land on.
+   width:fit-content on the column is what makes the rule exactly as wide as
+   the name — no measuring, whatever the SGB id turns out to be — and the
+   colour/weight match .leader-line so the dashed run and the underline read as
+   a single stroke. */
+.panel-content .species-title {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 6px 0 0;
+}
+
+.panel-content .species-sgb-rule {
+  height: 1.9px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* The title already carries the block's top margin. */
+.panel-content .species-title + .species-graphic {
+  margin-top: 9px;
+}
+
 /* 2x the original 64px. The SVG's viewBox is cropped to the path's extent
    (see biomes/App.svelte) so the box is the glyph — there is no dead margin
    baked into the artwork, and this width is the real optical size. */

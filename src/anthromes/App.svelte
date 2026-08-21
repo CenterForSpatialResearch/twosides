@@ -12,7 +12,11 @@
   import CountryCircle from '../shared/CountryCircle.svelte';
   import ArcLabel from '../shared/ArcLabel.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
-  import { uiOption } from '../shared/uiOption.svelte.js';
+  // Option numbers live in shared/uiOption.svelte.js. Comments below that say
+  // "Option 1" mean the refined arrangement, which is now BOTH option 1 (the
+  // 8/21 pass) and option 2 (8/14) — hence refinedLayout() for anything the two
+  // share, and refined0821() for what only the newer pass does.
+  import { refinedLayout, refined0821 } from '../shared/uiOption.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -130,7 +134,7 @@
   // onto the ring itself: with a country picked, the waffle plots that
   // country's distribution instead of the world's. Null = plot the world.
   const countryRingDistribution = $derived(
-    uiOption() === 1 && selectedCountryIso3
+    refinedLayout() && selectedCountryIso3
       ? countryTimeseries?.[selectedCountryIso3]?.distribution ?? null
       : null
   );
@@ -287,6 +291,11 @@
   const displayedCodes = LEGEND_CATEGORIES.flatMap(c => c.codes);
   let dragging = $state(false);
   let anchorIdx = $state(null);
+  // A press only becomes a drag once it reaches a DIFFERENT pill. Under the
+  // 8/21 rules a press that never leaves its own pill is a CLICK, and a click
+  // toggles rather than isolates — so unlike 8/14 the selection cannot be
+  // committed on pointerdown.
+  let dragMoved = $state(false);
 
   function selectRange(a, b) {
     const start = Math.min(a, b);
@@ -301,13 +310,48 @@
     return idx == null ? null : parseInt(idx, 10);
   }
 
+  /**
+   * One pill, clicked (8/21). Built for touch: there is no modifier key to
+   * hold on a touchscreen, so the pills have to stack by themselves.
+   *
+   *   everything selected     -> isolate this one         (as 8/14 did)
+   *   only this one selected  -> restore every anthrome    (click again = out)
+   *   a subset without it     -> add it to the subset      (stacking)
+   *   a subset containing it  -> drop it, falling back to "all" rather than
+   *                              ever leaving an empty filter
+   *
+   * The next selection is rebuilt by filtering the canonical order rather than
+   * by pushing, so it can never hold a duplicate — the "is everything
+   * selected" test elsewhere is a length comparison and a duplicate would
+   * quietly break it.
+   */
+  function toggleCode(code) {
+    if (code == null) return;
+    const all = orderedCodes.length ? orderedCodes : displayedCodes;
+    if (selectedAnthromes.length === all.length) {
+      selectedAnthromes = [code];
+      return;
+    }
+    const has = selectedAnthromes.includes(code);
+    if (has && selectedAnthromes.length === 1) {
+      handleSelectAll();
+      return;
+    }
+    const keep = new Set(selectedAnthromes);
+    if (has) keep.delete(code);
+    else keep.add(code);
+    const next = all.filter((c) => keep.has(c));
+    selectedAnthromes = next.length ? next : [...all];
+  }
+
   function keyPointerDown(e) {
     const pill = e.target?.closest?.('.key-pill');
     if (!pill || pill.dataset.idx == null) return;
     e.preventDefault();
     dragging = true;
+    dragMoved = false;
     anchorIdx = parseInt(pill.dataset.idx, 10);
-    selectRange(anchorIdx, anchorIdx);
+    if (!refined0821()) selectRange(anchorIdx, anchorIdx);
     window.addEventListener('pointermove', keyPointerMove);
     window.addEventListener('pointerup', keyPointerUp, { once: true });
   }
@@ -315,13 +359,30 @@
   function keyPointerMove(e) {
     if (!dragging || anchorIdx == null) return;
     const idx = pillIdxFromPoint(e);
-    if (idx != null) selectRange(anchorIdx, idx);
+    if (idx == null) return;
+    if (refined0821()) {
+      // Staying on the anchor pill is not yet a drag; leaving it is, and from
+      // then on every move sweeps the range even if it comes back.
+      if (idx === anchorIdx && !dragMoved) return;
+      dragMoved = true;
+    }
+    selectRange(anchorIdx, idx);
   }
 
   function keyPointerUp() {
+    const idx = anchorIdx;
+    const wasDrag = dragMoved;
     dragging = false;
+    dragMoved = false;
     anchorIdx = null;
     window.removeEventListener('pointermove', keyPointerMove);
+    if (!refined0821()) return;
+    // Touching the filter at all cancels an open cell. A cell is a reading of
+    // one place and a filter is a reading of the whole map, so the two cannot
+    // both be the active lens — and the cell's own leader would otherwise be
+    // left pointing at a cell the filter has just dimmed away.
+    if (detailContent) clearCellSelection();
+    if (!wasDrag) toggleCode(displayedCodes[idx]);
   }
 
   $effect(() => {
@@ -350,12 +411,40 @@
     return () => ro.disconnect();
   });
 
+  // 8/21: isolating a cell is a fresh reading, so it restores every anthrome —
+  // you can never end up inspecting a cell through a filter that hides it, and
+  // the reverse move (clicking a filter) closes the cell in keyPointerUp. Keyed
+  // on the cell id rather than on cellSeries identity because MapCanvas rebuilds
+  // the series on every year change, and re-stating the SAME cell must not
+  // reset anything.
+  let lastCellId = $state(null);
+  $effect(() => {
+    const id = cellSeries?.id ?? null;
+    untrack(() => {
+      if (id === lastCellId) return;
+      lastCellId = id;
+      if (id != null && refined0821()) handleSelectAll();
+    });
+  });
+
   // Connector (leader line) from the isolated map cell to the docked detail panel
   let connectorStart = $state(null);
   let connectorEnd = $state(null);
+  // 8/21 only: x of the vertical kink, in design px. The leader ends ON the
+  // underline under the anthrome's name, which sits at the far LEFT of the
+  // rail — a single diagonal to it would cut clean across the cell-history
+  // chart. Turning outside the rail instead and coming in level with the
+  // underline keeps the line clear of the chart from every cell position.
+  // Null in every other arrangement, which draws the old straight line.
+  let connectorElbowX = $state(null);
   let detailPanelEl = $state(null);
   // The swatch + anthrome-name row; the leader points at its vertical centre.
   let detailAnchorEl = $state(null);
+  // 8/21: the rule under the anthrome's name — the leader's actual terminus.
+  let anthromeRuleEl = $state(null);
+
+  // Design px between the rail's inner edge and the leader's vertical kink.
+  const LEADER_ELBOW_GAP = 34;
 
   $effect(() => {
     const start = connectorStart;
@@ -365,14 +454,29 @@
     // appearing or resizing, the scope pill resolving, or the anchor row itself
     // mounting. Under Option 1 the anchor also moves when the year changes,
     // because the anthrome name can get longer or shorter.
-    barChartData; historyChartSize; detailAnchorEl; scopePill; detailMeta;
+    barChartData; historyChartSize; detailAnchorEl; anthromeRuleEl; scopePill; detailMeta;
     untrack(() => {
-      if (!panel || !start || !open) { connectorEnd = null; return; }
+      if (!panel || !start || !open) {
+        connectorEnd = null;
+        connectorElbowX = null;
+        return;
+      }
       const rect = panel.getBoundingClientRect();
+      // getBoundingClientRect is in screen px but the overlay draws in design px.
+      const rule = refined0821() ? anthromeRuleEl : null;
+      if (rule) {
+        // 8/21: land on the RIGHT end of the rule under the anthrome's name —
+        // the end facing the map — so the leader reads as one stroke that
+        // becomes the underline of the word it is calling out.
+        const rr = rule.getBoundingClientRect();
+        connectorEnd = screenToDesign(rr.right, rr.top + rr.height / 2);
+        connectorElbowX = screenToDesign(rect.right, 0).x + LEADER_ELBOW_GAP;
+        return;
+      }
       // Panel docks on the left; the leader ends at its right edge (the rail
       // seam), vertically in line with the anthrome colour + title. Older
       // arrangements have no such row, so they fall back to the chart title.
-      // getBoundingClientRect is in screen px but the overlay draws in design px.
+      connectorElbowX = null;
       const anchor =
         detailAnchorEl ||
         panel.querySelector('.history-chart-title') ||
@@ -486,7 +590,7 @@
     // framing AND the ring's distribution, so leaving it behind would not be a
     // reset. Clearing it here is what makes the ring animate back to the world.
     // The older arrangements kept the picker (reset = "view reset" only).
-    if (uiOption() === 1) selectedCountryIso3 = null;
+    if (refinedLayout()) selectedCountryIso3 = null;
   }
 
   // "All" restores the filter to every anthrome (the default, everything shown)
@@ -691,22 +795,22 @@
         <!-- Top tier: large control circles. Option 1 spreads them across the
              full rail width and hangs an arced caption off the LEFT of each
              bubble (mirroring the biomes rail, which captions to the right). -->
-        <div class="control-circles" class:control-circles--arced={uiOption() === 1}>
+        <div class="control-circles" class:control-circles--arced={refinedLayout()}>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-            {#if uiOption() === 1}<ArcLabel text="Info" side="left" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Info" side="left" />{/if}
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel === ZOOM_LEVELS[0]} aria-disabled={zoomLevel === ZOOM_LEVELS[0]}>−</button>
-            {#if uiOption() === 1}<ArcLabel text="Zoom Out" side="left" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Zoom Out" side="left" />{/if}
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetView}>◎</button>
-            {#if uiOption() === 1}<ArcLabel text="Reset" side="left" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Reset" side="left" />{/if}
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
-            {#if uiOption() === 1}<ArcLabel text="Zoom In" side="left" />{/if}
+            {#if refinedLayout()}<ArcLabel text="Zoom In" side="left" />{/if}
           </div>
         </div>
 
@@ -773,7 +877,7 @@
               This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${selectedCountryMeta.label}` : ''}.
             {:else if selectedCountryMeta}
               Anthrome composition of {selectedCountryMeta.label} across 12 025 years.
-            {:else if uiOption() === 1}
+            {:else if refinedLayout()}
               Anthrome composition of the whole world across 12 025 years.
               Pick a country or a cell to narrow it.
             {:else}
@@ -781,7 +885,7 @@
             {/if}
           </p>
           <div class="detail-body">
-            {#if uiOption() === 1}
+            {#if refinedLayout()}
               <!-- Option 1: the panel is never empty. World, country and cell
                    are three scales of one chart, so they share a single slot —
                    which is also what lets the swap between them animate: the
@@ -813,7 +917,19 @@
                     {#if detailMeta?.color}
                       <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
                     {/if}
-                    <span>{detailMeta.label}</span>
+                    {#if refined0821()}
+                      <!-- 8/21: the leader calls the anthrome out BY NAME, so
+                           the name carries its own rule and the line lands on
+                           that rule's right end. Stacking the rule under the
+                           text in a column makes it exactly as wide as the
+                           word, however long the word turns out to be. -->
+                      <span class="detail-name">
+                        <span>{detailMeta.label}</span>
+                        <span class="detail-name-rule" bind:this={anthromeRuleEl}></span>
+                      </span>
+                    {:else}
+                      <span>{detailMeta.label}</span>
+                    {/if}
                   </div>
                 {/if}
                 {#if detailContent}
@@ -839,6 +955,8 @@
                     families={LEGEND_CATEGORIES}
                     {selectedYear}
                     onSelectYear={(y) => (selectedYear = y)}
+                    selectedCodes={refined0821() ? selectedAnthromes : null}
+                    scrubbable={refined0821()}
                     width={pixelChartW}
                     height={pixelChartH}
                   />
@@ -966,8 +1084,8 @@
           bind:rangeIso3s
           bind:rangeSource
           countryDistribution={countryRingDistribution}
-          strictCountryFocus={uiOption() === 1}
-          compactCellDetail={uiOption() === 1}
+          strictCountryFocus={refinedLayout()}
+          compactCellDetail={refinedLayout()}
           profile={topoProfile()}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -1035,12 +1153,25 @@
           <path d="M0,0 L16,9 L0,18 Z" fill="#fff"></path>
         </marker>
       </defs>
-      <line
-        class="leader-line"
-        marker-start="url(#leader-arrow)"
-        x1={connectorStart.x} y1={connectorStart.y}
-        x2={connectorEnd.x} y2={connectorEnd.y}
-      ></line>
+      {#if connectorElbowX != null}
+        <!-- 8/21: cell → level run out to the kink just outside the rail →
+             down/up to the underline's height → in to the underline's right
+             end. The kink is clamped so it can never sit right of the cell,
+             which would fold the first segment back on itself. -->
+        {@const elbowX = Math.min(connectorElbowX, connectorStart.x)}
+        <polyline
+          class="leader-line"
+          marker-start="url(#leader-arrow)"
+          points="{connectorStart.x},{connectorStart.y} {elbowX},{connectorStart.y} {elbowX},{connectorEnd.y} {connectorEnd.x},{connectorEnd.y}"
+        ></polyline>
+      {:else}
+        <line
+          class="leader-line"
+          marker-start="url(#leader-arrow)"
+          x1={connectorStart.x} y1={connectorStart.y}
+          x2={connectorEnd.x} y2={connectorEnd.y}
+        ></line>
+      {/if}
     </svg>
   {/if}
 {/if}
@@ -1516,6 +1647,34 @@
     font-weight: 700;
     letter-spacing: 0.02em;
     color: #fff;
+  }
+
+  /* 8/21: the anthrome name is what the leader points at, so it gets a rule
+     the line can terminate on. Column layout hands the rule the text's exact
+     width; the colour and weight match .leader-line so the dashed run and the
+     solid underline read as one stroke. */
+  .detail-name {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .detail-name-rule {
+    height: 1.9px;
+    background: rgba(255, 255, 255, 0.5);
+  }
+
+  /* The rule makes the name taller than the swatch, so centring the row would
+     ride the swatch up off the text. Pin both to the top instead and drop the
+     swatch by half the leading. */
+  .detail-subhead:has(.detail-name) {
+    align-items: flex-start;
+  }
+
+  .detail-subhead:has(.detail-name) .overlay-swatch {
+    margin-top: 3px;
   }
 
   .detail-hint {

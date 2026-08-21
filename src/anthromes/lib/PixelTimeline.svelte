@@ -32,6 +32,8 @@
   //   labelMapping  — anthrome code → display label
   //   orderedCodes  — canonical code order (intensive → wild)
   //   selectedYear  — data-format year string ("2000AD") for the marker
+  //   selectedCodes — the anthrome filter; excluded codes dim in place
+  //   scrubbable    — allow dragging the marker (commits on drop)
   //   width, height — the box to fill, in design px
 
   import { untrack } from 'svelte';
@@ -55,9 +57,19 @@
     // labels its bands from this.
     families = [],
     selectedYear = null,
-    // Called with a data-format year string when a column is clicked. The
+    // Called with a data-format year string when a column is picked. The
     // timeline doubles as a year scrubber, like the ring does.
     onSelectYear = null,
+    // The anthrome filter, as an array of codes. Null (or a full-length array)
+    // means no filter. A filtered code keeps its cell — the apportionment is
+    // unchanged, so columns never reflow — but drops to FILTER_DIM, matching
+    // how the waffle ring dims the segments it is filtering out rather than
+    // removing them.
+    selectedCodes = null,
+    // When true the marker can be dragged across the field. The year commits
+    // on DROP, not on every move, so scrubbing does not re-render the map
+    // dozens of times on the way past.
+    scrubbable = false,
     width = 800,
     height = 300
   } = $props();
@@ -69,6 +81,7 @@
   const MAX_ROWS = 48;
   const LADDER_GUTTER = 152; // left strip for the ladder's band labels
   const LADDER_DIM = 0.26;   // opacity of the fill below the year's own class
+  const FILTER_DIM = 0.05;   // opacity of a code the anthrome filter excludes
 
   // ===== Dataset swap =====
   // The field keeps drawing the OUTGOING dataset until the midpoint, so these
@@ -143,6 +156,19 @@
     };
     raf = requestAnimationFrame(step);
   }
+
+  // ===== Anthrome filter =====
+  // Null whenever every code is in play, so the common case costs one null
+  // check per cell instead of a Set lookup.
+  const filterSet = $derived.by(() => {
+    if (!selectedCodes) return null;
+    if (!orderedCodes.length) return null;
+    if (selectedCodes.length >= orderedCodes.length) return null;
+    return new Set(selectedCodes.map(Number));
+  });
+
+  const dimFor = (code, base) =>
+    filterSet && !filterSet.has(Number(code)) ? FILTER_DIM : base;
 
   // ===== Layout =====
   const isLadder = $derived(renderedMode === 'ladder');
@@ -274,7 +300,7 @@
               key: `r${k}`,
               y: rowY(k),
               color: colorMapping[rowCode] || '#666',
-              opacity: k === top ? 1 : LADDER_DIM,
+              opacity: dimFor(rowCode, k === top ? 1 : LADDER_DIM),
               label: labelMapping[rowCode] || String(rowCode)
             });
           }
@@ -285,12 +311,13 @@
         for (const { code, n } of allocate(dist)) {
           const color = colorMapping[code] || '#666';
           const label = labelMapping[code] || String(code);
+          const opacity = dimFor(code, 1);
           for (let k = 0; k < n; k++) {
             cells.push({
               key: `${code}-${filled + k}`,
               y: rowY(filled + k),
               color,
-              opacity: 1,
+              opacity,
               label
             });
           }
@@ -316,7 +343,56 @@
     });
   });
 
-  const markerIndex = $derived(yearOrder.indexOf(selectedYear));
+  // ===== Year scrub =====
+  // Same contract as the waffle ring's drag handle: the marker follows the
+  // pointer live, but the YEAR — and with it the map, the ring and the rail's
+  // copy — only changes on drop. Dragging is a way of looking along the
+  // timeline, not a way of re-rendering the world 76 times.
+  let svgEl = $state(null);
+  let scrubYear = $state(null);
+  const displayYear = $derived(scrubYear ?? selectedYear);
+
+  function yearFromPointer(e) {
+    if (!svgEl || !yearOrder.length || !cellW) return null;
+    // preserveAspectRatio="none" over a viewBox of exactly {width, height}
+    // means screen px map linearly onto user units on each axis independently,
+    // so one ratio converts the pointer's x with no matrix maths.
+    const r = svgEl.getBoundingClientRect();
+    if (!r.width) return null;
+    const ux = ((e.clientX - r.left) / r.width) * width;
+    const i = Math.floor((ux - fieldLeft) / cellW);
+    // Clamp rather than bail: dragging off either end should pin to the first
+    // or last year, not drop the scrub.
+    return yearOrder[Math.max(0, Math.min(yearOrder.length - 1, i))] ?? null;
+  }
+
+  function startScrub(e) {
+    if (!scrubbable || !onSelectYear) return;
+    e.preventDefault();
+    e.stopPropagation();
+    scrubYear = yearFromPointer(e);
+    window.addEventListener('pointermove', moveScrub);
+    window.addEventListener('pointerup', endScrub, { once: true });
+  }
+
+  function moveScrub(e) {
+    const y = yearFromPointer(e);
+    if (y) scrubYear = y;
+  }
+
+  function endScrub(e) {
+    window.removeEventListener('pointermove', moveScrub);
+    const y = yearFromPointer(e) || scrubYear;
+    scrubYear = null;
+    if (y) onSelectYear(y);
+  }
+
+  $effect(() => () => {
+    window.removeEventListener('pointermove', moveScrub);
+    window.removeEventListener('pointerup', endScrub);
+  });
+
+  const markerIndex = $derived(yearOrder.indexOf(displayYear));
   const markerX = $derived(markerIndex >= 0 ? fieldLeft + markerIndex * cellW : null);
 
   function formatEra(y) {
@@ -389,6 +465,7 @@
 
 <svg
   class="pixel-timeline"
+  bind:this={svgEl}
   viewBox={`0 0 ${width} ${height}`}
   preserveAspectRatio="none"
   role="img"
@@ -420,14 +497,19 @@
     </g>
   {/each}
 
-  <!-- Click targets: one invisible bar per column, spanning the full field so
+  <!-- Pick targets: one invisible bar per column, spanning the full field so
        the short columns of a low-intensity cell are as easy to hit as the tall
        ones. Drawn after the pixels so they sit on top, and keyed off `columns`
-       rather than `visibleColumns` so a swap in flight doesn't drop them. -->
+       rather than `visibleColumns` so a swap in flight doesn't drop them.
+       When scrubbable, a press starts a drag that reads its year from the
+       POINTER rather than from the column it landed on, so the same handler
+       serves the whole field; a press-and-release without movement still
+       commits that column, which is the plain click. -->
   {#if onSelectYear}
     {#each columns as col (col.year)}
       <rect
         class="col-hit"
+        class:col-hit--scrub={scrubbable}
         x={col.x}
         y={fieldTop}
         width={cellW}
@@ -435,7 +517,8 @@
         role="button"
         tabindex="-1"
         aria-label={`Show ${formatEra(col.yv)}`}
-        onclick={() => onSelectYear(col.year)}
+        onclick={scrubbable ? undefined : () => onSelectYear(col.year)}
+        onpointerdown={scrubbable ? startScrub : undefined}
       />
     {/each}
   {/if}
@@ -475,7 +558,7 @@
       text-anchor={
         markerX < fieldLeft + 30 ? 'start' : markerX > width - 30 ? 'end' : 'middle'
       }
-    >{formatEra(yearValue(selectedYear))}</text>
+    >{formatEra(yearValue(displayYear))}</text>
   {/if}
 </svg>
 
@@ -498,6 +581,10 @@
 
   .col-hit:hover {
     fill: rgba(255, 255, 255, 0.10);
+  }
+
+  .col-hit--scrub {
+    cursor: ew-resize;
   }
 
   .axis-line {
