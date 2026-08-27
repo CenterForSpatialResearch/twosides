@@ -1198,7 +1198,7 @@
       const sgbId = parseInt(btn.getAttribute('data-sgb'), 10);
       if (sgbId) {
         const base = import.meta.env.BASE_URL;
-        window.location.href = `${base}src/anthromes/index.html?highlightSGB=${sgbId}`;
+        window.location.href = `${base}loading.html?side=anthromes&highlightSGB=${sgbId}`;
       }
     }
   }

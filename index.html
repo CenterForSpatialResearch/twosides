@@ -17,7 +17,12 @@
       --muted:#cfd3e0;
       --ring:#ffffff;
       --ringWidth: 3px;
-      --disk: min(70vmin, 860px);
+      /* Fixed design canvas — see src/shared/pageStage.js. Everything below is
+         authored in design px against 3000x2000 and scaled by one transform. */
+      --design-w: 3000;
+      --design-h: 2000;
+      /* Set from JS on load + resize; CSS can't divide length/length. */
+      --stage-scale: 1;
     }
 
     html, body {
@@ -29,47 +34,69 @@
       overflow: hidden;
     }
 
-    /* Fixed vertical side labels — always clickable; opacity tracks the coin's rotation */
-    .sideLink {
+    /* ===== Fixed-canvas scaling =====
+       .viewport fills the real window and supplies the letterbox background;
+       .stage is the 1:1 design canvas. Mirrors the .viewport/.stage pair in
+       src/shared/styles.css so the splash letterboxes exactly like the two
+       visualizations it leads into. */
+    .viewport {
       position: fixed;
-      top: 50%;
-      transform: translateY(-50%);
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      font-size: clamp(30px, 4vw, 52px);
-      font-weight: 700;
-      letter-spacing: .15em;
-      color: var(--fg);
-      user-select: none;
-      text-decoration: none;
-      z-index: 5;
-      will-change: opacity;
+      inset: 0;
+      overflow: hidden;
+      /* pageStage.js swaps this for blue when we're off-target. */
+      background: var(--letterbox-bg, var(--bg));
     }
-    #leftLink  { left: 24px; }
-    #rightLink { right: 24px; }
 
     .stage {
       position: absolute;
+      top: 50%;
+      left: 50%;
+      width: calc(var(--design-w) * 1px);
+      height: calc(var(--design-h) * 1px);
+      background: var(--bg);
+      overflow: hidden;
+      transform: translate(-50%, -50%) scale(var(--stage-scale));
+      transform-origin: center center;
+    }
+
+    /* The active arrangement is cloned in here — see the controller at the
+       bottom of the file. Only ever one at a time, so the ids inside each
+       template are unique at runtime. */
+    #splash-host,
+    .splash {
+      position: absolute;
       inset: 0;
+    }
+    .splash {
       display: grid;
       place-items: center;
     }
 
+    /* Both arrangements were sized with min(Nvmin, Npx). On the 3000x2000
+       target each already resolved to its px cap, so pinning the cap here
+       changes nothing on the display the piece actually runs on — it just stops
+       the disk chasing the browser window now that the canvas sets the scale. */
+    .splash--narrative { --disk: 900px; }  /* was min(66vmin, 900px) */
+    .splash--classic   { --disk: 860px; }  /* was min(70vmin, 860px) */
+
+    /* ---- Shared: disk + coin ---- */
     .disk-area {
       position: relative;
       width: var(--disk);
       height: var(--disk);
     }
 
-    /* Central clickable target: disk + the radial caption ring around it */
     .enter {
       position: absolute;
-      inset: -24%;
       cursor: pointer;
       z-index: 2;
     }
+    /* Central clickable target: the disk plus the caption ring around it. The
+       narrative screen hangs its titles much further out, so its target is
+       correspondingly wider. */
+    .splash--narrative .enter { inset: -50%; }
+    .splash--classic   .enter { inset: -24%; }
 
-    /* ---- Coin ---- */
     .coin-wrap {
       position: absolute;
       inset: 0;
@@ -103,7 +130,6 @@
       -webkit-user-drag: none;
     }
 
-    /* ---- Radial captions, curved along the ring outside the disk ---- */
     .caption-svg {
       position: absolute;
       inset: 0;
@@ -113,125 +139,243 @@
       pointer-events: none;
       z-index: 3;
     }
-    .caption-svg text {
+
+    /* ---- Narrative arrangement (option 1) ---- */
+    .splash--narrative .face-dim {
+      position: absolute;
+      inset: 0;
+      background: rgba(14, 11, 22, 0.62);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .splash--narrative .face-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .splash--narrative .face-svg text {
+      fill: var(--fg);
+      font-weight: 500;
+      letter-spacing: 0.005em;
+    }
+
+    .splash--narrative .caption-svg text {
+      fill: var(--fg);
+      will-change: opacity;
+    }
+    .splash--narrative .caption-svg text.title {
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .splash--narrative .caption-svg text.line {
+      letter-spacing: 0.02em;
+      font-weight: 500;
+    }
+
+    /* ---- Classic arrangement (options 2+) ---- */
+    /* Fixed vertical side labels — always clickable; opacity tracks rotation.
+       position:absolute, not fixed: the design canvas is the frame now, so they
+       anchor to its edges and scale with everything else. */
+    .splash--classic .sideLink {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      /* was clamp(30px, 4vw, 52px); 4vw of the 3000px canvas clamps to the max */
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: .15em;
+      color: var(--fg);
+      user-select: none;
+      text-decoration: none;
+      z-index: 5;
+      will-change: opacity;
+    }
+    .splash--classic #leftLink  { left: 24px; }
+    .splash--classic #rightLink { right: 24px; }
+
+    .splash--classic .caption-svg text {
       fill: var(--muted);
       letter-spacing: 0.06em;
       text-transform: uppercase;
       will-change: opacity;
     }
-    .caption-svg text.enter-text {
+    .splash--classic .caption-svg text.enter-text {
       fill: var(--fg);
       font-weight: 700;
     }
   </style>
 </head>
 <body>
-  <a id="leftLink"  class="sideLink" href="src/biomes/">BIOMES</a>
-  <a id="rightLink" class="sideLink" href="src/anthromes/">ANTHROMES</a>
-
-  <div class="stage">
-    <div class="disk-area">
-      <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
-        <defs>
-          <path id="arc-left"  d="M 0 -575 A 575 575 0 0 0 0 575" />
-          <path id="arc-right" d="M 0 575 A 575 575 0 0 0 0 -575" />
-        </defs>
-
-        <!-- Biomes face captions -->
-        <text id="cap-biomes-left" font-size="30">
-          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">AN EXTENSIVE HUMAN MICROBIOME</textPath>
-        </text>
-        <text id="cap-biomes-right" class="enter-text" font-size="30">
-          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
-        </text>
-
-        <!-- Anthromes face captions -->
-        <text id="cap-anthromes-left" class="enter-text" font-size="30">
-          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
-        </text>
-        <text id="cap-anthromes-right" font-size="30">
-          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">MODELING 12,025 YEARS OF LAND USE</textPath>
-        </text>
-      </svg>
-
-      <div class="coin-wrap">
-        <div class="coin" id="coin">
-          <div class="face face--biomes"><img src="splash/biomes.webp" alt="Biomes visualization" /></div>
-          <div class="face face--anthromes"><img src="splash/anthromes.webp" alt="Anthromes visualization" /></div>
-        </div>
-      </div>
-
-      <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization"></div>
+  <div class="viewport">
+    <div class="stage">
+      <div id="splash-host"></div>
     </div>
   </div>
 
-  <script>
-    const URLS = { biomes: 'src/biomes/', anthromes: 'src/anthromes/' };
+  <!-- ===== Option 1: 8-21 narrative updates ===== -->
+  <template id="tpl-narrative">
+    <div class="splash splash--narrative">
+      <div class="disk-area">
+        <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+          <defs>
+            <!--
+              TITLES: outside the disk at 3 and 9 o'clock, 90° span centered on
+              the horizontal axis. Both use sweep=1 to take the SHORT arc past
+              9 / 3 respectively — an earlier version had BIOMES taking the long
+              arc via 12, planting text on top of the disk. The radius is set
+              from the canvas at mount time (see narrative.js); the d= here is
+              only a sensible starting shape.
+                BIOMES    arc: 7:30 up through 9 to 10:30
+                ANTHROMES arc: 1:30 down through 3 to 4:30
+              Ascenders point outward, away from the disk center.
+            -->
+            <path id="arc-title-left"
+                  d="M -459.62 459.62 A 650 650 0 0 1 -459.62 -459.62" />
+            <path id="arc-title-right"
+                  d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
 
-    const coin           = document.getElementById('coin');
-    const capBiomesLeft   = document.getElementById('cap-biomes-left');
-    const capBiomesRight  = document.getElementById('cap-biomes-right');
-    const capAnthroLeft   = document.getElementById('cap-anthromes-left');
-    const capAnthroRight  = document.getElementById('cap-anthromes-right');
-    const leftLink        = document.getElementById('leftLink');   // BIOMES
-    const rightLink       = document.getElementById('rightLink');  // ANTHROMES
-    const enter           = document.getElementById('enter');
+            <!--
+              ONE-LINERS: outside the disk, alternating between TOP and BOTTOM
+              semicircles at r=590 (just past the disk edge, inside the title
+              ring). The 180° span meets each title at its endpoint (9 or 3), so
+              the one-liner reads as a continuation of the framing hierarchy.
+                TOP arc: L→R across the top; ascenders point OUTWARD (up, away
+                  from the disk). Upright letters at the 12 o'clock midpoint.
+                BOTTOM arc: L→R across the bottom (the path traverses 9→6→3,
+                  which is CCW on the clock face); ascenders point INWARD, and
+                  letters are upright at the 6 o'clock midpoint.
+            -->
+            <path id="arc-line-top"
+                  d="M -590 0 A 590 590 0 0 1 590 0" />
+            <path id="arc-line-bottom"
+                  d="M -590 0 A 590 590 0 0 0 590 0" />
+          </defs>
 
-    const PERIOD = 10000; // ms for a full 360° turn (5s per face)
-    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+          <text id="label-biomes"    class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle">BIOMES</textPath></text>
+          <text id="label-anthromes" class="title"><textPath href="#arc-title-right" startOffset="50%" text-anchor="middle">ANTHROMES</textPath></text>
 
-    let currentFace = 'biomes';
-    let startT = performance.now();
-    let rafId;
+          <text id="line-top"    class="line"><textPath href="#arc-line-top"    startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="line-bottom" class="line"><textPath href="#arc-line-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
+        </svg>
 
-    function render(now) {
-      const t = (now - startT) % PERIOD;
-      const angle = (t / PERIOD) * 360;
-      coin.style.transform = `rotateY(${angle}deg)`;
+        <div class="coin-wrap">
+          <div class="coin" id="coin">
+            <div class="face face--biomes">
+              <img src="splash/biomes.webp" alt="Biomes visualization" />
+              <div class="face-dim"></div>
+              <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+                <defs>
+                  <!-- Biomes dichotomy: TOP arc inside the face, letters outward. -->
+                  <path id="face-arc-biomes" d="M -400 0 A 400 400 0 0 1 400 0" />
+                </defs>
+                <text id="biomes-text"><textPath href="#face-arc-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
+              </svg>
+            </div>
+            <div class="face face--anthromes">
+              <img src="splash/anthromes.webp" alt="Anthromes visualization" />
+              <div class="face-dim"></div>
+              <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+                <defs>
+                  <!-- Anthromes dichotomy: BOTTOM arc inside the face, letters inward. -->
+                  <path id="face-arc-anthromes" d="M -400 0 A 400 400 0 0 0 400 0" />
+                </defs>
+                <text id="anthromes-text"><textPath href="#face-arc-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
+              </svg>
+            </div>
+          </div>
+        </div>
 
-      const c = Math.cos(angle * Math.PI / 180); // 1 = biomes facing, -1 = anthromes facing
-      currentFace = c >= 0 ? 'biomes' : 'anthromes';
+        <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization"></div>
+      </div>
+    </div>
+  </template>
 
-      // Captions cross-fade with the flip (sharpened so they're readable across most of the face)
-      const sharpen = x => Math.min(1, Math.max(0, x) * 1.8);
-      const biomesOpacity = sharpen(c);
-      const anthromesOpacity = sharpen(-c);
-      capBiomesLeft.style.opacity = biomesOpacity;
-      capBiomesRight.style.opacity = biomesOpacity;
-      capAnthroLeft.style.opacity = anthromesOpacity;
-      capAnthroRight.style.opacity = anthromesOpacity;
+  <!-- ===== Options 2+: the screen as it stood before the narrative pass ===== -->
+  <template id="tpl-classic">
+    <div class="splash splash--classic">
+      <a id="leftLink"  class="sideLink" href="loading.html?side=biomes">BIOMES</a>
+      <a id="rightLink" class="sideLink" href="loading.html?side=anthromes">ANTHROMES</a>
 
-      // Side labels fade continuously with rotation: 1 when that side is facing,
-      // dropping to 0.75 at the opposite extreme (when the other face is fully shown).
-      leftLink.style.opacity  = 0.7 + 0.3 * c;
-      rightLink.style.opacity = 0.7 - 0.3 * c;
+      <div class="disk-area">
+        <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+          <defs>
+            <path id="arc-left"  d="M 0 -575 A 575 575 0 0 0 0 575" />
+            <path id="arc-right" d="M 0 575 A 575 575 0 0 0 0 -575" />
+          </defs>
 
-      rafId = requestAnimationFrame(render);
+          <!-- Biomes face captions -->
+          <text id="cap-biomes-left" font-size="30">
+            <textPath href="#arc-left" startOffset="50%" text-anchor="middle">AN EXTENSIVE HUMAN MICROBIOME</textPath>
+          </text>
+          <text id="cap-biomes-right" class="enter-text" font-size="30">
+            <textPath href="#arc-right" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
+          </text>
+
+          <!-- Anthromes face captions -->
+          <text id="cap-anthromes-left" class="enter-text" font-size="30">
+            <textPath href="#arc-left" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
+          </text>
+          <text id="cap-anthromes-right" font-size="30">
+            <textPath href="#arc-right" startOffset="50%" text-anchor="middle">MODELING 12,025 YEARS OF LAND USE</textPath>
+          </text>
+        </svg>
+
+        <div class="coin-wrap">
+          <div class="coin" id="coin">
+            <div class="face face--biomes"><img src="splash/biomes.webp" alt="Biomes visualization" /></div>
+            <div class="face face--anthromes"><img src="splash/anthromes.webp" alt="Anthromes visualization" /></div>
+          </div>
+        </div>
+
+        <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization"></div>
+      </div>
+    </div>
+  </template>
+
+  <script type="module">
+    // Controller: mounts whichever arrangement the shared UI option selects, and
+    // hands the option list to the dev HUD so it can be cycled here the same way
+    // it is on the two visualizations. Cloning a <template> rather than toggling
+    // `display` keeps exactly one copy of each id in the document, which the
+    // SVG textPath href="#..." references depend on.
+    import { initPageStage } from './src/shared/pageStage.js';
+    import { UI_OPTIONS, uiOption, cycleUiOption } from './src/shared/uiOption.svelte.js';
+    import { mountNarrative } from './src/splash/narrative.js';
+    import { mountClassic } from './src/splash/classic.js';
+
+    const host = document.getElementById('splash-host');
+    let teardown = null;
+
+    function render() {
+      teardown?.();
+      // Option 1 is the narrative pass; every arrangement before it predates the
+      // narrative splash and shares the original screen.
+      const narrative = uiOption() === 1;
+      const tpl = document.getElementById(narrative ? 'tpl-narrative' : 'tpl-classic');
+      host.replaceChildren(tpl.content.cloneNode(true));
+      teardown = (narrative ? mountNarrative : mountClassic)(host);
     }
 
-    if (reduce) {
-      // Hold on the biomes face; side labels remain fully visible
-      coin.style.transform = 'rotateY(0deg)';
-      capBiomesLeft.style.opacity = 1;
-      capBiomesRight.style.opacity = 1;
-      capAnthroLeft.style.opacity = 0;
-      capAnthroRight.style.opacity = 0;
-      currentFace = 'biomes';
-    } else {
-      rafId = requestAnimationFrame(render);
-    }
-
-    function go(which) { window.location.href = URLS[which]; }
-
-    // Click the disk / caption ring → whichever viz is currently facing us
-    enter.addEventListener('click', () => go(currentFace));
-    enter.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(currentFace); }
+    initPageStage({
+      uiOptions: {
+        labels: UI_OPTIONS,
+        get: uiOption,
+        cycle: () => { cycleUiOption(); render(); }
+      }
     });
 
-    // Side labels always route to their own side (don't also trigger the disk click)
-    leftLink.addEventListener('click', (e) => e.stopPropagation());
-    rightLink.addEventListener('click', (e) => e.stopPropagation());
+    // Both arrangements measure text to fit it to an arc, so wait for the face
+    // rather than measuring fallback metrics and baking in the wrong size.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+    else render();
   </script>
 </body>
 </html>

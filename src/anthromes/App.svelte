@@ -13,9 +13,11 @@
   import ArcLabel from '../shared/ArcLabel.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   // Option numbers live in shared/uiOption.svelte.js. Comments below that say
-  // "Option 1" mean the refined arrangement, which is now BOTH option 1 (the
-  // 8/21 pass) and option 2 (8/14) — hence refinedLayout() for anything the two
-  // share, and refined0821() for what only the newer pass does.
+  // "Option 1" mean the refined arrangement, which is now options 1-3 (the
+  // narrative pass, the 8/21 pass and 8/14) — hence refinedLayout() for
+  // anything all three share, and refined0821() for what 8/21 introduced and
+  // the narrative pass inherits. This side has no copy of its own in the
+  // narrative pass, so it never needs narrative0821().
   import { refinedLayout, refined0821 } from '../shared/uiOption.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
@@ -113,10 +115,12 @@
   const crossLinkHref = $derived.by(() => {
     const base = import.meta.env.BASE_URL;
     const params = new URLSearchParams();
+    // side= tells the interstitial which copy to show and where to forward to;
+    // it strips the param and passes everything else through untouched.
+    params.set('side', 'biomes');
     if (selectedCountryIso3) params.set('country', selectedCountryIso3);
     if (rangeSource?.sgbId != null) params.set('highlightSGB', String(rangeSource.sgbId));
-    const q = params.toString();
-    return `${base}src/biomes/${q ? `?${q}` : ''}`;
+    return `${base}loading.html?${params.toString()}`;
   });
 
   $effect(() => {
@@ -738,15 +742,13 @@
     <p>{error}</p>
   </div>
 {:else}
-  <!-- Loading overlay -->
-  {#if loading}
-    <div class="loading-overlay">
-      <p>Loading anthromes data...</p>
-    </div>
-  {:else if !mapReady && initialLoad}
-    <div class="loading-overlay">
-      <p>Rendering map...</p>
-    </div>
+  <!-- Blank overlay: users arrive via loading.html, which already showed the
+       loading UI for a fixed window. Keep the overlay so the background stays
+       continuous, but drop the "Loading anthromes data..." / "Rendering map..."
+       text — a second, differently-worded loading screen immediately after the
+       first reads as a stall rather than as progress. -->
+  {#if loading || (!mapReady && initialLoad)}
+    <div class="loading-overlay" aria-hidden="true"></div>
   {/if}
 
   <div class="app">

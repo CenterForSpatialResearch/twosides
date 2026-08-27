@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Loading…</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      font-display: swap;
+    }
+
+    :root{
+      --bg:#0e0b16;
+      --fg:#ffffff;
+      --ring:#ffffff;
+      --ringWidth: 3px;
+      /* Fixed design canvas — see src/shared/pageStage.js. Same values as the
+         splash so the disk does not jump size across the hand-off. */
+      --design-w: 3000;
+      --design-h: 2000;
+      --stage-scale: 1;
+      --disk: 900px;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Pelikan", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    body { animation: fadeIn 0.6s ease-out; }
+
+    /* ===== Fixed-canvas scaling — mirrors index.html and shared/styles.css ===== */
+    .viewport {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background: var(--letterbox-bg, var(--bg));
+    }
+
+    .stage {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: calc(var(--design-w) * 1px);
+      height: calc(var(--design-h) * 1px);
+      background: var(--bg);
+      overflow: hidden;
+      transform: translate(-50%, -50%) scale(var(--stage-scale));
+      transform-origin: center center;
+      display: grid;
+      place-items: center;
+    }
+
+    .disk-area {
+      position: relative;
+      width: var(--disk);
+      height: var(--disk);
+    }
+
+    /* Static ring — no coin, no image, no rotation. Just the outline. */
+    .disk-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: var(--ringWidth) solid var(--ring);
+      box-shadow: 0 0 60px rgba(0,0,0,0.55);
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    .face-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .face-svg text {
+      fill: var(--fg);
+      font-weight: 500;
+      letter-spacing: 0.005em;
+    }
+
+    .caption-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+      z-index: 3;
+    }
+    .caption-svg text {
+      fill: var(--fg);
+    }
+    .caption-svg text.title {
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .caption-svg text.subhead {
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    /* Dots always take their slot; only opacity changes so the LOADING text
+       never shifts as the ellipsis animates. */
+    .dot.on  { opacity: 1; }
+    .dot.off { opacity: 0.18; }
+  </style>
+</head>
+<body>
+  <div class="viewport">
+  <div class="stage">
+    <div class="disk-area">
+      <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+        <defs>
+          <!-- Title arcs (adaptive — same as home: halfway between disk edge
+               and viewport edge). Both use sweep=1 for the short arc. -->
+          <path id="arc-title-left"  d="" />
+          <path id="arc-title-right" d="" />
+
+          <!-- Subheadline: bottom outer semicircle at r=590 (same slot as
+               home's bottom one-liner). Ascenders point inward, upright at
+               the 6 o'clock midpoint reading L→R. -->
+          <path id="arc-subhead" d="M -590 0 A 590 590 0 0 0 590 0" />
+        </defs>
+
+        <text id="label-left"  class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle"></textPath></text>
+        <text id="label-right" class="title"><textPath href="#arc-title-right" startOffset="50%" text-anchor="middle"></textPath></text>
+        <text id="subheadline" class="subhead"><textPath href="#arc-subhead"    startOffset="50%" text-anchor="middle"></textPath></text>
+      </svg>
+
+      <div class="disk-ring">
+        <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+          <defs>
+            <!-- Inside-disk arcs at r=440: TOP (sweep=1, letters outward) and
+                 BOTTOM (sweep=0, letters inward). r=440 gives enough arc
+                 length for the long anthromes definition to fit at font 22+. -->
+            <path id="arc-inside-top"    d="M -440 0 A 440 440 0 0 1 440 0" />
+            <path id="arc-inside-bottom" d="M -440 0 A 440 440 0 0 0 440 0" />
+          </defs>
+          <text id="inside-top"><textPath href="#arc-inside-top"    startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="inside-bot"><textPath href="#arc-inside-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
+        </svg>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Scale loop + dev HUD, outside .stage so the HUD never scales. -->
+  <script type="module">
+    import { initPageStage } from './src/shared/pageStage.js';
+    initPageStage();
+  </script>
+
+  <script>
+    // --- Route params ---------------------------------------------------------
+    // side= picks the copy + target viz. Any other params (country, highlightSGB,
+    // etc.) get forwarded verbatim to the target so cross-linking preserves state.
+    const params = new URLSearchParams(window.location.search);
+    const side = params.get('side') === 'anthromes' ? 'anthromes' : 'biomes';
+    params.delete('side');
+    const forwardQuery = params.toString();
+
+    const BASE = document.querySelector('meta[name="base-url"]')?.content
+      || location.pathname.replace(/[^\/]*$/, '');
+
+    // Copy per side. Verbatim except: "anthromes" → "Anthromes" (proper caps).
+    const DATA = {
+      biomes: {
+        title: 'BIOMES',
+        titlePos: 'left',
+        subhead: '5000 LINES 5000 SPECIES',
+        insideTop:    'An extensive microbiome assembly contains fragments of DNA from many communities.',
+        insideBottom: '9,428 samples provide views into human-associated microbial life.',
+        redirectPath: 'src/biomes/'
+      },
+      anthromes: {
+        title: 'ANTHROMES',
+        titlePos: 'right',
+        subhead: 'MODELING 12,025 YEARS OF LAND USE',
+        insideTop:    'Anthromes classify ecosystems according to sustained human interactions with them.',
+        insideBottom: 'Population, settlement, agriculture, and land use distinguish one anthrome from another.',
+        redirectPath: 'src/anthromes/'
+      }
+    };
+    const d = DATA[side];
+    const target = BASE + d.redirectPath + (forwardQuery ? '?' + forwardQuery : '');
+
+    // --- References -----------------------------------------------------------
+    const labelLeft   = document.getElementById('label-left');
+    const labelRight  = document.getElementById('label-right');
+    const labelLeftP  = labelLeft.querySelector('textPath');
+    const labelRightP = labelRight.querySelector('textPath');
+    const subhead     = document.getElementById('subheadline');
+    const subheadP    = subhead.querySelector('textPath');
+    const insideTop   = document.getElementById('inside-top');
+    const insideTopP  = insideTop.querySelector('textPath');
+    const insideBot   = document.getElementById('inside-bot');
+    const insideBotP  = insideBot.querySelector('textPath');
+
+    // --- Fixed font sizes, aligned across home + loading ----------------------
+    // Home uses these same values so the two screens read as a single design.
+    const BASE_FONT   = 34;                        // one-liner / subhead
+    const TITLE_FONT  = Math.round(BASE_FONT * 1.55); // 53
+    const INSIDE_CAP  = Math.floor(BASE_FONT * 0.72); // 24
+
+    // --- Content placement ---------------------------------------------------
+    const titleP = d.titlePos === 'left' ? labelLeftP  : labelRightP;
+    const loadP  = d.titlePos === 'left' ? labelRightP : labelLeftP;
+    titleP.textContent = d.title;
+    subheadP.textContent = d.subhead;
+    insideTopP.textContent = d.insideTop;
+    insideBotP.textContent = d.insideBottom;
+
+    // Build LOADING with 3 dots as separate <tspan>s so we can pulse their
+    // opacity without touching the text length. The text is measured once at
+    // its "LOADING..." full-width state and never resized.
+    const NS = 'http://www.w3.org/2000/svg';
+    function buildLoadingLabel(pathEl) {
+      pathEl.textContent = '';
+      pathEl.appendChild(document.createTextNode('LOADING'));
+      const dots = [];
+      for (let i = 0; i < 3; i++) {
+        const t = document.createElementNS(NS, 'tspan');
+        t.setAttribute('class', 'dot off');
+        t.textContent = '.';
+        pathEl.appendChild(t);
+        dots.push(t);
+      }
+      return dots;
+    }
+    const dotEls = buildLoadingLabel(loadP);
+
+    // --- Title arc (same formula as home) -------------------------------------
+    // Anchored to the fixed design canvas, not the window — keep DESIGN_W in
+    // step with src/shared/pageStage.js and with index.html.
+    const DESIGN_W = 3000;
+
+    function updateTitleArcs() {
+      const vw = DESIGN_W;
+      const diskEl = document.querySelector('.disk-area');
+      // Layout width, so the .stage transform doesn't enter into it.
+      const diskWidth = diskEl.offsetWidth;
+      if (!diskWidth) return 650;
+      const rTitle = Math.round(250 * (vw / diskWidth + 1));
+      const off = (rTitle * Math.SQRT1_2).toFixed(2);
+      document.getElementById('arc-title-left').setAttribute('d',
+        `M -${off} ${off} A ${rTitle} ${rTitle} 0 0 1 -${off} -${off}`);
+      document.getElementById('arc-title-right').setAttribute('d',
+        `M ${off} -${off} A ${rTitle} ${rTitle} 0 0 1 ${off} ${off}`);
+      return rTitle;
+    }
+
+    // --- Font sizing ---------------------------------------------------------
+    const ARC_INSIDE = Math.PI * 440;
+
+    // Auto-fit only used for the long inside lines; everything else is fixed.
+    function fitInside(el, path, content) {
+      path.textContent = content;
+      let lo = 16, hi = INSIDE_CAP, best = 16;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        el.setAttribute('font-size', mid);
+        if (el.getComputedTextLength() <= ARC_INSIDE * 0.92) { best = mid; lo = mid + 1; }
+        else                                                  { hi = mid - 1; }
+      }
+      el.setAttribute('font-size', best);
+      return best;
+    }
+
+    function sizeAll() {
+      updateTitleArcs();
+      labelLeft.setAttribute('font-size',  TITLE_FONT);
+      labelRight.setAttribute('font-size', TITLE_FONT);
+      subhead.setAttribute('font-size',    BASE_FONT);
+      // Match both inside lines to the smaller of the two so hierarchy reads uniformly.
+      const fTop = fitInside(insideTop, insideTopP, d.insideTop);
+      const fBot = fitInside(insideBot, insideBotP, d.insideBottom);
+      const insideFont = Math.min(fTop, fBot);
+      insideTop.setAttribute('font-size', insideFont);
+      insideBot.setAttribute('font-size', insideFont);
+    }
+
+    // --- Ellipsis animation (opacity only — text width stays put) -------------
+    let phase = 0;
+    let dotTimer;
+    function tickDots() {
+      phase = (phase + 1) % 4;
+      // Dots come on one at a time; when phase wraps to 0 they all dim.
+      dotEls[0].setAttribute('class', 'dot ' + (phase >= 1 ? 'on' : 'off'));
+      dotEls[1].setAttribute('class', 'dot ' + (phase >= 2 ? 'on' : 'off'));
+      dotEls[2].setAttribute('class', 'dot ' + (phase >= 3 ? 'on' : 'off'));
+    }
+
+    // --- Preload hook + fixed wait --------------------------------------------
+    // Lightweight prefetch to warm the browser HTTP cache. No iframe: running
+    // the viz off-screen while our loading screen is up caused resource
+    // contention and racing double-fetches. `rel=prefetch` + a fire-and-forget
+    // fetch are both idle-priority hints that let the browser cache the target
+    // HTML without executing it.
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = target;
+    link.as = 'document';
+    document.head.appendChild(link);
+    fetch(target, { credentials: 'same-origin' }).catch(() => {});
+
+    // Fixed 5s reading window. Biomes' viz-side data loading now shows a plain
+    // dark background (no "Loading biomes data..." text) so any residual load
+    // time after redirect is visually continuous with this screen.
+    const MIN_WAIT_MS = 5000;
+
+    function boot() {
+      // Measured once: on the fixed canvas every input to sizeAll() is a
+      // constant, and the window only changes the scale pageStage.js applies.
+      sizeAll();
+      dotTimer = setInterval(tickDots, 450);
+      setTimeout(() => {
+        clearInterval(dotTimer);
+        window.location.href = target;
+      }, MIN_WAIT_MS);
+    }
+
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(boot);
+    else boot();
+  </script>
+</body>
+</html>
