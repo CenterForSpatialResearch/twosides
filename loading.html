@@ -157,14 +157,21 @@
   </div>
   </div>
 
-  <!-- Scale loop + dev HUD, outside .stage so the HUD never scales. -->
   <script type="module">
+    // Cross-link interstitial. The splash no longer routes through here — it
+    // runs the same transition in place (see src/splash/narrative.js) so that
+    // entering a side is one navigation, not two. What is left is the
+    // biomes <-> anthromes hand-off, where a full page load is unavoidable and
+    // this screen covers it with the destination's own framing.
     import { initPageStage } from './src/shared/pageStage.js';
-    initPageStage();
-  </script>
+    import {
+      SIDE_COPY, BASE_FONT, TITLE_FONT, ARC_INSIDE,
+      fitToArc, buildLoadingLabel
+    } from './src/shared/splashCopy.js';
 
-  <script>
-    // --- Route params ---------------------------------------------------------
+    initPageStage();
+
+    // --- Route params -------------------------------------------------------
     // side= picks the copy + target viz. Any other params (country, highlightSGB,
     // etc.) get forwarded verbatim to the target so cross-linking preserves state.
     const params = new URLSearchParams(window.location.search);
@@ -175,29 +182,10 @@
     const BASE = document.querySelector('meta[name="base-url"]')?.content
       || location.pathname.replace(/[^\/]*$/, '');
 
-    // Copy per side. Verbatim except: "anthromes" → "Anthromes" (proper caps).
-    const DATA = {
-      biomes: {
-        title: 'BIOMES',
-        titlePos: 'left',
-        subhead: '5000 LINES 5000 SPECIES',
-        insideTop:    'An extensive microbiome assembly contains fragments of DNA from many communities.',
-        insideBottom: '9,428 samples provide views into human-associated microbial life.',
-        redirectPath: 'src/biomes/'
-      },
-      anthromes: {
-        title: 'ANTHROMES',
-        titlePos: 'right',
-        subhead: 'MODELING 12,025 YEARS OF LAND USE',
-        insideTop:    'Anthromes classify ecosystems according to sustained human interactions with them.',
-        insideBottom: 'Population, settlement, agriculture, and land use distinguish one anthrome from another.',
-        redirectPath: 'src/anthromes/'
-      }
-    };
-    const d = DATA[side];
-    const target = BASE + d.redirectPath + (forwardQuery ? '?' + forwardQuery : '');
+    const d = SIDE_COPY[side];
+    const target = BASE + d.path + (forwardQuery ? '?' + forwardQuery : '');
 
-    // --- References -----------------------------------------------------------
+    // --- References ---------------------------------------------------------
     const labelLeft   = document.getElementById('label-left');
     const labelRight  = document.getElementById('label-right');
     const labelLeftP  = labelLeft.querySelector('textPath');
@@ -209,74 +197,29 @@
     const insideBot   = document.getElementById('inside-bot');
     const insideBotP  = insideBot.querySelector('textPath');
 
-    // --- Fixed font sizes, aligned across home + loading ----------------------
-    // Home uses these same values so the two screens read as a single design.
-    const BASE_FONT   = 34;                        // one-liner / subhead
-    const TITLE_FONT  = Math.round(BASE_FONT * 1.55); // 53
-    const INSIDE_CAP  = Math.floor(BASE_FONT * 0.72); // 24
-
-    // --- Content placement ---------------------------------------------------
+    // --- Content placement --------------------------------------------------
     const titleP = d.titlePos === 'left' ? labelLeftP  : labelRightP;
     const loadP  = d.titlePos === 'left' ? labelRightP : labelLeftP;
     titleP.textContent = d.title;
     subheadP.textContent = d.subhead;
-    insideTopP.textContent = d.insideTop;
-    insideBotP.textContent = d.insideBottom;
+    const tickDots = buildLoadingLabel(loadP);
 
-    // Build LOADING with 3 dots as separate <tspan>s so we can pulse their
-    // opacity without touching the text length. The text is measured once at
-    // its "LOADING..." full-width state and never resized.
-    const NS = 'http://www.w3.org/2000/svg';
-    function buildLoadingLabel(pathEl) {
-      pathEl.textContent = '';
-      pathEl.appendChild(document.createTextNode('LOADING'));
-      const dots = [];
-      for (let i = 0; i < 3; i++) {
-        const t = document.createElementNS(NS, 'tspan');
-        t.setAttribute('class', 'dot off');
-        t.textContent = '.';
-        pathEl.appendChild(t);
-        dots.push(t);
-      }
-      return dots;
-    }
-    const dotEls = buildLoadingLabel(loadP);
-
-    // --- Title arc (same formula as home) -------------------------------------
-    // Anchored to the fixed design canvas, not the window — keep DESIGN_W in
-    // step with src/shared/pageStage.js and with index.html.
+    // --- Adaptive title arc (same formula as the splash) --------------------
+    // Anchored to the fixed design canvas, not the window: the page is authored
+    // 1:1 against DESIGN_W and scaled by one transform, so this is a constant
+    // and is measured once rather than on every resize.
     const DESIGN_W = 3000;
 
     function updateTitleArcs() {
-      const vw = DESIGN_W;
-      const diskEl = document.querySelector('.disk-area');
       // Layout width, so the .stage transform doesn't enter into it.
-      const diskWidth = diskEl.offsetWidth;
-      if (!diskWidth) return 650;
-      const rTitle = Math.round(250 * (vw / diskWidth + 1));
-      const off = (rTitle * Math.SQRT1_2).toFixed(2);
+      const diskWidth = document.querySelector('.disk-area').offsetWidth;
+      if (!diskWidth) return;
+      const r = Math.round(250 * (DESIGN_W / diskWidth + 1));
+      const off = (r * Math.SQRT1_2).toFixed(2);
       document.getElementById('arc-title-left').setAttribute('d',
-        `M -${off} ${off} A ${rTitle} ${rTitle} 0 0 1 -${off} -${off}`);
+        `M -${off} ${off} A ${r} ${r} 0 0 1 -${off} -${off}`);
       document.getElementById('arc-title-right').setAttribute('d',
-        `M ${off} -${off} A ${rTitle} ${rTitle} 0 0 1 ${off} ${off}`);
-      return rTitle;
-    }
-
-    // --- Font sizing ---------------------------------------------------------
-    const ARC_INSIDE = Math.PI * 440;
-
-    // Auto-fit only used for the long inside lines; everything else is fixed.
-    function fitInside(el, path, content) {
-      path.textContent = content;
-      let lo = 16, hi = INSIDE_CAP, best = 16;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        el.setAttribute('font-size', mid);
-        if (el.getComputedTextLength() <= ARC_INSIDE * 0.92) { best = mid; lo = mid + 1; }
-        else                                                  { hi = mid - 1; }
-      }
-      el.setAttribute('font-size', best);
-      return best;
+        `M ${off} -${off} A ${r} ${r} 0 0 1 ${off} ${off}`);
     }
 
     function sizeAll() {
@@ -284,26 +227,16 @@
       labelLeft.setAttribute('font-size',  TITLE_FONT);
       labelRight.setAttribute('font-size', TITLE_FONT);
       subhead.setAttribute('font-size',    BASE_FONT);
-      // Match both inside lines to the smaller of the two so hierarchy reads uniformly.
-      const fTop = fitInside(insideTop, insideTopP, d.insideTop);
-      const fBot = fitInside(insideBot, insideBotP, d.insideBottom);
+      // Match both inside lines to the smaller of the two so the hierarchy
+      // reads uniformly rather than one definition outranking the other.
+      const fTop = fitToArc(insideTop, insideTopP, d.insideTop, ARC_INSIDE);
+      const fBot = fitToArc(insideBot, insideBotP, d.insideBottom, ARC_INSIDE);
       const insideFont = Math.min(fTop, fBot);
       insideTop.setAttribute('font-size', insideFont);
       insideBot.setAttribute('font-size', insideFont);
     }
 
-    // --- Ellipsis animation (opacity only — text width stays put) -------------
-    let phase = 0;
-    let dotTimer;
-    function tickDots() {
-      phase = (phase + 1) % 4;
-      // Dots come on one at a time; when phase wraps to 0 they all dim.
-      dotEls[0].setAttribute('class', 'dot ' + (phase >= 1 ? 'on' : 'off'));
-      dotEls[1].setAttribute('class', 'dot ' + (phase >= 2 ? 'on' : 'off'));
-      dotEls[2].setAttribute('class', 'dot ' + (phase >= 3 ? 'on' : 'off'));
-    }
-
-    // --- Preload hook + fixed wait --------------------------------------------
+    // --- Preload hook + fixed wait ------------------------------------------
     // Lightweight prefetch to warm the browser HTTP cache. No iframe: running
     // the viz off-screen while our loading screen is up caused resource
     // contention and racing double-fetches. `rel=prefetch` + a fire-and-forget
@@ -316,19 +249,23 @@
     document.head.appendChild(link);
     fetch(target, { credentials: 'same-origin' }).catch(() => {});
 
-    // Fixed 5s reading window. Biomes' viz-side data loading now shows a plain
-    // dark background (no "Loading biomes data..." text) so any residual load
-    // time after redirect is visually continuous with this screen.
+    // Fixed 5s reading window. Both Apps show a plain dark background rather
+    // than their own loading text, so any residual load time after the redirect
+    // is visually continuous with this screen.
     const MIN_WAIT_MS = 5000;
 
     function boot() {
       // Measured once: on the fixed canvas every input to sizeAll() is a
       // constant, and the window only changes the scale pageStage.js applies.
       sizeAll();
-      dotTimer = setInterval(tickDots, 450);
+      const dotTimer = setInterval(tickDots, 450);
       setTimeout(() => {
         clearInterval(dotTimer);
-        window.location.href = target;
+        // replace(), not href: this screen swaps ITSELF out of the history
+        // stack for the target, so Back from the destination returns to the
+        // page that linked here rather than landing on an interstitial that
+        // immediately forwards again.
+        window.location.replace(target);
       }, MIN_WAIT_MS);
     }
 

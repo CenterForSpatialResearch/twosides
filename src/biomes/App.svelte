@@ -1642,18 +1642,26 @@
           />
         {:else}
           <!-- Options 1–5: the details panel sits inline in the rail, so the
-               leader is a straight run from the marker to the rail edge.
-               Option 1 lands on the vertical centre of the SGB title, so the
-               line slopes; the others stay level with the marker. The x
-               endpoint is the same either way. -->
-          <!-- 8/21 takes its y from the MARKER, not from leaderTo: the run is
-               horizontal by construction, so it still reads straight during the
-               frame before the title's lead-in has settled on the rule. -->
+               leader is a straight run from the marker to the rail edge. Every
+               refined pass lands on the thing it names — the rule under the SGB
+               title — so y comes from leaderTo; the others stay level with the
+               marker. The x endpoint differs only by the 8px standoff the
+               pre-rule options need.
+
+               alignSgbToMarker() still does the work of bringing the rule TO
+               the marker, which keeps the run horizontal in the common case.
+               But the lead-in it adjusts cannot go negative — the title can't
+               climb into the block above it — so when the marker sits higher
+               than the title's resting position the rule cannot rise to meet
+               it. That is the norm under the narrative pass, whose one-liner
+               header pushes the whole panel down. Taking y from the rule means
+               the line slopes in exactly those cases instead of stopping short
+               at the marker's height and missing the rule entirely. -->
           <line
             class="leader-line"
             x1={leaderFrom.x} y1={leaderFrom.y}
             x2={refined0821() ? leaderTo.x : leaderTo.x - 8}
-            y2={refined0821() ? leaderFrom.y : refinedLayout() ? leaderTo.y : leaderFrom.y}
+            y2={refinedLayout() ? leaderTo.y : leaderFrom.y}
           />
         {/if}
       </svg>

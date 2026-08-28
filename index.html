@@ -177,6 +177,35 @@
       letter-spacing: 0.02em;
       font-weight: 500;
     }
+    /* The destination's subheadline, shown once a side has been chosen. Same
+       treatment as loading.html's, so the commit state and the cross-link
+       interstitial are the same screen. */
+    .splash--narrative .caption-svg text.subhead {
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    /* Both titles are always clickable, whichever face is turned forward —
+       clicking ANTHROMES while biomes is showing enters anthromes. Arced SVG
+       glyphs are a poor hit target, so each title gets an invisible band along
+       its own arc: stroke-only, wide enough to cover the text's full height
+       (ascenders run outward from the path), and hit-tested on the stroke.
+       .caption-svg is pointer-events:none, which stops the layer itself
+       swallowing clicks meant for the disk while still letting these children
+       opt back in. */
+    .splash--narrative .title-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 130;
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+
+    /* Dots always take their slot; only opacity changes, so LOADING never
+       shifts along the arc as the ellipsis animates. */
+    .splash--narrative .dot.on  { opacity: 1; }
+    .splash--narrative .dot.off { opacity: 0.18; }
 
     /* ---- Classic arrangement (options 2+) ---- */
     /* Fixed vertical side labels — always clickable; opacity tracks rotation.
@@ -262,6 +291,16 @@
           <text id="label-biomes"    class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle">BIOMES</textPath></text>
           <text id="label-anthromes" class="title"><textPath href="#arc-title-right" startOffset="50%" text-anchor="middle">ANTHROMES</textPath></text>
 
+          <!-- Click targets for the titles. Same d= as the arcs above, kept in
+               step by updateTitleArcs(); drawn after the text so they sit on
+               top of it in hit-test order. Pointer targets only — they sit
+               inside an aria-hidden layer, so they are deliberately not
+               focusable; #enter below is the keyboard route in. -->
+          <path id="hit-biomes"    class="title-hit"
+                d="M -459.62 459.62 A 650 650 0 0 1 -459.62 -459.62" />
+          <path id="hit-anthromes" class="title-hit"
+                d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
+
           <text id="line-top"    class="line"><textPath href="#arc-line-top"    startOffset="50%" text-anchor="middle"></textPath></text>
           <text id="line-bottom" class="line"><textPath href="#arc-line-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
         </svg>
@@ -275,8 +314,15 @@
                 <defs>
                   <!-- Biomes dichotomy: TOP arc inside the face, letters outward. -->
                   <path id="face-arc-biomes" d="M -400 0 A 400 400 0 0 1 400 0" />
+                  <!-- Definition arcs, used only once this side has been chosen.
+                       r=440 and the same sweeps as loading.html, so the two
+                       lines land exactly where the interstitial puts them. -->
+                  <path id="def-arc-top-biomes" d="M -440 0 A 440 440 0 0 1 440 0" />
+                  <path id="def-arc-bot-biomes" d="M -440 0 A 440 440 0 0 0 440 0" />
                 </defs>
                 <text id="biomes-text"><textPath href="#face-arc-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
+                <text id="def-top-biomes" opacity="0"><textPath href="#def-arc-top-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
+                <text id="def-bot-biomes" opacity="0"><textPath href="#def-arc-bot-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
               </svg>
             </div>
             <div class="face face--anthromes">
@@ -286,8 +332,12 @@
                 <defs>
                   <!-- Anthromes dichotomy: BOTTOM arc inside the face, letters inward. -->
                   <path id="face-arc-anthromes" d="M -400 0 A 400 400 0 0 0 400 0" />
+                  <path id="def-arc-top-anthromes" d="M -440 0 A 440 440 0 0 1 440 0" />
+                  <path id="def-arc-bot-anthromes" d="M -440 0 A 440 440 0 0 0 440 0" />
                 </defs>
                 <text id="anthromes-text"><textPath href="#face-arc-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
+                <text id="def-top-anthromes" opacity="0"><textPath href="#def-arc-top-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
+                <text id="def-bot-anthromes" opacity="0"><textPath href="#def-arc-bot-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
               </svg>
             </div>
           </div>
@@ -301,8 +351,8 @@
   <!-- ===== Options 2+: the screen as it stood before the narrative pass ===== -->
   <template id="tpl-classic">
     <div class="splash splash--classic">
-      <a id="leftLink"  class="sideLink" href="loading.html?side=biomes">BIOMES</a>
-      <a id="rightLink" class="sideLink" href="loading.html?side=anthromes">ANTHROMES</a>
+      <a id="leftLink"  class="sideLink" href="src/biomes/">BIOMES</a>
+      <a id="rightLink" class="sideLink" href="src/anthromes/">ANTHROMES</a>
 
       <div class="disk-area">
         <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">

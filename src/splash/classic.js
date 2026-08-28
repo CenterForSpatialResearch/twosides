@@ -3,9 +3,12 @@
 // The screen as it stood before the 8/21 narrative pass: a 10s coin flip, two
 // fixed vertical side labels that are always clickable, and a pair of static
 // captions per face that cross-fade with the rotation. Kept verbatim apart from
-// the two changes every arrangement now shares — the fixed design canvas, and
-// cross-links routed through the loading interstitial.
-const URLS = { biomes: 'loading.html?side=biomes', anthromes: 'loading.html?side=anthromes' };
+// the one change every arrangement now shares: the fixed design canvas.
+//
+// It navigates straight to a side, as it always did. The narrative arrangement
+// is the one that carries a loading state, and it does so in place — giving
+// this screen an interstitial would only cost it the Back button.
+const URLS = { biomes: 'src/biomes/', anthromes: 'src/anthromes/' };
 
 const PERIOD = 10000; // ms for a full 360deg turn (5s per face)
 
