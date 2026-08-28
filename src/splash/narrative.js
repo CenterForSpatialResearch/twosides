@@ -43,23 +43,26 @@ const ARC_FACE = Math.PI * 400;  // in-disk dichotomy arc, r=400 viewBox units
 const PERIOD   = 20000;
 const FADE_MS  = 4000;
 
-// Commit transition. The run-out is timed from how far it actually has to
-// travel rather than being a fixed duration: the distance to the chosen face
-// varies by up to a full turn depending on where the disk was when the reader
-// clicked, and a fixed duration would make the short ones crawl and the long
-// ones whip round. MIN_TOTAL_MS then holds the screen for at least as long as
-// the standalone interstitial did, so the destination keeps the same head start
-// on loading regardless of how the spin came out.
-const MS_PER_DEG   = 11;    // ~4s for a full turn — a shade faster than ambient
-const SPIN_MIN_MS  = 2600;
-const SPIN_MAX_MS  = 5200;
+// Commit transition. The disk finishes the revolution it is already in and
+// stops there — never more than one turn, whichever side was chosen. Which face
+// it comes to rest on stops mattering the moment the photographs fade out: both
+// become the same plain dark disk carrying the destination's definitions.
+//
+// The run-out is timed from how far it actually has to travel, since that is
+// anything from a few degrees to a full turn depending on when the reader
+// clicked. A fixed duration would make the short ones crawl and the long ones
+// whip round. MIN_TOTAL_MS then holds the screen for at least as long as the
+// standalone interstitial did, so the destination keeps the same head start on
+// loading regardless of how the spin came out.
+const MS_PER_DEG   = 13;
+const SPIN_MIN_MS  = 1400;
+const SPIN_MAX_MS  = 5000;
 const READ_HOLD_MS = 700;   // beat after the disk settles, before navigating
 const MIN_TOTAL_MS = 5000;
-const SWAP_OUT_MS  = 700;
-const SWAP_IN_MS   = 800;
-// Always give the disk a real run-out. Without a floor, clicking the side that
-// happens to be facing forward would "stop" on an angle it was already at.
-const MIN_TRAVEL_DEG = 140;
+// The crossfade is scaled to the spin, so the photograph is always fully gone
+// and the definitions fully up by the time the disk comes to rest.
+const SWAP_OUT_FRAC = 0.35;
+const SWAP_IN_FRAC  = 0.40;
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -83,6 +86,13 @@ export function mountNarrative(root) {
   const anthromesText  = $('#anthromes-text');
   const anthromesPath  = anthromesText.querySelector('textPath');
   const enter          = $('#enter');
+  // The two photographs and the scrims over them. They fade out on commit; what
+  // is left is the plain bordered dark disk that loading.html shows, which is
+  // also what frees the run-out from having to land on a particular face.
+  const faceArt = [
+    ...root.querySelectorAll('.face img'),
+    ...root.querySelectorAll('.face-dim')
+  ];
 
   // Per-face definition lines, empty until a side is chosen.
   const defs = {
@@ -175,6 +185,8 @@ export function mountNarrative(root) {
   let commitA0 = 0;
   let commitTravel = 0;
   let spinMs = SPIN_MIN_MS;
+  let swapOutMs = 0;
+  let swapInMs = 0;
   let swapped = false;
   let dotTimer = 0;
   let navTimer = 0;
@@ -197,13 +209,16 @@ export function mountNarrative(root) {
     document.head.appendChild(link);
     fetch(d.path, { credentials: 'same-origin' }).catch(() => {});
 
-    // Come to rest with the chosen side facing forward: 0deg shows biomes,
-    // 180deg anthromes. Take the next such angle at least MIN_TRAVEL_DEG ahead.
-    const facing = which === 'biomes' ? 0 : 180;
-    const floor = currentAngle + MIN_TRAVEL_DEG;
+    // Ride out the revolution already in progress and stop there. A click just
+    // after the biomes face came round turns most of a full circle; one just
+    // after the anthromes face came round turns about half. Never more than one
+    // turn, and never a chase for a particular face — by the time the disk
+    // stops the photographs are gone and the two faces read the same.
     commitA0 = currentAngle;
-    commitTravel = (floor + (((facing - floor) % 360) + 360) % 360) - currentAngle;
+    commitTravel = 360 - (((currentAngle % 360) + 360) % 360);
     spinMs = Math.min(SPIN_MAX_MS, Math.max(SPIN_MIN_MS, commitTravel * MS_PER_DEG));
+    swapOutMs = spinMs * SWAP_OUT_FRAC;
+    swapInMs  = spinMs * SWAP_IN_FRAC;
 
     titleFrom = {
       biomes: parseFloat(labelBiomes.style.opacity || '1'),
@@ -212,13 +227,13 @@ export function mountNarrative(root) {
 
     commitT0 = performance.now();
     if (reduce) {
-      // No run-out to watch: sit on the chosen face and let the crossfade alone
-      // carry the transition.
-      commitTravel = ((facing - currentAngle) % 360 + 360) % 360;
-      coin.style.transform = `rotateY(${currentAngle + commitTravel}deg)`;
+      // No run-out to watch, so the crossfade alone carries the transition and
+      // sets its own pace.
+      swapOutMs = 700;
+      swapInMs = 800;
     }
 
-    const settle = reduce ? SWAP_OUT_MS + SWAP_IN_MS : spinMs;
+    const settle = reduce ? swapOutMs + swapInMs : spinMs;
     const total = Math.max(MIN_TOTAL_MS, settle + READ_HOLD_MS);
     navTimer = setTimeout(() => {
       if (dotTimer) clearInterval(dotTimer);
@@ -245,33 +260,43 @@ export function mountNarrative(root) {
     lineBottom.setAttribute('class', 'subhead');
     lineBottom.setAttribute('font-size', BASE_FONT);
 
-    // The dichotomies gave the two sides a half-sentence each; now only the
-    // chosen side speaks, so the other face is left empty.
+    // The dichotomies gave the two sides a half-sentence each; from here only
+    // the chosen side speaks.
     biomesPath.textContent = '';
     anthromesPath.textContent = '';
 
-    const f = defs[side];
+    // Both faces carry the same two lines. With the photographs gone there is no
+    // longer a biomes face and an anthromes face, just a disk, so whichever one
+    // is forward as it turns and where it stops reads the same. Sized once and
+    // applied to both, so the type does not change as the disk comes round.
+    const a = defs.biomes, b = defs.anthromes;
     // Match both lines to the smaller of the two so the hierarchy reads
     // uniformly rather than one definition outranking the other.
-    const fTop = fitToArc(f.top, f.topP, d.insideTop, ARC_INSIDE);
-    const fBot = fitToArc(f.bot, f.botP, d.insideBottom, ARC_INSIDE);
-    const size = Math.min(fTop, fBot);
-    f.top.setAttribute('font-size', size);
-    f.bot.setAttribute('font-size', size);
+    const size = Math.min(
+      fitToArc(a.top, a.topP, d.insideTop, ARC_INSIDE),
+      fitToArc(a.bot, a.botP, d.insideBottom, ARC_INSIDE)
+    );
+    fitToArc(b.top, b.topP, d.insideTop, ARC_INSIDE);
+    fitToArc(b.bot, b.botP, d.insideBottom, ARC_INSIDE);
+    for (const el of [a.top, a.bot, b.top, b.bot]) el.setAttribute('font-size', size);
   }
 
   function paintCommit(ct) {
-    if (!swapped && ct >= SWAP_OUT_MS) {
+    if (!swapped && ct >= swapOutMs) {
       swapped = true;
       swapToDestination();
     }
 
-    const out = 1 - clamp01(ct / SWAP_OUT_MS);
-    const inn = smoothstep(clamp01((ct - SWAP_OUT_MS) / SWAP_IN_MS));
+    const out = 1 - clamp01(ct / swapOutMs);
+    const inn = smoothstep(clamp01((ct - swapOutMs) / swapInMs));
     const other = side === 'biomes' ? 'anthromes' : 'biomes';
 
+    // The photographs go with the framing copy, leaving the bordered dark disk
+    // the cross-link interstitial shows.
+    for (const el of faceArt) el.style.opacity = swapped ? 0 : out;
+
     // Chosen title eases up to full white and stays there.
-    titles[side].style.opacity = lerp(titleFrom[side], 1, smoothstep(clamp01(ct / (SWAP_OUT_MS + SWAP_IN_MS))));
+    titles[side].style.opacity = lerp(titleFrom[side], 1, smoothstep(clamp01(ct / (swapOutMs + swapInMs))));
     // The other fades out, becomes LOADING at the swap, and comes back at the
     // same dim the splash gives a face that is turned away.
     titles[other].style.opacity = swapped ? TITLE_DIM * inn : titleFrom[other] * out;
@@ -280,11 +305,14 @@ export function mountNarrative(root) {
     lineTop.style.opacity    = swapped ? 0 : out;
     lineBottom.style.opacity = swapped ? inn : out;
 
-    // Dichotomies out, definitions in on the chosen face only.
+    // Dichotomies out, definitions in — on both faces, since either may be the
+    // one showing as the disk turns and comes to rest.
     biomesText.style.opacity    = swapped ? 0 : out;
     anthromesText.style.opacity = swapped ? 0 : out;
-    defs[side].top.style.opacity = swapped ? inn : 0;
-    defs[side].bot.style.opacity = swapped ? inn : 0;
+    for (const f of [defs.biomes, defs.anthromes]) {
+      f.top.style.opacity = swapped ? inn : 0;
+      f.bot.style.opacity = swapped ? inn : 0;
+    }
   }
 
   function render(now) {

@@ -1058,10 +1058,13 @@
             bind:this={detailPanelEl}
             onclick={(e) => e.stopPropagation()}
           >
-            {#if narrative0821()}
-              <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
-            {/if}
             {#if !detailContent}
+              <!-- Nothing selected, so there is no rule for the leader to land
+                   on and nothing for the one-liner to displace. It heads the
+                   panel here, which is where it sits in the empty state. -->
+              {#if narrative0821()}
+                <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
+              {/if}
               <p class="detail-hint">Spin the disk to inspect a species.</p>
             {:else if detailMeta}
               <!-- .panel-content carries the shared panel typography (see
@@ -1083,6 +1086,15 @@
                     <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
                     <span class="species-sgb-rule" bind:this={sgbRuleEl}></span>
                   </div>
+                {/if}
+                <!-- Narrative pass: the one-liner glosses the name the leader
+                     has just pointed at, so it reads AFTER it — "SGB 5089", the
+                     rule, then what an SGB is. Above the title it would push the
+                     rule down out of the marker's reach; the SGB block has to
+                     stay the first thing in the panel for the leader to run
+                     straight, exactly as it does in the 8/21 pass. -->
+                {#if narrative0821()}
+                  <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
                 {/if}
                 <div class="species-graphic">
                   {#if detailMeta.glyphPath}
@@ -1642,26 +1654,25 @@
           />
         {:else}
           <!-- Options 1–5: the details panel sits inline in the rail, so the
-               leader is a straight run from the marker to the rail edge. Every
-               refined pass lands on the thing it names — the rule under the SGB
-               title — so y comes from leaderTo; the others stay level with the
-               marker. The x endpoint differs only by the 8px standoff the
-               pre-rule options need.
+               leader is a straight run from the marker to the rail edge. The
+               8/14 pass lands on the vertical centre of the SGB title, so the
+               line slopes; the others stay level with the marker. The x
+               endpoint differs only by the 8px standoff the pre-rule options
+               need.
 
-               alignSgbToMarker() still does the work of bringing the rule TO
-               the marker, which keeps the run horizontal in the common case.
-               But the lead-in it adjusts cannot go negative — the title can't
-               climb into the block above it — so when the marker sits higher
-               than the title's resting position the rule cannot rise to meet
-               it. That is the norm under the narrative pass, whose one-liner
-               header pushes the whole panel down. Taking y from the rule means
-               the line slopes in exactly those cases instead of stopping short
-               at the marker's height and missing the rule entirely. -->
+               From the 8/21 pass on, y comes from the MARKER rather than from
+               leaderTo: alignSgbToMarker() brings the rule to the marker, so
+               the run is horizontal by construction and still reads straight
+               during the frame before the lead-in has settled. That only holds
+               while the SGB block is the first thing in the panel — the lead-in
+               can push the rule down but never up, so anything rendered above
+               the title puts the rule out of reach of a high marker. See the
+               note on the one-liner's placement above. -->
           <line
             class="leader-line"
             x1={leaderFrom.x} y1={leaderFrom.y}
             x2={refined0821() ? leaderTo.x : leaderTo.x - 8}
-            y2={refinedLayout() ? leaderTo.y : leaderFrom.y}
+            y2={refined0821() ? leaderFrom.y : refinedLayout() ? leaderTo.y : leaderFrom.y}
           />
         {/if}
       </svg>
@@ -1891,8 +1902,11 @@
     color: var(--fg);
   }
 
+  /* Sits under the SGB rule inside .panel-content, whose grid gap already
+     spaces it; the only correction it needs is to sit a little tighter to the
+     rule it glosses than to the block that follows. */
   .detail-oneliner {
-    margin-bottom: 6px;
+    margin-top: -2px;
   }
 
   /* Compact detail panel — tighter internal gaps + smaller section margins so
