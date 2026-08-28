@@ -43,22 +43,27 @@ const ARC_FACE = Math.PI * 400;  // in-disk dichotomy arc, r=400 viewBox units
 const PERIOD   = 20000;
 const FADE_MS  = 4000;
 
-// Commit transition. The disk reads as a circle only at 0 and 180 degrees; at
-// 90 and 270 it is edge on, a line, which is where one face gives way to the
-// other. So the run-out ends on a multiple of 180 — whichever of the two that
-// turns out to be, since the photographs have faded by then and the faces are
-// the same plain dark disk carrying the destination's definitions. Landing
-// anywhere else would leave the disk foreshortened and its text with it.
+// Commit transition. The disk comes to rest on the side that was chosen, square
+// to the screen: biomes at 0 degrees, anthromes at 180. Those are also the only
+// two angles at which it reads as a circle at all — at 90 and 270 it is edge on,
+// a line, and that is where one face gives way to the other.
 //
-// The run-out is timed from how far it actually has to travel. A fixed duration
-// would make the short ones crawl and the long ones whip round. MIN_TOTAL_MS
-// then holds the screen for at least as long as the standalone interstitial
-// did, so the destination keeps the same head start on loading regardless of
-// how the spin came out.
-const MS_PER_DEG   = 15;
-const SPIN_MIN_MS  = 1600;
+// It would be cheaper to stop at whichever of the two came round first, since
+// by then the photographs have faded and both faces are the same dark disk. But
+// the reader has just named a side, and stopping on the other one is a thing
+// they can follow even when the two look alike. So the run-out always lands on
+// the side that was asked for, and what varies is how far it has to go: click a
+// side just after it turned square and the disk goes most of the way round;
+// click one just as it is coming up and it barely moves. Both are correct, and
+// the short ones are not worth a wasted turn to disguise.
+//
+// The run-out is timed from that distance. A fixed duration would make the short
+// ones crawl and the long ones whip round. MIN_TOTAL_MS then holds the screen
+// for at least as long as the standalone interstitial did, so the destination
+// keeps the same head start on loading regardless of how the spin came out.
+const MS_PER_DEG   = 13;
+const SPIN_MIN_MS  = 1600;  // also the floor on the crossfade, which scales off it
 const SPIN_MAX_MS  = 5000;
-const MIN_TRAVEL_DEG = 90;  // floor on the run-out; see commit()
 const READ_HOLD_MS = 700;   // beat after the disk settles, before navigating
 const MIN_TOTAL_MS = 5000;
 // The crossfade is scaled to the spin, so the photograph is always fully gone
@@ -211,15 +216,12 @@ export function mountNarrative(root) {
     document.head.appendChild(link);
     fetch(d.path, { credentials: 'same-origin' }).catch(() => {});
 
-    // Turn to the next angle at which the disk is square to the screen — the
-    // next multiple of 180 — rather than chasing a particular face. MIN_TRAVEL
-    // pushes past that to the one after when the nearest is already almost
-    // underneath us, so the run-out is always a real gesture rather than a
-    // twitch. Between them that bounds the whole transition at three quarters
-    // of a turn: travel is never less than 90 degrees and never more than 270.
+    // Forward to the next angle at which the chosen side is square to the
+    // screen. Never more than one turn, and no floor: a small move is the
+    // honest answer when the side asked for is already coming up.
+    const facing = which === 'biomes' ? 0 : 180;
     commitA0 = currentAngle;
-    const square = 180 - (((currentAngle % 180) + 180) % 180);
-    commitTravel = square < MIN_TRAVEL_DEG ? square + 180 : square;
+    commitTravel = (((facing - currentAngle) % 360) + 360) % 360;
     spinMs = Math.min(SPIN_MAX_MS, Math.max(SPIN_MIN_MS, commitTravel * MS_PER_DEG));
     swapOutMs = spinMs * SWAP_OUT_FRAC;
     swapInMs  = spinMs * SWAP_IN_FRAC;
