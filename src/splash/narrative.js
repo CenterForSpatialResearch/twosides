@@ -43,20 +43,22 @@ const ARC_FACE = Math.PI * 400;  // in-disk dichotomy arc, r=400 viewBox units
 const PERIOD   = 20000;
 const FADE_MS  = 4000;
 
-// Commit transition. The disk finishes the revolution it is already in and
-// stops there — never more than one turn, whichever side was chosen. Which face
-// it comes to rest on stops mattering the moment the photographs fade out: both
-// become the same plain dark disk carrying the destination's definitions.
+// Commit transition. The disk reads as a circle only at 0 and 180 degrees; at
+// 90 and 270 it is edge on, a line, which is where one face gives way to the
+// other. So the run-out ends on a multiple of 180 — whichever of the two that
+// turns out to be, since the photographs have faded by then and the faces are
+// the same plain dark disk carrying the destination's definitions. Landing
+// anywhere else would leave the disk foreshortened and its text with it.
 //
-// The run-out is timed from how far it actually has to travel, since that is
-// anything from a few degrees to a full turn depending on when the reader
-// clicked. A fixed duration would make the short ones crawl and the long ones
-// whip round. MIN_TOTAL_MS then holds the screen for at least as long as the
-// standalone interstitial did, so the destination keeps the same head start on
-// loading regardless of how the spin came out.
-const MS_PER_DEG   = 13;
-const SPIN_MIN_MS  = 1400;
+// The run-out is timed from how far it actually has to travel. A fixed duration
+// would make the short ones crawl and the long ones whip round. MIN_TOTAL_MS
+// then holds the screen for at least as long as the standalone interstitial
+// did, so the destination keeps the same head start on loading regardless of
+// how the spin came out.
+const MS_PER_DEG   = 15;
+const SPIN_MIN_MS  = 1600;
 const SPIN_MAX_MS  = 5000;
+const MIN_TRAVEL_DEG = 90;  // floor on the run-out; see commit()
 const READ_HOLD_MS = 700;   // beat after the disk settles, before navigating
 const MIN_TOTAL_MS = 5000;
 // The crossfade is scaled to the spin, so the photograph is always fully gone
@@ -209,13 +211,15 @@ export function mountNarrative(root) {
     document.head.appendChild(link);
     fetch(d.path, { credentials: 'same-origin' }).catch(() => {});
 
-    // Ride out the revolution already in progress and stop there. A click just
-    // after the biomes face came round turns most of a full circle; one just
-    // after the anthromes face came round turns about half. Never more than one
-    // turn, and never a chase for a particular face — by the time the disk
-    // stops the photographs are gone and the two faces read the same.
+    // Turn to the next angle at which the disk is square to the screen — the
+    // next multiple of 180 — rather than chasing a particular face. MIN_TRAVEL
+    // pushes past that to the one after when the nearest is already almost
+    // underneath us, so the run-out is always a real gesture rather than a
+    // twitch. Between them that bounds the whole transition at three quarters
+    // of a turn: travel is never less than 90 degrees and never more than 270.
     commitA0 = currentAngle;
-    commitTravel = 360 - (((currentAngle % 360) + 360) % 360);
+    const square = 180 - (((currentAngle % 180) + 180) % 180);
+    commitTravel = square < MIN_TRAVEL_DEG ? square + 180 : square;
     spinMs = Math.min(SPIN_MAX_MS, Math.max(SPIN_MIN_MS, commitTravel * MS_PER_DEG));
     swapOutMs = spinMs * SWAP_OUT_FRAC;
     swapInMs  = spinMs * SWAP_IN_FRAC;
