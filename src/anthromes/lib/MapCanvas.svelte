@@ -7,10 +7,11 @@
     loadGrid, featuresForYear, historyForCell, meshForGrid, featureAt, featureIndex,
     runsForYear, runBounds
   } from './gridSource.js';
-  import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
+  import { USE_PIXEL_BOUNDARIES } from './constants.js';
+  import { DEFAULT_TOPO_PROFILE, TOPO_PROFILES } from '../../shared/topoProfile.svelte.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
-  import { refinedLayout, refined0821 } from '../../shared/uiOption.svelte.js';
+  import { refinedLayout, refined0821, countryFromMap } from '../../shared/uiOption.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -293,7 +294,7 @@
     width = 0,
     height = 0,
     innerRadiusPx = 0,
-    profile = TOPO_PROFILE,
+    profile = DEFAULT_TOPO_PROFILE,
     year = null,
     legend = {},
     yearDataLookup = new Map(),
@@ -640,7 +641,7 @@
       const base = import.meta.env.BASE_URL;
       // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
       const url = USE_PIXEL_BOUNDARIES
-        ? `${base}topojson/admin-boundaries/${TOPO_PROFILE}/countries.topojson`
+        ? `${base}topojson/admin-boundaries/${profile}/countries.topojson`
         : `${base}topojson/admin-boundaries/countries-110m.topojson`;
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
@@ -654,6 +655,18 @@
       }
       boundariesMesh = topojson.mesh(topo, topo.objects[objKey]);
       boundariesGeo = topojson.feature(topo, topo.objects[objKey]);
+
+      // Backfill display names from the boundary features. iso3_names.json is
+      // hand-maintained and inherits the same ISO_A3 gap the boundaries had, so
+      // without this the tooltip prints a bare "FRA" for France. Existing
+      // entries win: that file carries the study's preferred short forms.
+      const named = new Map(iso3ToName);
+      for (const f of boundariesGeo.features) {
+        const id = f?.id ?? f?.properties?.id;
+        const name = f?.properties?.name;
+        if (id && name && !named.has(id)) named.set(id, name);
+      }
+      iso3ToName = named;
     } catch (err) {
       console.error('MapCanvas: Failed to load boundaries', err);
     } finally{
@@ -663,6 +676,10 @@
 
   // Resolve a profile's grid blobs, remembering the result so a profile without
   // a manifest doesn't re-request it on every year change.
+  // Every profile in the picker ships grid blobs, so none of them needs the
+  // legacy per-profile cell-history JSON. Derived from the store rather than
+  // restated, so adding a profile can't leave this behind.
+  const GRID_PROFILES = new Set(TOPO_PROFILES);
   const gridMissing = new Set();
   async function tryLoadGrid(p) {
     if (gridMissing.has(p)) return null;
@@ -683,6 +700,11 @@
   // the same data transposed, which is why it reaches 166MB at 33km.
   async function loadCellHistory() {
     if (gridData || cellHistory || cellHistoryLoading) return;
+    // Grid profiles read history straight out of codes.bin, and only 100km ever
+    // had a cell-history JSON. Asking for one at 60km got the dev server's HTML
+    // fallback and a JSON parse error on every call. The gridData check above
+    // misses the window before the grid resolves, so gate on the profile too.
+    if (GRID_PROFILES.has(profile)) return;
     cellHistoryLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
@@ -731,7 +753,10 @@
       countryData = new Map(Object.entries(await countryRes.json()));
 
       if (namesRes.ok) {
-        iso3ToName = new Map(Object.entries(await namesRes.json()));
+        // Merged, not assigned: the boundary backfill in loadBoundaries() may
+        // already have run, and these two resolve in either order. This file's
+        // names take precedence — they are the study's preferred short forms.
+        iso3ToName = new Map([...iso3ToName, ...Object.entries(await namesRes.json())]);
       }
     } catch (err) {
       console.error('MapCanvas: Failed to load country data', err);
@@ -1341,7 +1366,12 @@
         <span class="chip" style="background:${color}"></span>
         <div>
           <div class="title">${label}</div>
-          <div class="subtitle">Year ${yearLabel}</div>
+          <div class="subtitle">Year ${yearLabel}${
+            // Under country-from-map the country IS the click target, so name it
+            // before the click rather than only after. compactCellDetail hides
+            // the kv block that would otherwise carry it.
+            countryFromMap() && meta.countryName ? ` &middot; ${meta.countryName}` : ''
+          }</div>
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
@@ -1565,11 +1595,95 @@
     }
   }
 
+  // Is a point from pointerToDevice inside the visible disc?
+  //
+  // pointerToDevice subtracts the pan, so it hands back PROJECTION coordinates,
+  // and the disc has to be expressed in the same space: the clip runs before
+  // ctx.translate(pan), so the visible disc sits at the circle centre MINUS the
+  // pan. Same expression as discCx/discCy in the fast path.
+  //
+  // Without the pan term this is only correct while the map is unpanned. Once
+  // auto-framing moved the map, every click inside the visible disc tested as
+  // outside it, so selecting a third country silently did nothing until Reset
+  // zeroed the pan.
+  function isInsideDisk(x, y) {
+    const circle = getCircle();
+    if (!(circle.r > 0)) return false;
+    const dpr = window.devicePixelRatio || 1;
+    const dx = x - (circle.cx - (mapPanX || 0)) * dpr;
+    const dy = y - (circle.cy - (mapPanY || 0)) * dpr;
+    const r = circle.r * dpr;
+    return dx * dx + dy * dy <= r * r;
+  }
+
+  // Option 1: the map's click target is the country, not the pixel.
+  //
+  // One assignment does the whole job. focusIso3 is bindable and App binds it to
+  // selectedCountryIso3, so the boundary highlight, the ?country= param, the
+  // waffle ring's distribution and the details panel all follow from it —
+  // exactly the state a country circle produces.
+  function selectCountryAt(x, y, lnglat) {
+    // A pixel is never isolated under this option; clear anything an earlier
+    // option left open.
+    clearAll();
+
+    // Outside the disk is chrome, not ocean. The canvas fills its whole
+    // container, so without this a click in the rail gutter would land here and
+    // contradict handleGlobalClick, which deliberately protects a country
+    // selection from dead-space clicks under strictCountryFocus.
+    if (!isInsideDisk(x, y)) return;
+
+    const feature = lnglat ? findCellAt(lnglat) : null;
+    const iso3 = feature?.properties?.c ?? null;
+
+    // Ocean, ice, Antarctica, and the few land cells Natural Earth leaves
+    // unattributed: clicking there is how you deselect.
+    if (!iso3 || iso3 === focusIso3) {
+      focusIso3 = null;
+      focusPanApplied = null;
+      return;
+    }
+
+    // Selecting a country frames it, wherever the selection came from — map or
+    // circle. Leaving focusPanApplied alone is what lets applyFocusFraming treat
+    // this as a first pass and zoom.
+    focusIso3 = iso3;
+  }
+
+  // Where the pointer went down, so a drag can be told from a click. The pan
+  // gesture lives in WaffleChart and leaves the canvas's own click intact, so
+  // without this every pan ended in a selection change.
+  //
+  // Screen px on purpose: this is about how far the finger or mouse physically
+  // travelled, and clientX/Y are already in that space — converting to design px
+  // would make the slop shrink and grow with the stage scale. 8px is past mouse
+  // jitter and inside what a touch tap drifts on a large display.
+  const CLICK_SLOP_PX = 8;
+  let pointerDownAt = null;
+
+  function handleCanvasPointerDown(e) {
+    pointerDownAt = { x: e.clientX, y: e.clientY };
+  }
+
   function handleCanvasClick(e) {
     if (!projection || !currentGeo) return;
 
+    const down = pointerDownAt;
+    pointerDownAt = null;
+    if (down) {
+      const ddx = e.clientX - down.x;
+      const ddy = e.clientY - down.y;
+      if (ddx * ddx + ddy * ddy > CLICK_SLOP_PX * CLICK_SLOP_PX) return;
+    }
+
     const { x, y } = pointerToDevice(e);
     const lnglat = projection.invert([x, y]);
+
+    if (countryFromMap()) {
+      selectCountryAt(x, y, lnglat);
+      return;
+    }
+
     if (!lnglat) {
       clearAll();
       return;
@@ -2002,6 +2116,7 @@
   <canvas
     bind:this={canvasEl}
     aria-label="Anthromes map"
+    onpointerdown={handleCanvasPointerDown}
     onclick={handleCanvasClick}
   ></canvas>
 

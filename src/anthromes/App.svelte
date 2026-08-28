@@ -5,6 +5,7 @@
   import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
   import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
+  import { loadGrid, distributionForCountry } from './lib/gridSource.js';
   import { topoProfile, setTopoProfile, TOPO_PROFILES, hasProfileInfo, profileSizes } from '../shared/topoProfile.svelte.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
@@ -92,13 +93,24 @@
   let rangeIso3s = $state(new Set());
   let rangeSource = $state(null); // { kind, label, sgbId, from } | null
   let primaryCountries = $state(null);
-  let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
-  let countryTimeseries = $state(null);
+  let countryFeatureByIso = $state(new Map()); // ISO3 -> boundary feature, all countries
+  // The decoded grid for the live resolution. loadGrid is module-cached and
+  // dedupes concurrent callers, so this resolves to the very object MapCanvas
+  // holds — no second fetch, and no need to thread it back up through
+  // WaffleChart. Same trick as the country_index.json fetch below.
+  // $state.raw, not $state: the grid is a decoded blob we only ever replace
+  // wholesale, and deep-proxying its typed arrays would cost far more than it
+  // buys. It also keeps gridSource's reads out of Svelte's reactive graph.
+  let grid = $state.raw(null);
 
+  // Runs at module init, before the grid or the boundaries exist, so it can
+  // only check shape. An unknown-but-well-formed code is reconciled away by the
+  // effect below once the grid lands. This used to require PRIMARY_ORDER, which
+  // would now reject a perfectly valid hand-off from the biomes side.
   function readCountryParam() {
     if (typeof window === 'undefined') return null;
     const p = new URLSearchParams(window.location.search).get('country');
-    return p && PRIMARY_ORDER.includes(p) ? p : null;
+    return p && /^[A-Z]{3}$/.test(p) ? p : null;
   }
 
   function updateCountryParam(iso3) {
@@ -126,17 +138,50 @@
   $effect(() => {
     updateCountryParam(selectedCountryIso3);
   });
+
+  // Drop a selection the grid cannot back — a hand-typed ?country=, or a code
+  // with no land cells at this resolution. Runs once the grid arrives.
+  $effect(() => {
+    if (!grid || !selectedCountryIso3) return;
+    if (!grid.manifest.countryTable.includes(selectedCountryIso3)) {
+      selectedCountryIso3 = null;
+    }
+  });
+
+  // Follow the resolution picker. The guard matters because a slow 50km fetch
+  // can resolve after the user has already switched back — without it the map
+  // would be drawing one profile while the ring plotted another.
+  $effect(() => {
+    const wanted = topoProfile();
+    let live = true;
+    loadGrid(wanted)
+      .then((g) => {
+        if (live && g.manifest.profile === wanted) grid = g;
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  });
+
   const selectedCountryMeta = $derived(
     selectedCountryIso3 && primaryCountries ? primaryCountries[selectedCountryIso3] : null
+  );
+
+  // The selected country's anthrome composition, computed from the grid blobs
+  // already in memory rather than a precomputed file. This is what lets every
+  // country have a waffle and a pixel chart instead of only the eight
+  // primaries, and it tracks the resolution actually being drawn.
+  // Null until the grid lands, or for a country with no land cells (Antarctica).
+  const countryDistribution = $derived(
+    grid && selectedCountryIso3 ? distributionForCountry(grid, selectedCountryIso3) : null
   );
 
   // Option 1 moves the per-year anthrome breakdown out of the details panel and
   // onto the ring itself: with a country picked, the waffle plots that
   // country's distribution instead of the world's. Null = plot the world.
   const countryRingDistribution = $derived(
-    refinedLayout() && selectedCountryIso3
-      ? countryTimeseries?.[selectedCountryIso3]?.distribution ?? null
-      : null
+    refinedLayout() && countryDistribution ? countryDistribution.distribution : null
   );
 
   // The world in the same { year: { code: fraction } } shape the country
@@ -172,6 +217,20 @@
         ? `country:${selectedCountryIso3}`
         : 'world'
   );
+  // A display name for any ISO3, not just the eight primaries. The boundary
+  // features already carry properties.name for every country, which is why this
+  // does not read iso3_names.json: that file is hand-maintained, has no
+  // generator, and is missing France and Norway for the same reason the
+  // boundaries were (see processing/5_smooth_boundaries.py).
+  function countryLabel(iso3) {
+    if (!iso3) return null;
+    return (
+      primaryCountries?.[iso3]?.label ??
+      countryFeatureByIso.get(iso3)?.properties?.name ??
+      iso3
+    );
+  }
+
   // 8/21: the panel names what it is showing rather than being labelled
   // "Details" — matching the biomes side, where the SGB name is the heading.
   // Three scales, three headings; the line underneath restates the span, and at
@@ -180,14 +239,14 @@
     detailScale === 'cell'
       ? 'Anthrome composition of a cell'
       : detailScale === 'country'
-        ? `Anthrome composition of ${selectedCountryMeta?.label ?? 'this country'}`
+        ? `Anthrome composition of ${countryLabel(selectedCountryIso3) ?? 'this country'}`
         : 'Anthrome composition of the world'
   );
   const detailBlurb = $derived(
     detailScale === 'cell'
       ? "This cell's anthrome transitions over 12,025 years."
       : detailScale === 'country'
-        ? `${selectedCountryMeta?.label ?? 'This country'}'s anthrome transitions over 12,025 years.`
+        ? `${countryLabel(selectedCountryIso3) ?? 'This country'}'s anthrome transitions over 12,025 years.`
         : "The world's anthrome transitions over 12,025 years. Pick a country or cell to narrow it."
   );
 
@@ -221,12 +280,30 @@
 
   // One pill shape for all three scales: { label, samples, species }.
   const scopePill = $derived.by(() => {
-    if (detailScale === 'country' && selectedCountryMeta) {
-      return {
-        label: selectedCountryMeta.label,
-        samples: selectedCountryMeta.samples_total,
-        species: selectedCountryMeta.sgbs.length
-      };
+    if (detailScale === 'country' && selectedCountryIso3) {
+      // Same three cases as the cell branch below. This used to require
+      // selectedCountryMeta and otherwise fall through to earthTotals, which
+      // was invisible while only the eight sampled primaries could be picked —
+      // but now that any country is selectable it would print Earth's sample
+      // and species counts under that country's name, which is worse than
+      // printing nothing.
+      const label = countryLabel(selectedCountryIso3);
+      if (selectedCountryMeta) {
+        return {
+          label: selectedCountryMeta.label,
+          samples: selectedCountryMeta.samples_total,
+          species: selectedCountryMeta.sgbs.length
+        };
+      }
+      const entry = countryIndex?.[selectedCountryIso3];
+      if (entry) {
+        return {
+          label,
+          samples: entry.samples_total || 0,
+          species: (entry.sgbs || []).length
+        };
+      }
+      return { label, note: 'not sampled in this study' };
     }
     if (detailScale === 'cell') {
       // The cell's present-day country. Most land is in countries the study
@@ -533,26 +610,28 @@
       // Country-picker data (parity with biomes side)
       try {
         const base = import.meta.env.BASE_URL;
-        const [pcRes, boundariesRes, tsRes, ciRes] = await Promise.all([
+        const [pcRes, boundariesRes, ciRes] = await Promise.all([
           fetch(`${base}data/primary_countries.json`),
           fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`),
-          fetch(`${base}data/country-anthrome-timeseries.json`),
           // Also fetched by MapCanvas; the browser serves the second hit from
           // cache, so this costs nothing beyond the parse.
           fetch(`${base}data/country_index.json`)
         ]);
         if (pcRes.ok) primaryCountries = await pcRes.json();
-        if (tsRes.ok) countryTimeseries = await tsRes.json();
         if (ciRes.ok) countryIndex = await ciRes.json();
         if (boundariesRes.ok) {
           const topo = await boundariesRes.json();
           const objName = Object.keys(topo.objects)[0];
           const fc = topoFeature(topo, topo.objects[objName]);
-          const wanted = new Set(PRIMARY_ORDER);
+          // Every country, not just the eight in the picker: the highlight
+          // ring, the focus framing and countryLabel() all read from this map,
+          // and any country is selectable now. topoFeature() above already
+          // materialised all of them, so the old filter only discarded
+          // references it had already paid for.
           const byIso = new Map();
           for (const f of fc.features) {
             const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
-            if (id && wanted.has(id)) byIso.set(id, f);
+            if (id) byIso.set(id, f);
           }
           countryFeatureByIso = byIso;
         }
@@ -967,7 +1046,7 @@
                   <PixelTimeline
                     mode={detailScale === 'cell' ? 'ladder' : 'stack'}
                     distribution={detailScale === 'country'
-                      ? countryTimeseries?.[selectedCountryIso3]?.distribution ?? null
+                      ? countryDistribution?.distribution ?? worldDistribution
                       : worldDistribution}
                     series={cellSeries?.byYear ?? null}
                     sourceKey={detailSourceKey}
@@ -1015,7 +1094,7 @@
                   />
                 </div>
               {/if}
-            {:else if selectedCountryMeta && countryTimeseries?.[selectedCountryIso3]}
+            {:else if selectedCountryMeta && countryDistribution}
               <div class="detail-subhead">
                 <span class="country-badge">{selectedCountryMeta.label}</span>
                 <span class="country-meta">{selectedCountryMeta.samples_total.toLocaleString()} samples · {selectedCountryMeta.sgbs.length.toLocaleString()} species</span>
@@ -1023,7 +1102,7 @@
               <div class="history-chart-section" bind:this={historyChartEl}>
                 <div class="history-chart-title">Anthrome timeline</div>
                 <CountryTimeseriesBar
-                  data={countryTimeseries[selectedCountryIso3]}
+                  data={countryDistribution}
                   {colorMapping}
                   {labelMapping}
                   {orderedCodes}
@@ -1162,8 +1241,12 @@
   {/if}
 
   <!-- Leader line: isolated cell → docked detail panel. Endpoints are design px.
-       White arrowhead on the map (cell) side, matching the biomes disk marker. -->
-  {#if detailContent && connectorStart && connectorEnd}
+       White arrowhead on the map (cell) side, matching the biomes disk marker.
+       Gated on cell scale because WaffleChart dispatches 'detail' on hover, not
+       only on pin, so without this a line is drawn during an ordinary mouse
+       move — pointing at the chart title, since anthromeRuleEl is null outside
+       cell scale. -->
+  {#if detailScale === 'cell' && detailContent && connectorStart && connectorEnd}
     <svg class="connector-overlay" aria-hidden="true">
       <defs>
         <marker id="leader-arrow" markerUnits="userSpaceOnUse"

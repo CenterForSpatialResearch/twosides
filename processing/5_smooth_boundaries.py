@@ -50,11 +50,23 @@ def main():
 
     print(f"Available fields: {', '.join(fields)}\n")
 
-    iso_idx = fields.index('ISO_A3') if 'ISO_A3' in fields else None
+    # Read ISO_A3_EH rather than ISO_A3, matching 2b_generate_grid.py: the 110m
+    # shapefile carries '-99' in ISO_A3 for France, Norway, N. Cyprus,
+    # Somaliland and Kosovo, and the skip below then dropped all five. ISO_A3_EH
+    # has the real codes for France and Norway; the other three have no ISO3 in
+    # either field and stay out, which is what makes this file's country set
+    # match the grid's countryTable exactly (174).
+    if 'ISO_A3_EH' in fields:
+        iso_idx = fields.index('ISO_A3_EH')
+    elif 'ISO_A3' in fields:
+        print("  WARNING: ISO_A3_EH missing; falling back to ISO_A3 (France/Norway will be dropped)")
+        iso_idx = fields.index('ISO_A3')
+    else:
+        iso_idx = None
     name_idx = fields.index('NAME') if 'NAME' in fields else None
 
     if iso_idx is None:
-        print("ERROR: ISO_A3 field not found!")
+        print("ERROR: no ISO_A3_EH or ISO_A3 field found!")
         return 1
 
     features = []

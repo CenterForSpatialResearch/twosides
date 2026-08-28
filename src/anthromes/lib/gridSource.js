@@ -327,6 +327,140 @@ export function historyForCell(grid, cellId) {
   return out;
 }
 
+/**
+ * ISO3 -> index into manifest.countryTable, which is what countries.bin stores.
+ * Entry 0 is null: ocean, ice, and the handful of land cells Natural Earth
+ * leaves unattributed. Built once per grid.
+ */
+// Memoised off to the side, like indexCache below, rather than onto the grid
+// object. These caches used to be `grid._isoIndex` etc., which threw
+// state_unsafe_mutation the moment a $derived called distributionForCountry:
+// App holds the grid in $state, so Svelte proxies it and a cache write became a
+// reactive mutation inside a derived. That aborted the whole reactive flush,
+// which took the country highlight and applyFocusFraming down with it.
+// WeakMaps keep the function pure from Svelte's point of view and still drop
+// with the grid.
+const isoIndexCache = new WeakMap();
+const countryCellsCache = new WeakMap();
+const countryDistCache = new WeakMap();
+
+function isoIndex(grid) {
+  const hit = isoIndexCache.get(grid);
+  if (hit) return hit;
+  const map = new Map();
+  const table = grid.manifest.countryTable || [];
+  for (let i = 0; i < table.length; i++) {
+    if (table[i]) map.set(table[i], i);
+  }
+  isoIndexCache.set(grid, map);
+  return map;
+}
+
+/**
+ * countryTable index -> the slots in countries.bin/codes.bin that belong to it.
+ *
+ * One O(nLand) counting pass, ~1ms at 83k cells, so every country after the
+ * first is just a walk over its own slots instead of the whole world.
+ */
+function cellsByCountry(grid) {
+  const hit = countryCellsCache.get(grid);
+  if (hit) return hit;
+
+  const { countries } = grid;
+  const counts = new Uint32Array(256);
+  for (let j = 0; j < countries.length; j++) counts[countries[j]] += 1;
+
+  const out = new Map();
+  for (let c = 1; c < 256; c++) {
+    if (counts[c]) out.set(c, new Uint32Array(counts[c]));
+  }
+  const cursor = new Uint32Array(256);
+  for (let j = 0; j < countries.length; j++) {
+    const c = countries[j];
+    if (c === 0) continue;
+    out.get(c)[cursor[c]++] = j;
+  }
+
+  countryCellsCache.set(grid, out);
+  return out;
+}
+
+/**
+ * A country's anthrome composition in every year — the country analogue of
+ * historyForCell, and another strided read across codes.bin.
+ *
+ * Returns the same { cell_totals, distribution } shape that
+ * public/data/country-anthrome-timeseries.json carried, so WaffleChart,
+ * PixelTimeline and CountryTimeseriesBar all take it unchanged. Verified to
+ * reproduce that file exactly at 100km — 608 country-years, zero differences —
+ * which is what licensed deleting it.
+ *
+ * Doing this at runtime rather than in the pipeline fixes three things the
+ * precomputed file got wrong: it covered only the 8 primary countries, it was
+ * built at 100km regardless of the resolution actually being drawn, and it came
+ * from the ISO_A3 join that drops France and Norway (see 5_smooth_boundaries.py
+ * and 2b_generate_grid.py, which reads ISO_A3_EH instead).
+ *
+ * Measured 3ms for Russia (the largest) at 100km, 5ms at 50km. Staying
+ * synchronous is what lets the callers remain $derived, which in turn is what
+ * keeps the ring's swap animation inside a single tick.
+ *
+ * Returns null for an ISO3 with no land in this grid.
+ */
+export function distributionForCountry(grid, iso3) {
+  if (!grid || !iso3) return null;
+
+  let memo = countryDistCache.get(grid);
+  if (!memo) {
+    memo = new Map();
+    countryDistCache.set(grid, memo);
+  }
+  if (memo.has(iso3)) return memo.get(iso3);
+
+  const ci = isoIndex(grid).get(iso3);
+  const slots = ci == null ? null : cellsByCountry(grid).get(ci);
+  if (!slots || slots.length === 0) {
+    memo.set(iso3, null);
+    return null;
+  }
+
+  const { manifest, codes } = grid;
+  const { nLand, years } = manifest;
+  const cellTotals = {};
+  const distribution = {};
+  const tally = new Uint32Array(256);
+
+  for (let y = 0; y < years.length; y++) {
+    tally.fill(0);
+    const base = y * nLand;
+    let total = 0;
+    // Code 0 means "no anthrome for this cell in this year" — the same skip
+    // historyForCell makes, and why cell_totals moves between years.
+    for (let k = 0; k < slots.length; k++) {
+      const code = codes[base + slots[k]];
+      if (code !== 0) {
+        tally[code] += 1;
+        total += 1;
+      }
+    }
+
+    const label = years[y];
+    cellTotals[label] = total;
+    const dist = {};
+    if (total > 0) {
+      for (let code = 1; code < 256; code++) {
+        // String keys: WaffleChart reads dist[String(code)].
+        if (tally[code]) dist[String(code)] = +(tally[code] / total).toFixed(6);
+      }
+    }
+    distribution[label] = dist;
+  }
+
+  const result = { cell_totals: cellTotals, distribution };
+  memo.set(iso3, result);
+  return result;
+}
+
 function binarySearch(arr, target) {
   let lo = 0;
   let hi = arr.length - 1;

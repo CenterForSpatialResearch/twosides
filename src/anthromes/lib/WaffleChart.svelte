@@ -4,7 +4,7 @@
   import * as d3 from 'd3';
   import { elementScale } from '../../shared/stage.svelte.js';
   import MapCanvas from './MapCanvas.svelte';
-  import { TOPO_PROFILE } from './constants.js';
+  import { DEFAULT_TOPO_PROFILE } from '../../shared/topoProfile.svelte.js';
   import { formatYearLabel } from './dataAdapter.js';
   import {
     SWAP_PHASE_MS,
@@ -59,7 +59,7 @@
     // The isolated cell's live position in design px — the leader's start.
     isolatedPoint = $bindable(null),
     // Map tile resolution (see TOPO_PROFILES); switchable from the settings panel.
-    profile = TOPO_PROFILE,
+    profile = DEFAULT_TOPO_PROFILE,
   } = $props();
 
   const fullSize = 7000;

@@ -1011,7 +1011,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() === 4 && selectedCountryIso3 !== null}
+          lifestyleColor={uiOption() === 5 && selectedCountryIso3 !== null}
           bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -1213,7 +1213,7 @@
           </section>
         {/snippet}
 
-        {#if uiOption() <= 4}
+        {#if uiOption() <= 5}
         <!-- Options 1-4 (Lifestyle): the eight countries split into the two
              categories the study itself assigns, each row ranked by the share
              of that country's species previously unknown to science. Selecting
@@ -1304,7 +1304,7 @@
                Option 1 drops the magenta encoding entirely, so it needs
                neither the key nor the space it reserved — the details panel
                moves up into it. -->
-          {#if uiOption() === 4}
+          {#if uiOption() === 5}
             <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
               {#if selectedIsNonWestern}
                 <span class="ls-key-item">
@@ -1324,7 +1324,7 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 5}
+        {:else if uiOption() === 6}
         <!-- Option 5 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
@@ -1432,7 +1432,7 @@
         {/if}
 
         {@render detailPanel()}
-        {:else if uiOption() === 6}
+        {:else if uiOption() === 7}
         <!-- Option 6 (Split): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
@@ -1600,7 +1600,7 @@
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          {#if uiOption() <= 4}
+          {#if uiOption() <= 5}
             <!-- Options 1-4 use the flat pill key (same vocabulary as the
                  anthromes legend) rather than the bubble pack: the disk is
                  already carrying the magenta/white lifestyle encoding, so the
@@ -1643,7 +1643,7 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 7}
+        {#if uiOption() === 8}
           <!-- Option 7: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns

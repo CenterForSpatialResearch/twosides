@@ -21,7 +21,13 @@
 // a local dev server behave identically.
 export const TOPO_PROFILES = ['100km', '75km', '70km', '60km', '50km'];
 
-export const DEFAULT_TOPO_PROFILE = '100km';
+// 70km is the exhibition resolution. 60km is visibly finer, but it is 58,604
+// land cells against 70km's 43,598 — a 34% jump in the per-frame cost of
+// projecting and filling every cell, and that is enough to take the
+// interaction below comfortable. There is no separate load path per profile:
+// every one in the picker goes through loadGrid/featuresForYear, so the whole
+// difference between them is cell count.
+export const DEFAULT_TOPO_PROFILE = '70km';
 
 // One-time download for the full 76-year series, per profile — after which
 // changing years costs no network at all. Cell count scales with 1/res², so

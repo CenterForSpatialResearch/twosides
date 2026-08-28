@@ -1,4 +1,16 @@
 #!/usr/bin/env node
+// OBSOLETE as of the runtime-distribution change. The app no longer fetches
+// this file: src/anthromes/lib/gridSource.js computes the same numbers on
+// demand from the grid blobs it already has in memory, which covers all 174
+// countries instead of 8, tracks whichever resolution is actually being drawn
+// instead of hardcoding 100km, and picks up France and Norway (this script
+// reads public/topojson/100km/, whose `c` property comes from the ISO_A3 join
+// that sets them to -99). distributionForCountry was verified to reproduce
+// this script's output exactly at 100km before the file was removed.
+//
+// Kept for provenance — it is where the { cell_totals, distribution } shape
+// comes from. Running it will write a file nothing loads.
+//
 // Build public/data/country-anthrome-timeseries.json — for each of the 8 primary
 // countries and each DISPLAY_YEAR, the fraction of that country's 100 km cells
 // in each anthrome class. Feeds the anthromes callout when a country is picked.

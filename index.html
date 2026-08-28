@@ -408,7 +408,7 @@
       teardown?.();
       // Option 1 is the narrative pass; every arrangement before it predates the
       // narrative splash and shares the original screen.
-      const narrative = uiOption() === 1;
+      const narrative = uiOption() <= 2;
       const tpl = document.getElementById(narrative ? 'tpl-narrative' : 'tpl-classic');
       host.replaceChildren(tpl.content.cloneNode(true));
       teardown = (narrative ? mountNarrative : mountClassic)(host);
