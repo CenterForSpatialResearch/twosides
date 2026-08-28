@@ -231,6 +231,35 @@
     );
   }
 
+  // Names that are plurals or descriptions rather than proper singular nouns
+  // read wrong without a definite article: "of the Netherlands", not "of
+  // Netherlands". Any of the 174 Natural Earth names can reach this — a map
+  // click selects whatever country the cell belongs to, not just the eight in
+  // the picker — so this is the full set from countries-110m.topojson, spelled
+  // the abbreviated way that file spells them.
+  const ARTICLE_COUNTRIES = new Set([
+    'Bahamas',
+    'Central African Rep.',
+    'Congo',
+    'Dem. Rep. Congo',
+    'Dominican Rep.',
+    'Falkland Is.',
+    'Fr. S. Antarctic Lands',
+    'Gambia',
+    'Netherlands',
+    'Philippines',
+    'Solomon Is.',
+    'United Arab Emirates',
+    'United Kingdom',
+    'United States of America'
+  ]);
+
+  // Pass capitalized when the name opens a sentence: "The Netherlands' ..." .
+  function withArticle(label, capitalized = false) {
+    if (!label || !ARTICLE_COUNTRIES.has(label)) return label;
+    return `${capitalized ? 'The' : 'the'} ${label}`;
+  }
+
   // 8/21: the panel names what it is showing rather than being labelled
   // "Details" — matching the biomes side, where the SGB name is the heading.
   // Three scales, three headings; the line underneath restates the span, and at
@@ -239,14 +268,14 @@
     detailScale === 'cell'
       ? 'Anthrome composition of a cell'
       : detailScale === 'country'
-        ? `Anthrome composition of ${countryLabel(selectedCountryIso3) ?? 'this country'}`
-        : 'Anthrome composition of the world'
+        ? `Anthrome composition of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}`
+        : 'Anthrome composition of the World'
   );
   const detailBlurb = $derived(
     detailScale === 'cell'
       ? "This cell's anthrome transitions over 12,025 years."
       : detailScale === 'country'
-        ? `${countryLabel(selectedCountryIso3) ?? 'This country'}'s anthrome transitions over 12,025 years.`
+        ? `${withArticle(countryLabel(selectedCountryIso3), true) ?? 'This country'}'s anthrome transitions over 12,025 years.`
         : "The world's anthrome transitions over 12,025 years. Pick a country or cell to narrow it."
   );
 
@@ -713,10 +742,35 @@
   function clearCountrySelection() {
     clearCellSelection();
     selectedCountryIso3 = null;
-    mapPanX = 0;
-    mapPanY = 0;
-    zoomLevel = 1;
+    // The camera snap-back is not done here: see the deselect effect below,
+    // which owns it for every route out of a country.
   }
+
+  // Losing the country returns the map to the world, wherever the deselect came
+  // from: the picker toggling the same globe off, a map click on the ocean, or
+  // a map click on the already-selected country. MapCanvas deliberately leaves
+  // that decision to App (see the note above applyFocusFraming) and its two map
+  // routes only null focusIso3 through the binding, so an effect on the value —
+  // rather than a call in each handler — is what makes them all agree.
+  //
+  // Only the camera resets. Filters, the year and the range overlay are the
+  // user's, not the country's, and dropping a country is not a reset of them;
+  // Reset is the control that clears everything.
+  let lastFocusedIso3 = null;
+  $effect(() => {
+    const iso3 = selectedCountryIso3;
+    if (iso3) {
+      lastFocusedIso3 = iso3;
+      return;
+    }
+    if (!lastFocusedIso3) return;
+    lastFocusedIso3 = null;
+    untrack(() => {
+      mapPanX = 0;
+      mapPanY = 0;
+      zoomLevel = 1;
+    });
+  });
 
   // Clear anything left over from a per-cell isolation so the Details dock
   // can fall back to the country view (or the default hint).
@@ -974,9 +1028,9 @@
             <h3 class="menu-title">Details</h3>
             <p class="menu-desc">
               {#if detailContent}
-                This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${selectedCountryMeta.label}` : ''}.
+                This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${withArticle(selectedCountryMeta.label)}` : ''}.
               {:else if selectedCountryMeta}
-                Anthrome composition of {selectedCountryMeta.label} across 12 025 years.
+                Anthrome composition of {withArticle(selectedCountryMeta.label)} across 12 025 years.
               {:else if refinedLayout()}
                 Anthrome composition of the whole world across 12 025 years.
                 Pick a country or a cell to narrow it.
@@ -1076,7 +1130,7 @@
                   {/if}
                   <span>{detailMeta.label}</span>
                   {#if selectedCountryMeta}
-                    <span class="detail-within">within {selectedCountryMeta.label}</span>
+                    <span class="detail-within">within {withArticle(selectedCountryMeta.label)}</span>
                   {/if}
                 </div>
               {/if}
