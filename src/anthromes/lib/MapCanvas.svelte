@@ -8,10 +8,9 @@
     runsForYear, runBounds
   } from './gridSource.js';
   import { USE_PIXEL_BOUNDARIES } from './constants.js';
-  import { DEFAULT_TOPO_PROFILE, TOPO_PROFILES } from '../../shared/topoProfile.svelte.js';
+  import { MAP_PROFILE } from '../../shared/mapProfile.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
-  import { refinedLayout, refined0821, countryFromMap } from '../../shared/uiOption.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -294,7 +293,7 @@
     width = 0,
     height = 0,
     innerRadiusPx = 0,
-    profile = DEFAULT_TOPO_PROFILE,
+    profile = MAP_PROFILE,
     year = null,
     legend = {},
     yearDataLookup = new Map(),
@@ -307,7 +306,6 @@
     clipAngle = 180,
     mapReady = $bindable(false),
     showBoundaries = false,
-    debugMenuVisible = false,
     mapPanX = $bindable(0),
     mapPanY = $bindable(0),
     mapScale = $bindable(1),
@@ -370,7 +368,6 @@
   let iso3ToName = $state(new Map());
   const cache = new Map();
   const inFlight = new Map();
-  let draggingHandle = $state(false);
   let animRaf = null;
   let drawRaf = null;
   let drawScheduled = false;
@@ -393,12 +390,6 @@
   // Throttle pointer move for performance
   let lastPointerMoveTime = 0;
   const POINTER_MOVE_THROTTLE = 16; // ~60fps
-
-  // Handle positions for the two-point projection controls
-  let handlePositions = $state([
-    { x: 0, y: 0, visible: false },
-    { x: 0, y: 0, visible: false }
-  ]);
 
   /**
    * Pointer event -> device px in the canvas backing store, which is what the
@@ -533,7 +524,7 @@
   // Route all redraws through a single rAF so rapid reactive updates collapse to one paint
   function scheduleDraw() {
     if (drawScheduled) return;
-    if (!currentGeo || draggingHandle) return;
+    if (!currentGeo) return;
     if (isAnimating) return;
     if (width <= 0 || height <= 0 || innerRadiusPx <= 0) return;
 
@@ -676,10 +667,10 @@
 
   // Resolve a profile's grid blobs, remembering the result so a profile without
   // a manifest doesn't re-request it on every year change.
-  // Every profile in the picker ships grid blobs, so none of them needs the
-  // legacy per-profile cell-history JSON. Derived from the store rather than
-  // restated, so adding a profile can't leave this behind.
-  const GRID_PROFILES = new Set(TOPO_PROFILES);
+  // Every grid profile ships its whole series as blobs, so none of them needs
+  // the legacy per-profile cell-history JSON or the per-year TopoJSON fetch.
+  // MAP_PROFILE is one of these, so both legacy paths are inert here.
+  const GRID_PROFILES = new Set(['100km', '75km', '70km', '60km', '50km']);
   const gridMissing = new Set();
   async function tryLoadGrid(p) {
     if (gridMissing.has(p)) return null;
@@ -763,20 +754,6 @@
     } finally {
       countryDataLoading = false;
     }
-  }
-
-  function updateHandles(currentPoints = points) {
-    if (!projection || !currentPoints || currentPoints.length < 2) {
-      handlePositions = handlePositions.map(h => ({ ...h, visible: false }));
-      return;
-    }
-    const dpr = window.devicePixelRatio || 1;
-    const next = currentPoints.map(pt => {
-      const proj = projection(pt);
-      if (!proj) return { x: 0, y: 0, visible: false };
-      return { x: proj[0] / dpr + mapPanX, y: proj[1] / dpr + mapPanY, visible: true };
-    });
-    handlePositions = next;
   }
 
   // Set by the last draw: whether the map layer was blitted from cache rather
@@ -872,15 +849,10 @@
           };
         }
         projection = nextProj;
-        if (debugMenuVisible) {
-          console.debug('MapCanvas: refit projection', refitReason);
-        }
       } catch (err) {
         console.error('Projection error', err);
         return;
       }
-    } else if (debugMenuVisible) {
-      console.debug('MapCanvas: reuse projection cache');
     }
 
     projection = projectionOverride || projection || projectionCache?.projection;
@@ -967,15 +939,6 @@
         // A layer rendered mid-motion is deliberately lower fidelity, so do not
         // let it be reused once the map settles.
         layerKey = motion ? null : key;
-
-        if (debugMenuVisible) {
-          if (dropped > 0) {
-            console.debug(`MapCanvas: ${dropped} quad(s) failed the projection sanity guard`);
-          }
-          if (culled > 0) {
-            console.debug(`MapCanvas: culled ${culled} off-screen run(s)`);
-          }
-        }
       }
 
       // Already inside ctx.translate(pan), so (layerOx, layerOy) is exactly where
@@ -1105,7 +1068,6 @@
     if (phaseT.boundaries === 0) phaseT.boundaries = phaseT.features;
     performance.mark('draw-cleanup-start');
     ctx.restore();
-    updateHandles(currentPoints);
     initialDrawDone = true;
     mapReady = true;
     phaseT.handles = performance.now();
@@ -1126,109 +1088,6 @@
       handles: (phaseT.handles || drawStart) - (phaseT.boundaries || drawStart),
       overlay: (phaseT.overlay || drawStart) - (phaseT.handles || drawStart)
     };
-  }
-
-  function animateProjection(fromPts, toPts) {
-    if (!fromPts || !toPts || fromPts.length < 2 || toPts.length < 2) return;
-    if (animRaf) cancelAnimationFrame(animRaf);
-    if (drawRaf) {
-      cancelAnimationFrame(drawRaf);
-      drawRaf = null;
-      drawScheduled = false;
-    }
-    isAnimating = true;
-
-    const interp = [
-      d3.interpolateNumber(fromPts[0][0], toPts[0][0]),
-      d3.interpolateNumber(fromPts[0][1], toPts[0][1]),
-      d3.interpolateNumber(fromPts[1][0], toPts[1][0]),
-      d3.interpolateNumber(fromPts[1][1], toPts[1][1])
-    ];
-    const duration = 500;
-    const ease = t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-    const start = performance.now();
-
-    const dpr = window.devicePixelRatio || 1;
-    const circle = getCircle();
-    const extent = [
-      [circle.cx * dpr - circle.r * dpr, circle.cy * dpr - circle.r * dpr],
-      [circle.cx * dpr + circle.r * dpr, circle.cy * dpr + circle.r * dpr]
-    ];
-
-    // Start projection params
-    let startProj = projectionCache?.projection || projection;
-    if (!startProj) {
-      try {
-        startProj = geoTwoPointEquidistant(fromPts[0], fromPts[1]).clipAngle(clipAngle);
-        startProj.fitExtent(extent, currentMesh || currentGeo);
-        startProj.scale(startProj.scale() * 0.98 * (zoom?.k || 1));
-        startProj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
-      } catch (err) {
-        console.error('Projection error (start)', err);
-      }
-    }
-    const startScale = startProj?.scale() || 1;
-    const startTranslate = startProj?.translate ? startProj.translate() : [0, 0];
-
-    // Final projection params (heavy work once)
-    let finalProjection = null;
-    let endScale = startScale;
-    let endTranslate = startTranslate;
-    try {
-      const proj = geoTwoPointEquidistant(toPts[0], toPts[1]).clipAngle(clipAngle);
-      proj.fitExtent(extent, currentMesh || currentGeo);
-      proj.scale(proj.scale() * 0.98 * (zoom?.k || 1));
-      proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
-      finalProjection = proj;
-      endScale = proj.scale();
-      endTranslate = proj.translate();
-    } catch (err) {
-      console.error('Projection error (final)', err);
-    }
-
-    function step(now) {
-      const t = Math.min(1, (now - start) / duration);
-      const k = ease(t);
-      const pts = [
-        [interp[0](k), interp[1](k)],
-        [interp[2](k), interp[3](k)]
-      ];
-
-      // Build interpolated projection without running fitExtent every frame
-      const proj = geoTwoPointEquidistant(pts[0], pts[1]).clipAngle(clipAngle);
-      const lerpScale = startScale + (endScale - startScale) * k;
-      const lerpTx = startTranslate[0] + (endTranslate[0] - startTranslate[0]) * k;
-      const lerpTy = startTranslate[1] + (endTranslate[1] - startTranslate[1]) * k;
-      proj.scale(lerpScale);
-      proj.translate([lerpTx, lerpTy]);
-      proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
-
-      draw(pts, { projectionOverride: proj, skipCache: true, motion: true });
-      if (t < 1) {
-        animRaf = requestAnimationFrame(step);
-      } else {
-        animRaf = null;
-        points = toPts;
-        if (finalProjection) {
-          projectionCache = {
-            geo: currentGeo,
-            points: toPts.map(p => [...p]),
-            clipAngle,
-            circle: { ...circle },
-            zoomK: zoom?.k || 1,
-            dpr,
-            projection: finalProjection
-          };
-          projection = finalProjection;
-          draw(toPts, { projectionOverride: finalProjection, skipCache: false });
-        } else {
-          draw(toPts);
-        }
-        isAnimating = false;
-      }
-    }
-
-    animRaf = requestAnimationFrame(step);
   }
 
   /**
@@ -1367,10 +1226,10 @@
         <div>
           <div class="title">${label}</div>
           <div class="subtitle">Year ${yearLabel}${
-            // Under country-from-map the country IS the click target, so name it
-            // before the click rather than only after. compactCellDetail hides
-            // the kv block that would otherwise carry it.
-            countryFromMap() && meta.countryName ? ` &middot; ${meta.countryName}` : ''
+            // The country IS the click target, so name it before the click
+            // rather than only after. compactCellDetail hides the kv block
+            // that would otherwise carry it.
+            meta.countryName ? ` &middot; ${meta.countryName}` : ''
           }</div>
         </div>
       </div>
@@ -1679,97 +1538,10 @@
     const { x, y } = pointerToDevice(e);
     const lnglat = projection.invert([x, y]);
 
-    if (countryFromMap()) {
-      selectCountryAt(x, y, lnglat);
-      return;
-    }
-
-    if (!lnglat) {
-      clearAll();
-      return;
-    }
-
-    const feature = findCellAt(lnglat);
-    if (!feature) {
-      clearAll();
-      return;
-    }
-
-    const cellId = feature.properties?.i;
-
-    // If clicking the same cell that's already isolated, clear everything
-    if (isolatedCellId === cellId) {
-      clearAll();
-      return;
-    }
-
-    // Otherwise, pin the tooltip and isolate this cell
-    if (cellId != null) {
-      // The country lens SURVIVES a cell click: the picker stays selected, the
-      // boundary highlight stays, and the ring keeps plotting the country. A
-      // cell is a finer reading *within* the current lens, not a replacement
-      // for it — so the ring has nothing to change and does not animate. Only
-      // the details panel narrows, country -> cell.
-      isolatedCellId = cellId;
-      cellIsolated = true;
-      isolatedFeature = feature;
-      drawOverlay();
-      tooltipPinned = true;
-      // Tooltip position is set by handlePointerMove; design px (see above)
-      const p = screenToDesign(e.clientX, e.clientY);
-      tooltipX = p.x;
-      tooltipY = p.y;
-      // Manually trigger tooltip content update
-      handlePointerMove(e, refined0821());
-
-      // Get historical data for this cell
-      const history = getCellHistory(cellId);
-      if (history) {
-        barChartData = processHistoryData(history);
-        cellSeries = { id: cellId, byYear: history };
-        showBarChart = true;
-      }
-    } else {
-      showBarChart = false;
-      barChartData = null;
-      cellSeries = null;
-    }
-  }
-
-  function startHandleDrag(idx, event) {
-    if (!projection) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const dpr = window.devicePixelRatio || 1;
-    draggingHandle = true;
-    const startPoints = points.map(p => [...p]);
-
-    function onMove(ev) {
-      const { x, y } = pointerToDevice(ev);
-      const inv = projection.invert([x, y]);
-      if (!inv) return;
-      const next = [...points];
-      next[idx] = inv;
-      points = next;
-      // Update handle position live without reprojecting map
-      const proj = projection(inv);
-      if (proj) {
-        handlePositions = handlePositions.map((h, i) => i === idx
-          ? { x: proj[0] / dpr, y: proj[1] / dpr, visible: true }
-          : h
-        );
-      }
-    }
-
-    function onUp() {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      draggingHandle = false;
-      animateProjection(startPoints, points);
-    }
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    // The click target is the COUNTRY, not the pixel: touching anywhere on
+    // land selects that cell's country, the same end state a country circle
+    // reaches.
+    selectCountryAt(x, y, lnglat);
   }
 
   onMount(() => {
@@ -1986,24 +1758,6 @@
     focusNeedsCorrection = true;
   }
 
-  // Clear isolation when filtering changes.
-  //
-  // 8/21 owns this transition in App instead, in both directions: touching the
-  // filter closes the cell there (keyPointerUp), and clicking a CELL restores
-  // every anthrome — a filter change this effect must NOT read as "the user
-  // re-filtered", or it would tear down the isolation that same click just
-  // created. Read selectedCodes first so the effect still subscribes to it and
-  // picks the job back up if the arrangement is switched mid-session.
-  $effect(() => {
-    const codes = selectedCodes;
-    if (refined0821()) return;
-    if (codes?.length) {
-      isolatedCellId = null;
-      isolatedFeature = null;
-      untrack(() => drawOverlay());
-    }
-  });
-
   // Load boundaries when toggled on
   $effect(() => {
     if (showBoundaries && !boundariesMesh && !boundariesLoading) {
@@ -2078,38 +1832,6 @@
   // processHistoryData still uses it with a safe fallback when 0.
   const timelineHeightPx = 0;
 
-  // Cross-highlighting from URL parameter — fills the *range* set (multi-
-  // country annotation), separate from the primary picker highlight above.
-  //
-  // Option 1 does not carry a species across the sides at all: arriving from
-  // biomes should land on the plain map, not on a set of countries lit up by
-  // whichever leaf the disk happened to be resting on. The biomes side already
-  // omits ?highlightSGB from its links under Option 1; this also ignores the
-  // param on a pasted or bookmarked URL.
-  $effect(() => {
-    if (!countryData) return;
-    if (refinedLayout()) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const highlightSGB = urlParams.get('highlightSGB');
-
-    if (highlightSGB) {
-      const sgbId = parseInt(highlightSGB, 10);
-      const matchingCountries = [];
-
-      for (const [iso3, data] of countryData.entries()) {
-        if (data.sgbs && data.sgbs.includes(sgbId)) {
-          matchingCountries.push(iso3);
-        }
-      }
-
-      rangeIso3s = new Set(matchingCountries);
-      rangeSource = matchingCountries.length
-        ? { kind: 'species', label: `SGB ${sgbId}`, sgbId, from: 'biomes' }
-        : null;
-    }
-  });
-
 </script>
 
 <div class="map-layer" style={`width:${width}px;height:${height}px;`}>
@@ -2125,21 +1847,6 @@
     class="overlay-canvas"
     aria-hidden="true"
   ></canvas>
-
-  {#if debugMenuVisible}
-    <div class="handles">
-      {#each handlePositions as h, idx}
-        {#if h.visible}
-          <div
-            class="handle"
-            style={`left:${h.x}px; top:${h.y}px;`}
-            title={`Projection point ${idx === 0 ? 'A' : 'B'}`}
-            onpointerdown={(e) => startHandleDrag(idx, e)}
-          ></div>
-        {/if}
-      {/each}
-    </div>
-  {/if}
 
   {#if loading}
     <div class="loading">Loading map…</div>
@@ -2173,29 +1880,6 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-  }
-
-  .handles {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .handle {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #ffffff;
-    border: 3px solid #0e0b16;
-    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
-    transform: translate(-50%, -50%);
-    cursor: grab;
-    pointer-events: auto;
-  }
-
-  .handle:active {
-    cursor: grabbing;
   }
 
   .loading {

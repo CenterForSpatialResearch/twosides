@@ -23,8 +23,7 @@
   position: fixed;
   inset: 0;
   overflow: hidden;
-  /* DevHud swaps this for blue when we're off-target. */
-  background: var(--letterbox-bg, var(--bg));
+  background: var(--bg);
 }
 
 .stage {

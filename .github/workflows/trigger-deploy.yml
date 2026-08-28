@@ -4,7 +4,7 @@ name: Trigger site rebuild
 # the workflow file from the default branch, so this only needs to fire the event.
 on:
   push:
-    branches: [dev]
+    branches: [moma]
 
 permissions:
   contents: write # required to POST a repository_dispatch

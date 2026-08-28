@@ -5,26 +5,17 @@
     RARE_MAX_SAMPLES,
     WIDESPREAD_MIN_COUNTRIES,
     CONCENTRATED_MAX_COUNTRIES,
-    LIFESTYLE_MAGENTA,
-    LIFESTYLE_SHARED,
     isNonWesternExclusive
   } from './lib/BiomesChart.svelte';
   import { prepareBiomesData, colorMapping, pickTextColor, getPhylum, parseUSGB, parseWestern } from './lib/dataAdapter.js';
   import * as d3 from 'd3';
   import { feature as topoFeature } from 'topojson-client';
-  import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
   import ArcLabel from '../shared/ArcLabel.svelte';
-  import PhylumBubbles from './lib/PhylumBubbles.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
-  // Option numbers live in shared/uiOption.svelte.js. Comments below that say
-  // "Option 1" mean the refined arrangement, which is now options 1-3 (the
-  // narrative pass, the 8/21 pass and 8/14) — hence refinedLayout() for
-  // anything all three share, refined0821() for what 8/21 introduced and the
-  // narrative pass inherits, and narrative0821() for the copy that is the
-  // narrative pass's alone.
-  import { uiOption, refinedLayout, refined0821, narrative0821 } from '../shared/uiOption.svelte.js';
+  import { initIdleReset } from '../shared/idleReset.js';
+  import IdleOverlay from '../shared/IdleOverlay.svelte';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -32,6 +23,18 @@
     if (!stageEl) return;
     return initStage(stageEl);
   });
+
+  // Attract-loop guard: 30s with no input returns the visitor to the splash.
+  // A real page load, not a state reset — which is also what clears ?country=
+  // from the URL so the next visitor arrives on a clean map.
+  let idleWarning = $state(false);
+  $effect(() =>
+    initIdleReset({
+      homeHref: import.meta.env.BASE_URL,
+      onWarn: () => (idleWarning = true),
+      onCancel: () => (idleWarning = false)
+    })
+  );
 
   // State
   let loading = $state(true);
@@ -50,9 +53,7 @@
   let westernFilter = $state('any'); // 'any' | 'western' | 'nonwestern'
   let abundanceFilter = $state('any'); // 'any' | 'abundant' | 'rare' (Sample_ID_Count)
   let geoFilter = $state('any');       // 'any' | 'widespread' | 'concentrated' (Country_Count)
-  let viewSize = $state('full'); // 'full' or 'preview'
   let tension = $state(0.95);
-  let settingsOpen = $state(false);
   let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
   let selectedStudyKey = $state(null);
   // Declared BEFORE selectedCountryIso3: its initialiser calls
@@ -100,10 +101,6 @@
   // computed once on mount so the bubbles can be ranked without a selection.
   let countryRowStats = $state({});
 
-  const selectedIsNonWestern = $derived(
-    !!selectedCountryIso3 && NONWESTERN_SET.has(selectedCountryIso3)
-  );
-
   // Each row ranked by share of species unknown to science, greatest first.
   function rankRow(isos) {
     return isos
@@ -128,15 +125,10 @@
   }
 
   // Cross-side link carries every part of the current context that the other
-  // side knows how to accept: the picked country AND (if the disk has landed
-  // on a species) that species' SGB, so anthromes arrives with both the
-  // primary country highlighted and the range annotation for the species.
-  //
-  // Option 1 sends the country only. Carrying the species meant that merely
-  // resting the disk on a leaf lit up every country it occurs in on arrival —
-  // a selection the reader never made, competing with the country lens that
-  // now drives the whole anthromes view.
-  const carrySgbAcross = $derived(!refinedLayout());
+  // side knows how to accept: the picked country. The species' SGB is
+  // deliberately NOT carried across — merely resting the disk on a leaf would
+  // light up every country it occurs in on arrival, a selection the reader
+  // never made, competing with the country lens that drives the anthromes view.
 
   const crossLinkHref = $derived.by(() => {
     const base = import.meta.env.BASE_URL;
@@ -145,8 +137,6 @@
     // it strips the param and passes everything else through untouched.
     params.set('side', 'anthromes');
     if (selectedCountryIso3) params.set('country', selectedCountryIso3);
-    const sgbId = detailMeta?.metadata?.SGB_ID;
-    if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
     return `${base}loading.html?${params.toString()}`;
   });
 
@@ -262,13 +252,13 @@
 
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
-    // 8/21: the leader points at the SGB by NAME, so it ends ON the rule under
-    // that name — x comes from the rule's own left edge, not the panel's. The
-    // rule sits at the rail's left padding, a few px inside the seam, so the
-    // run stays a single straight line; nothing of the panel lies between the
-    // two, unlike the anthromes side where the chart forces an elbow.
+    // The leader points at the SGB by NAME, so it ends ON the rule under that
+    // name — x comes from the rule's own left edge, not the panel's. The rule
+    // sits at the rail's left padding, a few px inside the seam, so the run
+    // stays a single straight line; nothing of the panel lies between the two,
+    // unlike the anthromes side where the chart forces an elbow.
     // Rects are screen px; the overlay is design px.
-    if (refined0821() && sgbRuleEl) {
+    if (sgbRuleEl) {
       const rr = sgbRuleEl.getBoundingClientRect();
       leaderTo = screenToDesign(rr.left, rr.top + rr.height / 2);
       return;
@@ -280,9 +270,8 @@
     // is the taller of the two and reads as the head's true middle. X comes
     // from the panel's own left edge, never the anchor's, so the horizontal
     // landing point stays put regardless of which element supplies the height.
-    const headEl = refinedLayout()
-      ? detailPanelEl.querySelector('.species-glyph') || detailPanelEl.querySelector('.species-sgb')
-      : null;
+    const headEl =
+      detailPanelEl.querySelector('.species-glyph') || detailPanelEl.querySelector('.species-sgb');
     const anchor = headEl || detailPanelEl.querySelector('.fblock-title') || detailPanelEl;
     const r = anchor.getBoundingClientRect();
     const panelRect = detailPanelEl.getBoundingClientRect();
@@ -290,7 +279,7 @@
   }
 
   function alignSgbToMarker() {
-    if (!refined0821() || !sgbRuleEl || !leaderFrom) return;
+    if (!sgbRuleEl || !leaderFrom) return;
     const rr = sgbRuleEl.getBoundingClientRect();
     const ruleY = screenToDesign(rr.left, rr.top + rr.height / 2).y;
     const delta = leaderFrom.y - ruleY;
@@ -550,61 +539,6 @@
     }
   }
 
-  // Bubble picker uses the same selectedPhyla list — a normal bubble is one
-  // phylum; the aggregated Other bubble stands in for its member phyla list.
-  function handleBubbleToggle(datum) {
-    if (datum.isOther) {
-      const members = new Set(datum.memberNames);
-      const overlap = selectedPhyla.filter((p) => members.has(p));
-      if (overlap.length === members.size) {
-        // All members currently selected → remove them.
-        selectedPhyla = selectedPhyla.filter((p) => !members.has(p));
-      } else {
-        // Otherwise select the whole group (idempotent union).
-        const rest = selectedPhyla.filter((p) => !members.has(p));
-        selectedPhyla = [...rest, ...datum.memberNames];
-      }
-      return;
-    }
-    togglePhylum(datum.name);
-  }
-
-  // Bubble input: derived list of {name, count, color, isOther?, memberNames?}.
-  // Any phylum that falls through to the palette's Other colour collapses into
-  // a single Other bubble carrying the summed count and its member names.
-  const OTHER_COLOR = colorMapping.Other;
-  const phylumBubbles = $derived.by(() => {
-    if (!allPhyla.length) return [];
-    const primary = [];
-    const otherMembers = [];
-    let otherCount = 0;
-    for (const name of allPhyla) {
-      const count = phylumCountByName[name] || 0;
-      const color = colorMapping[name] || OTHER_COLOR;
-      if (color === OTHER_COLOR) {
-        otherMembers.push(name);
-        otherCount += count;
-      } else {
-        primary.push({ name, count, color });
-      }
-    }
-    if (otherMembers.length) {
-      primary.push({
-        name: 'Other',
-        count: otherCount,
-        color: OTHER_COLOR,
-        isOther: true,
-        memberNames: otherMembers
-      });
-    }
-    return primary;
-  });
-
-  // Bubble container geometry (bound to the .phylum-key element so the pack
-  // layout fits the actual available box).
-  let phBoxW = $state(0);
-  let phBoxH = $state(0);
-
   // Per-country prevalence stats — computed from the leaves whose SGB is in
   // the country's sgbs array. Uses the same thresholds as BiomesChart's
   // filter chain (ABUNDANT_MIN_SAMPLES / RARE_MAX_SAMPLES /
@@ -735,17 +669,6 @@
     selectedCountryIso3 = selectedCountryIso3 === iso3 ? null : iso3;
   }
 
-  // Handle keyboard shortcuts
-  function handleKeydown(e) {
-    if (e.key === 'M' || e.key === 'm') {
-      settingsOpen = !settingsOpen;
-    }
-    if (e.key === 'Escape') {
-      settingsOpen = false;
-      openPanel = null;
-    }
-  }
-
   // Handle click outside to close panel
   function handleWindowClick(e) {
     const target = e.target;
@@ -754,7 +677,7 @@
       return;
     }
     // Rail interactions (filters/controls) keep the detail panel open
-    if (target.closest('.rail') || target.closest('#settings') || target.closest('#menuToggle')) {
+    if (target.closest('.rail')) {
       openPanel = null;
       return;
     }
@@ -878,9 +801,7 @@
     const params = new URLSearchParams();
     params.set('side', 'anthromes');
     if (iso3) params.set('country', iso3);
-    const sgbId = detailMeta?.metadata?.SGB_ID;
-    // See carrySgbAcross: Option 1 hands over the country only.
-    if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
+    // The country only; see crossLinkHref.
     window.location.href = `${base}loading.html?${params.toString()}`;
   }
 
@@ -898,47 +819,6 @@
     const pct = count > 0 ? Math.min(100, Math.round(100 * Math.sqrt(count) / Math.sqrt(max))) : 0;
     return { count, max, pct };
   });
-
-  // Handle export
-  function handleExport() {
-    const svg = document.getElementById('chart');
-    if (!svg) return;
-
-    const dim = viewSize === 'full' ? 7000 : 1200;
-    const clone = svg.cloneNode(true);
-
-    // Add background rect
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', -dim / 2);
-    rect.setAttribute('y', -dim / 2);
-    rect.setAttribute('width', dim);
-    rect.setAttribute('height', dim);
-    rect.setAttribute('fill', '#0e0b16');
-    clone.insertBefore(rect, clone.firstChild);
-
-    // Inline all styles
-    clone.querySelectorAll('*').forEach(el => {
-      const cs = getComputedStyle(el);
-      let style = '';
-      for (let i = 0; i < cs.length; i++) {
-        const prop = cs[i];
-        if (!prop.startsWith('-')) {
-          style += `${prop}:${cs.getPropertyValue(prop)};`;
-        }
-      }
-      el.setAttribute('style', style);
-    });
-
-    const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `biomes_tree_export_${viewSize}.svg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
 
   // Resize handler
   function handleResize() {
@@ -966,7 +846,6 @@
   // (moved below)
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
 
 <!-- .viewport fills the window and shows the letterbox; .stage is the fixed
      3000x2000 canvas that everything below is authored against. -->
@@ -993,8 +872,6 @@
       homeHref={import.meta.env.BASE_URL}
     />
 
-    <!-- Settings toggle & panel intentionally hidden for now -->
-
     <div class="layout">
       <div class="viz-area">
         <BiomesChart
@@ -1005,13 +882,12 @@
           bind:westernFilter
           bind:abundanceFilter
           bind:geoFilter
-          size={viewSize}
+          size="full"
           {tension}
           bodySiteFilter={selectedBodySites}
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() === 5 && selectedCountryIso3 !== null}
           bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
@@ -1024,22 +900,22 @@
         <!-- Top tier: largest control circles. Option 1 spreads them across the
              full rail width and hangs an arced caption off the RIGHT of each
              bubble (the anthromes rail mirrors this to the left). -->
-        <div class="control-circles" class:control-circles--arced={refinedLayout()}>
+        <div class="control-circles">
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
-            {#if refinedLayout()}<ArcLabel text="Zoom Out" side="right" />{/if}
+            <ArcLabel text="Zoom Out" side="right" />
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetAll}>◎</button>
-            {#if refinedLayout()}<ArcLabel text="Reset" side="right" />{/if}
+            <ArcLabel text="Reset" side="right" />
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
-            {#if refinedLayout()}<ArcLabel text="Zoom In" side="right" />{/if}
+            <ArcLabel text="Zoom In" side="right" />
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-            {#if refinedLayout()}<ArcLabel text="Info" side="right" />{/if}
+            <ArcLabel text="Info" side="right" />
           </div>
         </div>
 
@@ -1053,7 +929,6 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <section
             class="fblock detail-block"
-            class:detail-block--compact={narrative0821()}
             aria-live="polite"
             bind:this={detailPanelEl}
             onclick={(e) => e.stopPropagation()}
@@ -1062,9 +937,7 @@
               <!-- Nothing selected, so there is no rule for the leader to land
                    on and nothing for the one-liner to displace. It heads the
                    panel here, which is where it sits in the empty state. -->
-              {#if narrative0821()}
-                <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
-              {/if}
+              <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
               <p class="detail-hint">Spin the disk to inspect a species.</p>
             {:else if detailMeta}
               <!-- .panel-content carries the shared panel typography (see
@@ -1076,26 +949,23 @@
                      traces this leaf's ancestor path through the tree in the
                      disk's polar coordinates, next to the SGB label + lineage
                      breadcrumbs. -->
-                {#if refined0821() && detailMeta.metadata?.SGB_ID != null}
-                  <!-- 8/21: the leader calls the species out by name, so the
-                       SGB label is lifted out of the ident column to sit ABOVE
-                       the glyph with a rule under it, and the line terminates
-                       on that rule's LEFT end — the end facing the disk — so
-                       the dashed run and the underline read as one stroke. -->
+                {#if detailMeta.metadata?.SGB_ID != null}
+                  <!-- The leader calls the species out by name, so the SGB
+                       label is lifted out of the ident column to sit ABOVE the
+                       glyph with a rule under it, and the line terminates on
+                       that rule's LEFT end — the end facing the disk — so the
+                       dashed run and the underline read as one stroke. -->
                   <div class="species-title" style={`margin-top: ${6 + sgbLeadIn}px`}>
                     <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
                     <span class="species-sgb-rule" bind:this={sgbRuleEl}></span>
                   </div>
                 {/if}
-                <!-- Narrative pass: the one-liner glosses the name the leader
-                     has just pointed at, so it reads AFTER it — "SGB 5089", the
-                     rule, then what an SGB is. Above the title it would push the
-                     rule down out of the marker's reach; the SGB block has to
-                     stay the first thing in the panel for the leader to run
-                     straight, exactly as it does in the 8/21 pass. -->
-                {#if narrative0821()}
-                  <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
-                {/if}
+                <!-- The one-liner glosses the name the leader has just pointed
+                     at, so it reads AFTER it — "SGB 5089", the rule, then what
+                     an SGB is. Above the title it would push the rule down out
+                     of the marker's reach; the SGB block has to stay the first
+                     thing in the panel for the leader to run straight. -->
+                <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
                 <div class="species-graphic">
                   {#if detailMeta.glyphPath}
                     <!-- viewBox is cropped to the glyph's actual extent:
@@ -1120,9 +990,6 @@
                     </svg>
                   {/if}
                   <div class="species-ident">
-                    {#if detailMeta.metadata?.SGB_ID != null && !refined0821()}
-                      <span class="species-sgb">SGB {detailMeta.metadata.SGB_ID}</span>
-                    {/if}
                     {#if detailMeta.ancestors?.length}
                       <div class="lineage-chips" aria-label="Taxonomic lineage">
                         {#each detailMeta.ancestors as a, i (a.depth + '-' + a.name)}
@@ -1213,30 +1080,19 @@
           </section>
         {/snippet}
 
-        {#if uiOption() <= 5}
-        <!-- Options 1-4 (Lifestyle): the eight countries split into the two
-             categories the study itself assigns, each row ranked by the share
-             of that country's species previously unknown to science. Selecting
-             a country recolours the disk by lifestyle exclusivity; the magenta
-             key only appears for a non-Westernized selection, since magenta is
-             structurally absent from every Westernized country (any species
-             found there is by definition in a Westernized sample).
-
-             Option 1 differs only in the row head: the "Western"/"Non-Western"
-             titles are dropped and each row's description is promoted into
-             that slot (see lifestyleRow below). -->
+        <!-- Lifestyle: the eight countries split into the two categories the
+             study itself assigns, each row ranked by the share of that
+             country's species previously unknown to science. The row head
+             drops the "Western"/"Non-Western" titles and promotes each row's
+             description into that slot (see lifestyleRow below). -->
         <section class="fblock">
           <div class="fblock-headrow">
-            <!-- Narrative pass: the category label and the instruction under it
-                 are both replaced by one sentence of exhibit copy, which names
-                 what the block is FOR rather than what it contains. The "All"
-                 mini-link still carries the affordance the instruction spelled
-                 out, so nothing is lost but the prose. -->
-            {#if narrative0821()}
-              <h3 class="fblock-oneliner">Samples become cohorts; cohorts become a geography of microbial observation.</h3>
-            {:else}
-              <h3 class="fblock-title">Country</h3>
-            {/if}
+            <!-- The category label and the instruction under it are both
+                 replaced by one sentence of exhibit copy, which names what the
+                 block is FOR rather than what it contains. The "All" mini-link
+                 still carries the affordance the instruction spelled out, so
+                 nothing is lost but the prose. -->
+            <h3 class="fblock-oneliner">Samples become cohorts; cohorts become a geography of microbial observation.</h3>
             <button
               class="mini-link"
               class:active={selectedCountryIso3 === null}
@@ -1244,23 +1100,15 @@
               aria-label="Clear country selection"
             >All</button>
           </div>
-          {#if !narrative0821()}
-            <p class="fblock-desc">
-              Select a country to view the species found in samples collected there.
-            </p>
-          {/if}
 
           {#snippet lifestyleRow(title, blurb, rowItems)}
             <div class="ls-row">
-              <!-- Option 1 drops the "Western"/"Non-Western" title and promotes
-                   the description into the title's slot: the country circles
+              <!-- The "Western"/"Non-Western" title is dropped and the
+                   description promoted into its slot: the country circles
                    below already carry the lifestyle split visually, so the
                    label was restating what the row shows. The title is kept
                    for screen readers via aria-label. -->
-              <div class="ls-row-head" class:ls-row-head--promoted={refinedLayout()} aria-label={title}>
-                {#if !refinedLayout()}
-                  <span class="ls-row-title">{title}</span>
-                {/if}
+              <div class="ls-row-head ls-row-head--promoted" aria-label={title}>
                 <span class="ls-row-desc">{blurb}</span>
               </div>
               <div class="country-row country-row--ls">
@@ -1298,344 +1146,38 @@
             nonWesternRow
           )}
 
-          <!-- Option 4 only. Reserved space: the key resolves once a
-               non-Westernized country is selected, but the slot is always
-               present so the rail below it doesn't reflow on selection.
-               Option 1 drops the magenta encoding entirely, so it needs
-               neither the key nor the space it reserved — the details panel
-               moves up into it. -->
-          {#if uiOption() === 5}
-            <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
-              {#if selectedIsNonWestern}
-                <span class="ls-key-item">
-                  <span class="ls-key-swatch" style="background:{LIFESTYLE_MAGENTA}"></span>
-                  Found only in non-Westernized populations
-                  {#if countryRowStats[selectedCountryIso3]}
-                    · {countryRowStats[selectedCountryIso3].magentaPct}%
-                  {/if}
-                </span>
-                <span class="ls-key-item">
-                  <span class="ls-key-swatch" style="background:{LIFESTYLE_SHARED}"></span>
-                  Also found in Westernized populations
-                </span>
-              {/if}
-            </div>
-          {/if}
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 6}
-        <!-- Option 5 (Country): Country is the primary filter. Known/Unknown and
-             Western/Non-Western are no longer standalone filter radios — they
-             surface inside the country breakdown panel when a country is
-             selected. -->
-        <section class="fblock">
-          <div class="fblock-headrow">
-            <h3 class="fblock-title">Country</h3>
-            <button
-              class="mini-link"
-              class:active={selectedCountryIso3 === null}
-              onclick={() => (selectedCountryIso3 = null)}
-              aria-label="Clear country selection"
-            >All</button>
-          </div>
-          <p class="fblock-desc">Select a country to view the species found in samples collected there.</p>
-          <div class="country-row">
-            {#each PRIMARY_ORDER as iso3 (iso3)}
-              {@const feature = countryFeatureByIso.get(iso3)}
-              <div class="country-cell">
-                <CountryCircle
-                  {iso3}
-                  label={SHORT_LABELS[iso3] ?? iso3}
-                  {feature}
-                  size={168}
-                  labelFontSize={20}
-                  ringStroke={3.4}
-                  ringStrokeSelected={5}
-                  selected={selectedCountryIso3 === iso3}
-                  dimmed={selectedCountryIso3 !== null && selectedCountryIso3 !== iso3}
-                  onclick={() => selectCountry(iso3)}
-                />
-              </div>
-            {/each}
-          </div>
-
-          {#if selectedCountryIso3 && primaryCountries?.[selectedCountryIso3]}
-            {@const meta = primaryCountries[selectedCountryIso3]}
-            {@const s = countryStats}
-            <div class="country-breakdown" aria-live="polite">
-              <div class="cb-head">
-                <span class="cb-label">{SHORT_LABELS[selectedCountryIso3] ?? meta.label}</span>
-              </div>
-
-              <!-- Magazine-style big-number row: samples · species · studies.
-                   Each numeral sits above its label — reads as an infographic,
-                   not a filter. -->
-              <div class="cb-bignums">
-                <div class="cb-bignum">
-                  <span class="cb-bignum-value">{meta.samples_total.toLocaleString()}</span>
-                  <span class="cb-bignum-label">samples</span>
-                </div>
-                <div class="cb-bignum">
-                  <span class="cb-bignum-value">{meta.sgbs.length.toLocaleString()}</span>
-                  <span class="cb-bignum-label">species (SGBs)</span>
-                </div>
-                <div class="cb-bignum">
-                  <span class="cb-bignum-value">{meta.studies?.length ?? 0}</span>
-                  <span class="cb-bignum-label">{meta.studies?.length === 1 ? 'study' : 'studies'}</span>
-                </div>
-              </div>
-
-              {#if s}
-                <div class="cb-split">
-                  <div class="cb-split-head">
-                    <span class="cb-split-title">Previously unknown to science</span>
-                    <span class="cb-split-hero">{s.unknownPct}%</span>
-                  </div>
-                  <div class="cb-split-bar" role="img" aria-label={`${s.unknownPct}% previously unknown, ${s.knownPct}% previously known`}>
-                    <span class="cb-split-fill" style="width: {s.unknownPct}%"></span>
-                  </div>
-                  <div class="cb-split-legend">
-                    <span class="cb-split-lg cb-split-lg--unk">Unknown (uSGB) · {s.unknown.toLocaleString()}</span>
-                    <span class="cb-split-lg cb-split-lg--known">Known · {s.known.toLocaleString()}</span>
-                  </div>
-                </div>
-              {/if}
-
-              {#if meta.sub_cohort_ids?.length}
-                <div class="cb-subs">
-                  <span class="cb-sub-title">Sub-cohorts</span>
-                  {#each meta.sub_cohort_ids as sid}<span class="cb-sub-chip">{sid}</span>{/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </section>
-
-        <!-- Overlay annotation: multi-species range from the anthromes side.
-             Same visual vocabulary as anthromes' range-tag so both rails
-             share the "sent from the other side" pattern. -->
-        {#if rangeSource}
-          <section class="range-tag" aria-live="polite">
-            <div class="range-tag-row">
-              <span class="range-tag-badge" aria-hidden="true"></span>
-              <div class="range-tag-body">
-                <span class="range-tag-title">Range: {rangeSource.label}</span>
-                <span class="range-tag-sub">
-                  {#if rangeSource.count}{rangeSource.count} species{/if}
-                  {#if rangeSource.from}{rangeSource.count ? ' · ' : ''}from {rangeSource.from}{/if}
-                </span>
-              </div>
-              <button class="range-tag-clear" onclick={clearRange} aria-label="Clear range highlight">×</button>
-            </div>
-          </section>
-        {/if}
-
-        {@render detailPanel()}
-        {:else if uiOption() === 7}
-        <!-- Option 6 (Split): Known/Unknown and Non/Western share a row. No
-             "All" button — like Cohort, all are shown by default; tap to isolate,
-             tap again to reset. -->
-        <div class="filter-row">
-          <section class="fblock">
-            <h3 class="fblock-title">Known / Unknown</h3>
-            <p class="fblock-desc"><strong>Known</strong> — a species-level group already represented in reference databases. <strong>Unknown (uSGB)</strong> — a genome-defined species-level group newly identified in this study, not previously represented in reference databases.</p>
-            <div class="sel-buttons">
-              <button class="sel-btn" class:active={unknownFilter === 'known'} onclick={() => toggleUnknown('known')}>
-                <span class="sel-name">Known</span>
-                <span class="sel-pct">{knownPct}%</span>
-              </button>
-              <button class="sel-btn" class:active={unknownFilter === 'unknown'} onclick={() => toggleUnknown('unknown')}>
-                <span class="sel-name">Unknown</span>
-                <span class="sel-pct">{unknownPct}%</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="fblock">
-            <h3 class="fblock-title">Non / Western</h3>
-            <p class="fblock-desc"><strong>Westernized</strong> — industrialized, urban populations with high exposure to modern medical and food systems. <strong>Non-Westernized</strong> — populations with limited industrialization and lower exposure to those systems.</p>
-            <div class="sel-buttons">
-              <button class="sel-btn" class:active={westernFilter === 'western'} onclick={() => toggleWestern('western')}>
-                <span class="sel-name">Western</span>
-                <span class="sel-pct">{westernPct}%</span>
-              </button>
-              <button class="sel-btn" class:active={westernFilter === 'nonwestern'} onclick={() => toggleWestern('nonwestern')}>
-                <span class="sel-name">Non-Western</span>
-                <span class="sel-pct">{nonwesternPct}%</span>
-              </button>
-            </div>
-          </section>
-        </div>
-
-        <section class="fblock">
-          <h3 class="fblock-title">Cohort</h3>
-          <p class="fblock-desc">A defined group of study participants whose samples were collected and analyzed together. Sized and ranked by the share of each population's species that were previously unknown to science, most to least.</p>
-          <div class="cohort-bubbles" bind:clientWidth={bubbleRowW}>
-            {#each rankedCohorts as c (c.key)}
-              <button
-                class="bubble"
-                class:active={selectedStudyKey === c.key}
-                style="width:{c.size}px; height:{c.size}px;"
-                title={`${Math.round(c.upct * 100)}% unknown (uSGB)`}
-                onclick={() => selectStudyKey(c.key)}
-              >
-                <span class="sel-name">{c.label}</span>
-                <span class="sel-pct">{Math.round(c.upct * 100)}% unknown</span>
-              </button>
-            {/each}
-          </div>
-        </section>
-
-        {@render detailPanel()}
-        {:else}
-        <!-- Option 7 (Prevalence): details panel on top, then two stacked blocks —
-             Prevalence (population type / samples / countries) then Known/Unknown
-             with two compound buttons. Same tap-to-isolate / tap-again-to-reset
-             pattern; each Block A button isolates its one dimension (clearing the
-             other two axes). Cohort is intentionally omitted here to give the
-             details panel room. -->
-        {@render detailPanel()}
-
-        <section class="fblock">
-          <h3 class="fblock-title">Prevalence</h3>
-          <p class="fblock-desc">How often bacteria are found in human populations, and where.</p>
-          <div class="sel-buttons sel-buttons--stack">
-            <!-- Three axis-pairs, each a vertical stack; row 1 / row 2 across:
-                 Western  Abundant  Widespread  /  Non-Western  Rare  Concentrated -->
-            <div class="sel-col">
-              <button class="sel-btn" class:active={westernFilter === 'western'} onclick={() => togglePrevalence('western', 'western')}>
-                <span class="sel-name">Western</span>
-                <span class="sel-pct">{westernPct}%</span>
-              </button>
-              <span class="sel-caption">From industrialized, urban populations.</span>
-            </div>
-            <div class="sel-col">
-              <button class="sel-btn" class:active={abundanceFilter === 'abundant'} onclick={() => togglePrevalence('abundance', 'abundant')}>
-                <span class="sel-name">Abundant</span>
-                <span class="sel-pct">{abundantPct}%</span>
-              </button>
-              <span class="sel-caption">Found in many samples across the dataset.</span>
-            </div>
-            <div class="sel-col">
-              <button class="sel-btn" class:active={geoFilter === 'widespread'} onclick={() => togglePrevalence('geo', 'widespread')}>
-                <span class="sel-name">Widespread</span>
-                <span class="sel-pct">{widespreadPct}%</span>
-              </button>
-              <span class="sel-caption">Present across several countries.</span>
-            </div>
-            <div class="sel-col">
-              <button class="sel-btn" class:active={westernFilter === 'nonwestern'} onclick={() => togglePrevalence('western', 'nonwestern')}>
-                <span class="sel-name">Non-Western</span>
-                <span class="sel-pct">{nonwesternPct}%</span>
-              </button>
-              <span class="sel-caption">From populations with limited industrialization.</span>
-            </div>
-            <div class="sel-col">
-              <button class="sel-btn" class:active={abundanceFilter === 'rare'} onclick={() => togglePrevalence('abundance', 'rare')}>
-                <span class="sel-name">Rare</span>
-                <span class="sel-pct">{rarePct}%</span>
-              </button>
-              <span class="sel-caption">Found in only one sample so far.</span>
-            </div>
-            <div class="sel-col">
-              <button class="sel-btn" class:active={geoFilter === 'concentrated'} onclick={() => togglePrevalence('geo', 'concentrated')}>
-                <span class="sel-name">Concentrated</span>
-                <span class="sel-pct">{concentratedPct}%</span>
-              </button>
-              <span class="sel-caption">Found in only one country.</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Known/Unknown sits below Prevalence (the details panel is above,
-             rendered at the top of this branch). Option-1-only content. -->
-        <section class="fblock">
-          <h3 class="fblock-title">Known / Unknown</h3>
-          <p class="fblock-desc">Which bacteria species were already known before this study, and how the newly-identified ones break down by prevalence.</p>
-          <div class="sel-buttons sel-buttons--pairs">
-            <div class="sel-pair">
-              <div class="sel-col">
-                <button class="sel-btn" class:active={knownActive} onclick={() => selectKnownRow({ unknownFilter: 'known' })}>
-                  <span class="sel-name">Known</span>
-                  <span class="sel-pct">{knownPct}%</span>
-                </button>
-                <span class="sel-caption">Bacteria species known before this study.</span>
-              </div>
-              <div class="sel-col">
-                <button class="sel-btn" class:active={unknownActive} onclick={() => selectKnownRow({ unknownFilter: 'unknown' })}>
-                  <span class="sel-name">Unknown</span>
-                  <span class="sel-pct">{unknownPct}%</span>
-                </button>
-                <span class="sel-caption">Bacteria species newly identified in this study.</span>
-              </div>
-            </div>
-            <div class="sel-pair">
-              <div class="sel-col">
-                <button class="sel-btn" class:active={unknownAbundantActive} onclick={() => selectKnownRow({ unknownFilter: 'unknown', abundanceFilter: 'abundant' })}>
-                  <span class="sel-name">Unknown + Abundant</span>
-                </button>
-                <span class="sel-caption">Unknown bacteria species that are also common — found in the top {abundantPct}% of species by sample count.</span>
-              </div>
-              <div class="sel-col">
-                <button class="sel-btn" class:active={unknownConcNonWestActive} onclick={() => selectKnownRow({ unknownFilter: 'unknown', geoFilter: 'concentrated', westernFilter: 'nonwestern' })}>
-                  <span class="sel-name">Unknown + Concentrated + Non-Western</span>
-                </button>
-                <span class="sel-caption">Unknown species found concentrated in a single country, with limited exposure to industrialized systems.</span>
-              </div>
-            </div>
-          </div>
-        </section>
-        {/if}
 
         <!-- Bottom tier: phylum key (bubble cluster; area ∝ SGB count) -->
         <section class="phylum-band">
           <div class="phylum-band-head">
-            {#if narrative0821()}
-              <span class="fblock-oneliner">Phyla group species into major microbial lineages.</span>
-            {:else}
-              <span class="phylum-band-title">Phylum</span>
-            {/if}
+            <span class="fblock-oneliner">Phyla group species into major microbial lineages.</span>
             <div class="phylum-band-actions">
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          {#if uiOption() <= 5}
-            <!-- Options 1-4 use the flat pill key (same vocabulary as the
-                 anthromes legend) rather than the bubble pack: the disk is
-                 already carrying the magenta/white lifestyle encoding, so the
-                 phylum key stays a quiet filter instead of a second chart.
-                 Tap to isolate, drag across to select a contiguous range. -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="phylum-key phylum-key--pills" onpointerdown={phPointerDown}>
-              {#each allPhyla as phylum, i (phylum)}
-                {@const color = colorMapping[phylum] || colorMapping.Other}
-                <button
-                  class="phylum-dot"
-                  class:active={selectedPhyla.includes(phylum)}
-                  class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
-                  data-idx={i}
-                  style="background:{color}; color:{pickTextColor(color)};"
-                >
-                  <span>{phylum.replace(/_/g, ' ')}</span>
-                </button>
-              {/each}
-            </div>
-          {:else}
-            <div class="phylum-key" bind:clientWidth={phBoxW} bind:clientHeight={phBoxH}>
-              <PhylumBubbles
-                bubbles={phylumBubbles}
-                {selectedPhyla}
-                {pickTextColor}
-                width={phBoxW}
-                height={phBoxH}
-                minRadius={26}
-                maxRadius={100}
-                padding={4}
-                onToggle={handleBubbleToggle}
-              />
-            </div>
-          {/if}
+          <!-- Options 1-4 use the flat pill key (same vocabulary as the
+               anthromes legend) rather than the bubble pack: the disk is
+               already carrying the magenta/white lifestyle encoding, so the
+               phylum key stays a quiet filter instead of a second chart.
+               Tap to isolate, drag across to select a contiguous range. -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="phylum-key phylum-key--pills" onpointerdown={phPointerDown}>
+            {#each allPhyla as phylum, i (phylum)}
+              {@const color = colorMapping[phylum] || colorMapping.Other}
+              <button
+                class="phylum-dot"
+                class:active={selectedPhyla.includes(phylum)}
+                class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
+                data-idx={i}
+                style="background:{color}; color:{pickTextColor(color)};"
+              >
+                <span>{phylum.replace(/_/g, ' ')}</span>
+              </button>
+            {/each}
+          </div>
         </section>
       </div>
     </div>
@@ -1643,38 +1185,14 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 8}
-          <!-- Option 7: details panel is at the top, so the leader runs
-               horizontally from the marker to the disk-canvas edge (rail left,
-               = title left − 61px rail padding), kinks up vertically, then turns
-               to end in line with the panel title. -->
-          <polyline
-            class="leader-line"
-            points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
-          />
-        {:else}
-          <!-- Options 1–5: the details panel sits inline in the rail, so the
-               leader is a straight run from the marker to the rail edge. The
-               8/14 pass lands on the vertical centre of the SGB title, so the
-               line slopes; the others stay level with the marker. The x
-               endpoint differs only by the 8px standoff the pre-rule options
-               need.
-
-               From the 8/21 pass on, y comes from the MARKER rather than from
-               leaderTo: alignSgbToMarker() brings the rule to the marker, so
-               the run is horizontal by construction and still reads straight
-               during the frame before the lead-in has settled. That only holds
-               while the SGB block is the first thing in the panel — the lead-in
-               can push the rule down but never up, so anything rendered above
-               the title puts the rule out of reach of a high marker. See the
-               note on the one-liner's placement above. -->
-          <line
-            class="leader-line"
-            x1={leaderFrom.x} y1={leaderFrom.y}
-            x2={refined0821() ? leaderTo.x : leaderTo.x - 8}
-            y2={refined0821() ? leaderFrom.y : refinedLayout() ? leaderTo.y : leaderFrom.y}
-          />
-        {/if}
+        <!-- Option 7: details panel is at the top, so the leader runs
+             horizontally from the marker to the disk-canvas edge (rail left,
+             = title left − 61px rail padding), kinks up vertically, then turns
+             to end in line with the panel title. -->
+        <polyline
+          class="leader-line"
+          points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
+        />
       </svg>
     {/if}
 
@@ -1703,9 +1221,10 @@
     {/if}
   </div>
 {/if}
+<!-- Inside .stage so it scales with the canvas, and last so it paints over the
+     rail and the chart. Any input cancels it; see initIdleReset. -->
+<IdleOverlay show={idleWarning} />
 </div>
-<!-- Outside .stage so it renders at true screen px, unscaled -->
-<DevHud />
 </div>
 
 <style>
@@ -1777,25 +1296,7 @@
     padding-top: 32px;
   }
 
-  .control-circles,
-  .fblock,
-  .filter-row,
-  .phylum-band {
-    flex: 0 0 auto;
-  }
-
   /* Known/Unknown + Non/Western sit side by side in one rail row */
-  .filter-row {
-    display: flex;
-    gap: 44px;
-    align-items: flex-start;
-  }
-
-  .filter-row .fblock {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-
   .detail-block {
     flex: 1 1 auto;
     min-height: 0;
@@ -1809,21 +1310,15 @@
   }
 
 
-  /* ===== MoMA rail: top control circles (biggest tier) ===== */
+  /* ===== MoMA rail: top control circles (biggest tier) =====
+     The row spans the rail's full content width, evenly distributed, so the
+     controls read as one measure with the menu items below them. */
   .control-circles {
     display: flex;
-    flex-wrap: wrap;
-    gap: 28px;
-    justify-content: flex-end;
-    align-items: center;
-  }
-
-  /* Option 1: the row spans the rail's full content width, evenly distributed,
-     so the controls read as one measure with the menu items below them. */
-  .control-circles--arced {
     flex-wrap: nowrap;
     gap: 0;
     justify-content: space-between;
+    align-items: center;
   }
 
   /* Positioning context for ArcLabel, which paints centred on the button and
@@ -1877,14 +1372,6 @@
     min-width: 0;
   }
 
-  .fblock-title {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: var(--fg);
-  }
-
   /* Curatorial one-liner — replaces a category label with a full sentence from
      the exhibit copy. Sized above .fblock-title (larger tier) but lighter
      weight so it reads as a "phrase" rather than a heading label. Sits in the
@@ -1910,134 +1397,31 @@
   }
 
   /* Compact detail panel — tighter internal gaps + smaller section margins so
-     the added one-liner header fits without pushing content off-rail. Note the
-     8/21 pass had also given .panel-content `align-content: start`, which
-     already reclaims the slack that used to pool under each heading; this trims
-     what is left to pay for the new header line. */
-  .detail-block--compact .panel-content {
+     the one-liner header fits without pushing content off-rail. .panel-content
+     also carries `align-content: start`, which reclaims the slack that used to
+     pool under each heading; this trims what is left to pay for the header. */
+  .detail-block .panel-content {
     gap: 7px;
   }
-  .detail-block--compact .species-graphic {
+  .detail-block .species-graphic {
     gap: 10px;
   }
-  .detail-block--compact .genome-meter,
-  .detail-block--compact .sp-statline,
-  .detail-block--compact .sp-countries {
+  .detail-block .genome-meter,
+  .detail-block .sp-statline,
+  .detail-block .sp-countries {
     padding: 0;
   }
 
-  .fblock-desc {
-    margin: 0;
-    font-size: 16.6px;
-    line-height: 1.45;
-    color: var(--muted);
-  }
-
-  .fblock-desc strong {
-    color: #fff;
-  }
-
   /* Known / Unknown + Non / Western: medium circular select buttons */
-  .sel-buttons {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 22px;
-  }
-
-  .sel-btn {
-    width: var(--tier-mid);
-    height: var(--tier-mid);
-    border-radius: 50%;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    color: var(--fg);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 10px;
-    box-sizing: border-box;
-    box-shadow: var(--shadow);
-  }
-
-  .sel-name {
-    font-size: 16px;
-    font-weight: 700;
-    line-height: 1.05;
-  }
-
-  .sel-pct {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.1;
-    margin-top: 3px;
-    opacity: 0.7;
-  }
-
-  .sel-btn.active {
-    background: #fff;
-    color: var(--bg);
-    border-color: #fff;
-  }
-
-  .sel-btn.active .sel-pct {
-    opacity: 0.75;
-  }
-
-  .sel-btn:active {
-    transform: scale(0.96);
-  }
-
   /* ===== Option 1: nested-pair button rows + per-button captions =====
      Two visually-grouped pairs: a small gap within each pair, a larger gap
      between the two pairs. Each button carries a short caption beneath it. */
-  .sel-buttons--pairs {
-    width: 100%;
-    gap: 60px;               /* the larger space that separates the two pairs */
-    align-items: flex-start;
-  }
-
-  .sel-pair {
-    flex: 1 1 0;             /* each pair fills half the row */
-    display: flex;
-    gap: 22px;               /* the small space within a pair */
-    align-items: flex-start;
-  }
-
-  .sel-col {
-    flex: 1 1 0;             /* two equal columns per pair — captions get the full
-                               available width, so they wrap to fewer lines */
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 11px;
-  }
-
   /* Stacked variant (Prevalence, 6 buttons): a 3-column grid, two rows. Column
      gap is the larger between-pair space, row gap the small within-pair space.
      Grid keeps the second row of buttons aligned across columns even when the
      first-row captions differ in height. */
-  .sel-buttons--stack {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    column-gap: 60px;
-    row-gap: 18px;
-    width: 100%;
-    align-items: start;
-  }
-
   /* Prevalence circles match the standard --tier-mid select buttons — same size
      as Known/Unknown; there's enough vertical room now for full-size circles. */
-
-  .sel-caption {
-    font-size: 13px;
-    line-height: 1.3;
-    color: var(--muted);
-    text-align: center;
-  }
 
   /* Country picker: 4 columns × 2 rows. Cells are equal-width regardless of
      label length so the grid stays uniform. */
@@ -2071,81 +1455,7 @@
 
   /* Range annotation tag — mirrors the anthromes-side treatment so both
      rails share the same "sent from the other side" vocabulary. */
-  .range-tag {
-    display: block;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1.4px dashed rgba(255, 255, 255, 0.75);
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .range-tag-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .range-tag-badge {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1.6px dashed rgba(255, 255, 255, 0.85);
-    flex: 0 0 auto;
-  }
-
-  .range-tag-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .range-tag-title {
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: #fff;
-  }
-
-  .range-tag-sub {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .range-tag-clear {
-    background: transparent;
-    border: none;
-    color: var(--fg);
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 1;
-    padding: 4px 8px;
-    cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.15s ease;
-    flex: 0 0 auto;
-  }
-
-  .range-tag-clear:hover {
-    opacity: 1;
-  }
-
   /* Bacteria Species Details enrichment header */
-  .fblock-title .phylum-swatch {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    margin-right: 10px;
-    vertical-align: -1px;
-    border: 1.4px solid rgba(255, 255, 255, 0.85);
-    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
-  }
-
   /* Species detail-card styling — the .panel-content species / lineage / genome
      meter / stat-line rules are shared with the anthromes panel; see
      src/shared/styles.css, which also documents the 16.6px type floor that both
@@ -2154,289 +1464,11 @@
   /* Country breakdown — full big-number treatment by default; collapses to a
      single-line summary when a species is also being inspected (see the
      .country-breakdown--compact variant) so the rail doesn't overflow. */
-  .country-breakdown {
-    margin-top: 18px;
-    display: grid;
-    gap: 16px;
-  }
-
-  .country-breakdown--compact {
-    margin-top: 10px;
-    gap: 0;
-  }
-
-  .cb-oneline {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    padding: 6px 0;
-  }
-
-  .cb-oneline-label {
-    font-size: 18px;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: 0.02em;
-  }
-
-  .cb-oneline-nums {
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .cb-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .cb-label {
-    font-weight: 800;
-    font-size: 22px;
-    letter-spacing: 0.02em;
-    color: var(--fg);
-  }
-
-  .cb-summary {
-    font-size: 13px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 700;
-  }
-
-  .cb-narrative {
-    margin: 0;
-    font-size: 15px;
-    line-height: 1.45;
-    color: var(--muted);
-  }
-
   /* High-level "big number" row — one large numeral per metric with a small
      label underneath. Magazine layout, three columns. */
-  .cb-bignums {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    column-gap: 12px;
-    row-gap: 6px;
-    align-items: end;
-    padding: 4px 0;
-  }
-
-  .cb-bignum {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
-    min-width: 0;
-  }
-
-  .cb-bignum-value {
-    font-size: 34px;
-    font-weight: 800;
-    letter-spacing: 0.005em;
-    color: #fff;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .cb-bignum-label {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
   /* Split-bar treatment for the Known/Unknown takeaway */
-  .cb-split {
-    display: grid;
-    gap: 6px;
-    margin-top: 4px;
-  }
-
-  .cb-split-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .cb-split-title {
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .cb-split-hero {
-    font-size: 22px;
-    font-weight: 800;
-    color: #fff;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .cb-split-bar {
-    position: relative;
-    height: 12px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.10);
-    overflow: hidden;
-  }
-
-  .cb-split-fill {
-    display: block;
-    height: 100%;
-    background: #fff;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
-  }
-
-  .cb-split-legend {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-  }
-
-  .cb-split-lg--unk { color: #fff; }
-  .cb-split-lg--known { color: var(--muted); }
-
   /* Legacy — kept in case Option 1 revives it */
-  .cb-stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    grid-auto-rows: max-content;
-    row-gap: 14px;
-    column-gap: 14px;
-  }
-
-  .cb-col {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .cb-tile {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 9px 12px;
-    border-radius: 12px;
-    border: 1.6px solid rgba(255, 255, 255, 0.16);
-    background: rgba(255, 255, 255, 0.04);
-    min-width: 0;
-  }
-
-  .cb-tile--accent {
-    border-color: rgba(255, 255, 255, 0.6);
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .cb-name {
-    font-weight: 700;
-    font-size: 13px;
-    color: var(--fg);
-    letter-spacing: 0.02em;
-    line-height: 1.15;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .cb-pct {
-    font-weight: 800;
-    font-size: 16px;
-    color: #fff;
-    letter-spacing: 0.02em;
-    white-space: nowrap;
-  }
-
-  .cb-cap {
-    font-size: 11px;
-    line-height: 1.35;
-    color: var(--muted);
-    letter-spacing: 0.02em;
-    padding: 0 3px;
-  }
-
-  .cb-subs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    font-size: 11px;
-  }
-
-  .cb-sub-title {
-    color: var(--muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: 800;
-  }
-
-  .cb-sub-chip {
-    padding: 3px 9px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    color: var(--fg);
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 11px;
-  }
-
   /* Cohort ranked bubbles — used by the Split arrangement */
-  .cohort-bubbles {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 20px;
-    padding-top: 7.7px;
-  }
-
-  .bubble {
-    flex: 0 0 auto;   /* never grow/shrink — a squashed bubble reads as an ellipse */
-    min-width: 0;     /* let width equal the set diameter even if content is wider */
-    border-radius: 50%;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    color: var(--fg);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 7.7px;
-    box-sizing: border-box;
-    box-shadow: var(--shadow);
-    transition: width 0.35s ease, height 0.35s ease;
-  }
-
-  .bubble.active {
-    background: #fff;
-    color: var(--bg);
-    border-color: #fff;
-  }
-
-  .bubble.active .sel-pct {
-    opacity: 0.75;
-  }
-
-  .bubble:active {
-    transform: scale(0.96);
-  }
-
   /* ===== Bottom tier: phylum key ===== */
   .phylum-band {
     display: flex;
@@ -2450,12 +1482,6 @@
     align-items: center;
     justify-content: space-between;
     gap: 15px;
-  }
-
-  .phylum-band-title {
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
   }
 
   .phylum-band-actions {
@@ -2495,8 +1521,7 @@
     user-select: none;
   }
 
-  /* Options 1-3 only: flat pill key. Sized to content rather than the bubble
-     pack's fixed 220–440px box, so it doesn't strand vertical space. */
+  /* Flat pill key, sized to content so it doesn't strand vertical space. */
   .phylum-key--pills {
     display: flex;
     flex-wrap: wrap;
@@ -2523,21 +1548,15 @@
     gap: 3px;
   }
 
-  .ls-row-title {
-    font-size: 21px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-  }
-
   .ls-row-desc {
     font-size: 16px;
     line-height: 1.3;
     opacity: 0.62;
   }
 
-  /* Option 1: the description IS the row head, so it takes the title's weight
-     — larger, full white, no dimming. Sized between .ls-row-title (21px) and
-     .ls-row-desc (16px) so it reads as a lead-in rather than a heading. */
+  /* The description IS the row head, so it takes the title's weight — larger,
+     full white, no dimming. Sized between a heading (21px) and .ls-row-desc
+     (16px) so it reads as a lead-in rather than a heading. */
   .ls-row-head--promoted .ls-row-desc {
     font-size: 18.5px;
     line-height: 1.32;
@@ -2560,38 +1579,6 @@
     letter-spacing: 0.01em;
     font-variant-numeric: tabular-nums;
     opacity: 0.78;
-  }
-
-  /* Magenta key. The slot always occupies its height so selecting a country
-     doesn't reflow the rail below; only the contents appear/disappear. */
-  .ls-key {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-height: 52px;
-    margin-top: 20px;
-    opacity: 0;
-    transition: opacity 0.18s ease;
-  }
-
-  .ls-key--on {
-    opacity: 1;
-  }
-
-  .ls-key-item {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    font-size: 15.5px;
-    line-height: 1.25;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .ls-key-swatch {
-    flex: 0 0 auto;
-    width: 26px;
-    height: 4px;
-    border-radius: 2px;
   }
 
   /* Compact key pill; colour = phylum, tap to toggle. Matches the anthromes

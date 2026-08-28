@@ -43,8 +43,7 @@
       position: fixed;
       inset: 0;
       overflow: hidden;
-      /* pageStage.js swaps this for blue when we're off-target. */
-      background: var(--letterbox-bg, var(--bg));
+      background: var(--bg);
     }
 
     .stage {
@@ -72,12 +71,11 @@
       place-items: center;
     }
 
-    /* Both arrangements were sized with min(Nvmin, Npx). On the 3000x2000
-       target each already resolved to its px cap, so pinning the cap here
-       changes nothing on the display the piece actually runs on — it just stops
-       the disk chasing the browser window now that the canvas sets the scale. */
-    .splash--narrative { --disk: 900px; }  /* was min(66vmin, 900px) */
-    .splash--classic   { --disk: 860px; }  /* was min(70vmin, 860px) */
+    /* Was sized with min(66vmin, 900px). On the 3000x2000 target that already
+       resolved to its px cap, so pinning the cap here changes nothing on the
+       display the piece actually runs on — it just stops the disk chasing the
+       browser window now that the canvas sets the scale. */
+    .splash--narrative { --disk: 900px; }
 
     /* ---- Shared: disk + coin ---- */
     .disk-area {
@@ -91,11 +89,9 @@
       cursor: pointer;
       z-index: 2;
     }
-    /* Central clickable target: the disk plus the caption ring around it. The
-       narrative screen hangs its titles much further out, so its target is
-       correspondingly wider. */
+    /* Central clickable target: the disk plus the caption ring around it, which
+       the narrative screen hangs well outside the disk itself. */
     .splash--narrative .enter { inset: -50%; }
-    .splash--classic   .enter { inset: -24%; }
 
     .coin-wrap {
       position: absolute;
@@ -207,39 +203,6 @@
     .splash--narrative .dot.on  { opacity: 1; }
     .splash--narrative .dot.off { opacity: 0.18; }
 
-    /* ---- Classic arrangement (options 2+) ---- */
-    /* Fixed vertical side labels — always clickable; opacity tracks rotation.
-       position:absolute, not fixed: the design canvas is the frame now, so they
-       anchor to its edges and scale with everything else. */
-    .splash--classic .sideLink {
-      position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      /* was clamp(30px, 4vw, 52px); 4vw of the 3000px canvas clamps to the max */
-      font-size: 52px;
-      font-weight: 700;
-      letter-spacing: .15em;
-      color: var(--fg);
-      user-select: none;
-      text-decoration: none;
-      z-index: 5;
-      will-change: opacity;
-    }
-    .splash--classic #leftLink  { left: 24px; }
-    .splash--classic #rightLink { right: 24px; }
-
-    .splash--classic .caption-svg text {
-      fill: var(--muted);
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      will-change: opacity;
-    }
-    .splash--classic .caption-svg text.enter-text {
-      fill: var(--fg);
-      font-weight: 700;
-    }
   </style>
 </head>
 <body>
@@ -348,82 +311,25 @@
     </div>
   </template>
 
-  <!-- ===== Options 2+: the screen as it stood before the narrative pass ===== -->
-  <template id="tpl-classic">
-    <div class="splash splash--classic">
-      <a id="leftLink"  class="sideLink" href="src/biomes/">BIOMES</a>
-      <a id="rightLink" class="sideLink" href="src/anthromes/">ANTHROMES</a>
-
-      <div class="disk-area">
-        <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
-          <defs>
-            <path id="arc-left"  d="M 0 -575 A 575 575 0 0 0 0 575" />
-            <path id="arc-right" d="M 0 575 A 575 575 0 0 0 0 -575" />
-          </defs>
-
-          <!-- Biomes face captions -->
-          <text id="cap-biomes-left" font-size="30">
-            <textPath href="#arc-left" startOffset="50%" text-anchor="middle">AN EXTENSIVE HUMAN MICROBIOME</textPath>
-          </text>
-          <text id="cap-biomes-right" class="enter-text" font-size="30">
-            <textPath href="#arc-right" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
-          </text>
-
-          <!-- Anthromes face captions -->
-          <text id="cap-anthromes-left" class="enter-text" font-size="30">
-            <textPath href="#arc-left" startOffset="50%" text-anchor="middle">CLICK TO ENTER</textPath>
-          </text>
-          <text id="cap-anthromes-right" font-size="30">
-            <textPath href="#arc-right" startOffset="50%" text-anchor="middle">MODELING 12,025 YEARS OF LAND USE</textPath>
-          </text>
-        </svg>
-
-        <div class="coin-wrap">
-          <div class="coin" id="coin">
-            <div class="face face--biomes"><img src="splash/biomes.webp" alt="Biomes visualization" /></div>
-            <div class="face face--anthromes"><img src="splash/anthromes.webp" alt="Anthromes visualization" /></div>
-          </div>
-        </div>
-
-        <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization"></div>
-      </div>
-    </div>
-  </template>
-
   <script type="module">
-    // Controller: mounts whichever arrangement the shared UI option selects, and
-    // hands the option list to the dev HUD so it can be cycled here the same way
-    // it is on the two visualizations. Cloning a <template> rather than toggling
-    // `display` keeps exactly one copy of each id in the document, which the
-    // SVG textPath href="#..." references depend on.
+    // Controller: mounts the narrative splash. Cloning the <template> rather
+    // than authoring the markup inline keeps exactly one copy of each id in the
+    // document, which the SVG textPath href="#..." references depend on.
     import { initPageStage } from './src/shared/pageStage.js';
-    import { UI_OPTIONS, uiOption, cycleUiOption } from './src/shared/uiOption.svelte.js';
     import { mountNarrative } from './src/splash/narrative.js';
-    import { mountClassic } from './src/splash/classic.js';
 
     const host = document.getElementById('splash-host');
-    let teardown = null;
 
     function render() {
-      teardown?.();
-      // Option 1 is the narrative pass; every arrangement before it predates the
-      // narrative splash and shares the original screen.
-      const narrative = uiOption() <= 2;
-      const tpl = document.getElementById(narrative ? 'tpl-narrative' : 'tpl-classic');
+      const tpl = document.getElementById('tpl-narrative');
       host.replaceChildren(tpl.content.cloneNode(true));
-      teardown = (narrative ? mountNarrative : mountClassic)(host);
+      mountNarrative(host);
     }
 
-    initPageStage({
-      uiOptions: {
-        labels: UI_OPTIONS,
-        get: uiOption,
-        cycle: () => { cycleUiOption(); render(); }
-      }
-    });
+    initPageStage();
 
-    // Both arrangements measure text to fit it to an arc, so wait for the face
-    // rather than measuring fallback metrics and baking in the wrong size.
+    // The splash measures text to fit it to an arc, so wait for the face rather
+    // than measuring fallback metrics and baking in the wrong size.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
     else render();
   </script>

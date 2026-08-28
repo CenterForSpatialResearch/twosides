@@ -4,7 +4,7 @@
   import * as d3 from 'd3';
   import { elementScale } from '../../shared/stage.svelte.js';
   import MapCanvas from './MapCanvas.svelte';
-  import { DEFAULT_TOPO_PROFILE } from '../../shared/topoProfile.svelte.js';
+  import { MAP_PROFILE } from '../../shared/mapProfile.js';
   import { formatYearLabel } from './dataAdapter.js';
   import {
     SWAP_PHASE_MS,
@@ -22,7 +22,6 @@
     selectedAnthromes = $bindable([]),
     selectedYear = $bindable(null),
     size = 'full',
-    debugMenuVisible = false,
     showBoundaries = false,
     mapReady = $bindable(false),
     mapScale = $bindable(1),
@@ -58,8 +57,8 @@
     compactCellDetail = false,
     // The isolated cell's live position in design px — the leader's start.
     isolatedPoint = $bindable(null),
-    // Map tile resolution (see TOPO_PROFILES); switchable from the settings panel.
-    profile = DEFAULT_TOPO_PROFILE,
+    // Map tile resolution — pinned; see shared/mapProfile.js.
+    profile = MAP_PROFILE,
   } = $props();
 
   const fullSize = 7000;
@@ -96,7 +95,10 @@
   // to avoid a race where the reset effect fires after handleCanvasClick isolates a cell.
   let panHasMoved = false;
 
-  const SCROLL_ZOOM_MIN = 0.5;
+  // 1, not 0.5: below the fitted size the globe becomes a small ball adrift in
+  // a large disk, with only the ◎ button to recover from it. The map can never
+  // be smaller than the circle that frames it.
+  const SCROLL_ZOOM_MIN = 1;
   const SCROLL_ZOOM_MAX = 8;
 
   // Cursor state — grab only inside inner circle
@@ -113,6 +115,24 @@
       dy: (event.clientY - (rect.top + rect.height / 2)) / s,
       s
     };
+  }
+
+  // Keep the globe inside the disk. It is fitted to the disk at mapScale 1, so
+  // its radius is innerRadiusPx * mapScale and the pan may travel at most the
+  // difference between the two — at zoom 1 that is zero, which is correct: a
+  // fitted globe has no slack to give. Clamped radially rather than per-axis so
+  // a diagonal drag stops on the circle, not on a square inscribed around it.
+  //
+  // Prevention, not correction: nothing snaps back, the gesture simply stops.
+  // Only the gesture paths call this. applyFocusFraming()'s programmatic writes
+  // in MapCanvas frame a selected country and are clamped separately there.
+  function clampPan(x, y, scale = mapScale) {
+    const max = innerRadiusPx * Math.max(0, scale - 1);
+    if (max <= 0) return { x: 0, y: 0 };
+    const d = Math.hypot(x, y);
+    if (d <= max) return { x, y };
+    const k = max / d;
+    return { x: x * k, y: y * k };
   }
 
   function handlePanStart(event) {
@@ -142,8 +162,12 @@
       if (focusIso3) focusIso3 = null;
     }
     const s = panStart.s || 1;
-    mapPanX = panStart.px + (event.clientX - panStart.x) / s;
-    mapPanY = panStart.py + (event.clientY - panStart.y) / s;
+    const next = clampPan(
+      panStart.px + (event.clientX - panStart.x) / s,
+      panStart.py + (event.clientY - panStart.y) / s
+    );
+    mapPanX = next.x;
+    mapPanY = next.y;
   }
 
   function handlePanEnd() {
@@ -181,8 +205,15 @@
 
     // Zoom to cursor: adjust pan so the point under the pointer stays fixed.
     // dx/dy is the cursor offset from the container center, in design px.
-    mapPanX = dx + clampedFactor * (mapPanX - dx);
-    mapPanY = dy + clampedFactor * (mapPanY - dy);
+    // Clamped against the NEW scale — zooming out shrinks the slack, so a pan
+    // that was legal at the old scale can be out of bounds at this one.
+    const next = clampPan(
+      dx + clampedFactor * (mapPanX - dx),
+      dy + clampedFactor * (mapPanY - dy),
+      newScale
+    );
+    mapPanX = next.x;
+    mapPanY = next.y;
     mapScale = newScale;
   }
 
@@ -967,7 +998,6 @@
     bind:mapReady
     {clipAngle}
     {showBoundaries}
-    {debugMenuVisible}
     bind:mapPanX
     bind:mapPanY
     bind:mapScale
@@ -992,88 +1022,6 @@
     bind:rangeIso3s
     bind:rangeSource
   />
-
-  {#if debugMenuVisible}
-    <div class="debug-panel">
-      <div class="debug-header">Projection Debug</div>
-
-      <div class="debug-section">
-        <div class="debug-label">Point A (Longitude, Latitude)</div>
-        <div class="debug-inputs">
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[0][0]}
-            oninput={(e) => {
-              const newPoints = [[parseFloat(e.target.value), mapPoints[0][1]], mapPoints[1]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lon"
-          />
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[0][1]}
-            oninput={(e) => {
-              const newPoints = [[mapPoints[0][0], parseFloat(e.target.value)], mapPoints[1]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lat"
-          />
-        </div>
-      </div>
-
-      <div class="debug-section">
-        <div class="debug-label">Point B (Longitude, Latitude)</div>
-        <div class="debug-inputs">
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[1][0]}
-            oninput={(e) => {
-              const newPoints = [mapPoints[0], [parseFloat(e.target.value), mapPoints[1][1]]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lon"
-          />
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[1][1]}
-            oninput={(e) => {
-              const newPoints = [mapPoints[0], [mapPoints[1][0], parseFloat(e.target.value)]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lat"
-          />
-        </div>
-      </div>
-
-      <div class="debug-section">
-        <div class="debug-label">Clip Angle</div>
-        <input
-          type="number"
-          step="1"
-          value={clipAngle}
-          oninput={(e) => clipAngle = parseFloat(e.target.value)}
-          placeholder="Angle"
-          class="full-width"
-        />
-      </div>
-
-      <div class="debug-section">
-        <button
-          class="reset-btn"
-          type="button"
-          onclick={() => {
-            mapPoints = defaultPoints.map(p => [...p]);
-          }}
-        >
-          Reset projection points
-        </button>
-      </div>
-    </div>
-  {/if}
 
   <svg bind:this={svgElement} id="chart"></svg>
 
@@ -1200,81 +1148,5 @@
     pointer-events: none;
   }
 
-  .debug-panel {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    background: rgba(14, 11, 22, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    padding: 16px;
-    min-width: 280px;
-    z-index: 1000;
-    font-family: system-ui, -apple-system, sans-serif;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  }
-
-  .debug-header {
-    font-size: 14px;
-    font-weight: 700;
-    color: #ffffff;
-    margin-bottom: 12px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  .debug-section {
-    margin-bottom: 12px;
-  }
-
-  .debug-label {
-    font-size: 11px;
-    color: #9ca3af;
-    margin-bottom: 6px;
-    font-weight: 500;
-  }
-
-  .debug-inputs {
-    display: flex;
-    gap: 8px;
-  }
-
-  .debug-panel input[type="number"] {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    padding: 6px 8px;
-    color: #ffffff;
-    font-size: 13px;
-    font-family: 'SF Mono', Monaco, monospace;
-    flex: 1;
-    transition: border-color 0.15s ease;
-  }
-
-  .debug-panel input[type="number"]:focus {
-    outline: none;
-    border-color: var(--accent, #00d4ff);
-  }
-
-  .debug-panel input[type="number"].full-width {
-    width: 100%;
-  }
-
-  .debug-panel input[type="number"]::-webkit-inner-spin-button,
-  .debug-panel input[type="number"]::-webkit-outer-spin-button {
-    opacity: 1;
-  }
-
-  .reset-btn {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #ffffff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
 
 </style>

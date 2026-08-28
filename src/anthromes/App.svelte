@@ -1,25 +1,17 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import WaffleChart from './lib/WaffleChart.svelte';
-  import CellHistoryBar from './lib/CellHistoryBar.svelte';
-  import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
   import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
   import { loadGrid, distributionForCountry } from './lib/gridSource.js';
-  import { topoProfile, setTopoProfile, TOPO_PROFILES, hasProfileInfo, profileSizes } from '../shared/topoProfile.svelte.js';
+  import { MAP_PROFILE } from '../shared/mapProfile.js';
   import { feature as topoFeature } from 'topojson-client';
-  import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
   import ArcLabel from '../shared/ArcLabel.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
-  // Option numbers live in shared/uiOption.svelte.js. Comments below that say
-  // "Option 1" mean the refined arrangement, which is now options 1-3 (the
-  // narrative pass, the 8/21 pass and 8/14) — hence refinedLayout() for
-  // anything all three share, and refined0821() for what 8/21 introduced and
-  // the narrative pass inherits. This side has no copy of its own in the
-  // narrative pass, so it never needs narrative0821().
-  import { refinedLayout, refined0821 } from '../shared/uiOption.svelte.js';
+  import { initIdleReset } from '../shared/idleReset.js';
+  import IdleOverlay from '../shared/IdleOverlay.svelte';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -27,6 +19,18 @@
     if (!stageEl) return;
     return initStage(stageEl);
   });
+
+  // Attract-loop guard: 30s with no input returns the visitor to the splash.
+  // A real page load, not a state reset — which is also what clears ?country=
+  // from the URL so the next visitor arrives on a clean map.
+  let idleWarning = $state(false);
+  $effect(() =>
+    initIdleReset({
+      homeHref: import.meta.env.BASE_URL,
+      onWarn: () => (idleWarning = true),
+      onCancel: () => (idleWarning = false)
+    })
+  );
 
   const LEGEND_CATEGORIES = [
     { name: 'Dense Settlements', codes: [11, 12] },
@@ -51,10 +55,6 @@
   // UI State
   let selectedAnthromes = $state([]);
   let selectedYear = $state(null);
-  let viewSize = $state('full'); // 'full' or 'preview'
-  let settingsOpen = $state(false);
-  let debugMenuVisible = $state(false);
-  let showBoundaries = $state(true);
   let mapReady = $state(false);
   let initialLoad = $state(true);
   let zoomLevel = $state(1);
@@ -148,15 +148,13 @@
     }
   });
 
-  // Follow the resolution picker. The guard matters because a slow 50km fetch
-  // can resolve after the user has already switched back — without it the map
-  // would be drawing one profile while the ring plotted another.
+  // The grid the ring plots from. One fetch, one resolution — the profile is
+  // pinned (see shared/mapProfile.js), so there is no switch to race against.
   $effect(() => {
-    const wanted = topoProfile();
     let live = true;
-    loadGrid(wanted)
+    loadGrid(MAP_PROFILE)
       .then((g) => {
-        if (live && g.manifest.profile === wanted) grid = g;
+        if (live && g.manifest.profile === MAP_PROFILE) grid = g;
       })
       .catch(() => {});
     return () => {
@@ -177,11 +175,11 @@
     grid && selectedCountryIso3 ? distributionForCountry(grid, selectedCountryIso3) : null
   );
 
-  // Option 1 moves the per-year anthrome breakdown out of the details panel and
-  // onto the ring itself: with a country picked, the waffle plots that
-  // country's distribution instead of the world's. Null = plot the world.
+  // The per-year anthrome breakdown lives on the ring rather than in the
+  // details panel: with a country picked, the waffle plots that country's
+  // distribution instead of the world's. Null = plot the world.
   const countryRingDistribution = $derived(
-    refinedLayout() && countryDistribution ? countryDistribution.distribution : null
+    countryDistribution ? countryDistribution.distribution : null
   );
 
   // The world in the same { year: { code: fraction } } shape the country
@@ -370,8 +368,6 @@
   let historyChartEl = $state(null);
   let historyChartSize = $state(282); // legacy: kept while old radial imports linger
   let historyChartW = $state(340);
-  const CELL_BAR_H = 92;
-  const COUNTRY_BAR_H = 160;
 
   // The Option 1 pixel timeline sizes to its own box in BOTH axes (the bar
   // charts take a fixed height), so it gets its own measured element.
@@ -476,7 +472,6 @@
     dragging = true;
     dragMoved = false;
     anchorIdx = parseInt(pill.dataset.idx, 10);
-    if (!refined0821()) selectRange(anchorIdx, anchorIdx);
     window.addEventListener('pointermove', keyPointerMove);
     window.addEventListener('pointerup', keyPointerUp, { once: true });
   }
@@ -485,12 +480,10 @@
     if (!dragging || anchorIdx == null) return;
     const idx = pillIdxFromPoint(e);
     if (idx == null) return;
-    if (refined0821()) {
-      // Staying on the anchor pill is not yet a drag; leaving it is, and from
-      // then on every move sweeps the range even if it comes back.
-      if (idx === anchorIdx && !dragMoved) return;
-      dragMoved = true;
-    }
+    // Staying on the anchor pill is not yet a drag; leaving it is, and from
+    // then on every move sweeps the range even if it comes back.
+    if (idx === anchorIdx && !dragMoved) return;
+    dragMoved = true;
     selectRange(anchorIdx, idx);
   }
 
@@ -501,7 +494,6 @@
     dragMoved = false;
     anchorIdx = null;
     window.removeEventListener('pointermove', keyPointerMove);
-    if (!refined0821()) return;
     // Touching the filter at all cancels an open cell. A cell is a reading of
     // one place and a filter is a reading of the whole map, so the two cannot
     // both be the active lens — and the cell's own leader would otherwise be
@@ -536,7 +528,7 @@
     return () => ro.disconnect();
   });
 
-  // 8/21: isolating a cell is a fresh reading, so it restores every anthrome —
+  // Isolating a cell is a fresh reading, so it restores every anthrome —
   // you can never end up inspecting a cell through a filter that hides it, and
   // the reverse move (clicking a filter) closes the cell in keyPointerUp. Keyed
   // on the cell id rather than on cellSeries identity because MapCanvas rebuilds
@@ -548,7 +540,7 @@
     untrack(() => {
       if (id === lastCellId) return;
       lastCellId = id;
-      if (id != null && refined0821()) handleSelectAll();
+      if (id != null) handleSelectAll();
     });
   });
 
@@ -588,9 +580,9 @@
       }
       const rect = panel.getBoundingClientRect();
       // getBoundingClientRect is in screen px but the overlay draws in design px.
-      const rule = refined0821() ? anthromeRuleEl : null;
+      const rule = anthromeRuleEl;
       if (rule) {
-        // 8/21: land on the RIGHT end of the rule under the anthrome's name —
+        // Land on the RIGHT end of the rule under the anthrome's name —
         // the end facing the map — so the leader reads as one stroke that
         // becomes the underline of the word it is calling out.
         const rr = rule.getBoundingClientRect();
@@ -712,12 +704,11 @@
     // Reset also drops the multi-country range overlay so the map returns to
     // a completely clean baseline.
     if (rangeIso3s?.size || rangeSource) clearRange();
-    // ...and the country picker with it. Under Option 1 a country selection is
-    // no longer a side note in the details panel: it holds the highlight, the
-    // framing AND the ring's distribution, so leaving it behind would not be a
-    // reset. Clearing it here is what makes the ring animate back to the world.
-    // The older arrangements kept the picker (reset = "view reset" only).
-    if (refinedLayout()) selectedCountryIso3 = null;
+    // ...and the country picker with it. A country selection is not a side
+    // note in the details panel: it holds the highlight, the framing AND the
+    // ring's distribution, so leaving it behind would not be a reset. Clearing
+    // it here is what makes the ring animate back to the world.
+    selectedCountryIso3 = null;
   }
 
   // "All" restores the filter to every anthrome (the default, everything shown)
@@ -795,38 +786,10 @@
     }
   }
 
-  // Handle keyboard shortcuts
-  function handleKeydown(e) {
-    if (e.key === 'M' || e.key === 'm') {
-      settingsOpen = !settingsOpen;
-    }
-    if (e.key === 'Escape') {
-      settingsOpen = false;
-    }
-  }
-
-  // Handle export
-  function handleExport() {
-    const svg = document.getElementById('chart');
-    if (!svg) return;
-
-    const serializer = new XMLSerializer();
-    const source = serializer.serializeToString(svg);
-    const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `anthromes_chart_${viewSize}.svg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-
   // Handle window click to close overlays
   function handleWindowClick(e) {
     const target = e.target;
-    if (target.closest('.filter-rail') || target.closest('.settings-panel') || target.closest('.settings-toggle')) return;
+    if (target.closest('.filter-rail')) return;
     openPanel = null;
     // Close info panel and clear isolation when clicking outside chart/filter-rail.
     // Tooltip, history chart, and cell isolation always close together.
@@ -863,7 +826,7 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} onclick={handleWindowClick} />
+<svelte:window onclick={handleWindowClick} />
 
 <!-- .viewport fills the window and shows the letterbox; .stage is the fixed
      3000x2000 canvas that everything below is authored against. -->
@@ -895,72 +858,27 @@
       homeHref={import.meta.env.BASE_URL}
     />
 
-    <!-- Settings Panel -->
-    <div class="settings-panel" class:open={settingsOpen}>
-      <label>
-        <span>View Mode</span>
-        <select bind:value={viewSize}>
-          <option value="preview">Preview (1200px)</option>
-          <option value="full">Full (7000px)</option>
-        </select>
-      </label>
-
-      <label>
-        <span>Map Resolution</span>
-        <select value={topoProfile()} onchange={(e) => setTopoProfile(e.currentTarget.value)}>
-          {#each TOPO_PROFILES as p}
-            <option value={p}>{p}</option>
-          {/each}
-        </select>
-      </label>
-      {#if hasProfileInfo(topoProfile())}
-        <div class="tip">
-          {profileSizes(topoProfile())}. The whole series is fetched once, so
-          expect a brief pause on first load and no network at all when changing
-          years.
-        </div>
-      {/if}
-
-      <label class="checkbox-label">
-        <input type="checkbox" bind:checked={debugMenuVisible} />
-        <span>Show Projection Debug Menu</span>
-      </label>
-
-      <label class="checkbox-label">
-        <input type="checkbox" bind:checked={showBoundaries} />
-        <span>Show Country Boundaries</span>
-      </label>
-
-      <button class="export-btn" onclick={handleExport}>
-        Export SVG
-      </button>
-
-      <div class="tip">
-        Press M to toggle settings, Esc to reset
-      </div>
-    </div>
-
     <div class="layout">
       <div class="filter-rail">
-        <!-- Top tier: large control circles. Option 1 spreads them across the
-             full rail width and hangs an arced caption off the LEFT of each
-             bubble (mirroring the biomes rail, which captions to the right). -->
-        <div class="control-circles" class:control-circles--arced={refinedLayout()}>
+        <!-- Top tier: large control circles, spread across the full rail width
+             with an arced caption hung off the LEFT of each bubble (mirroring
+             the biomes rail, which captions to the right). -->
+        <div class="control-circles">
           <div class="ctl-slot">
             <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-            {#if refinedLayout()}<ArcLabel text="Info" side="left" />{/if}
+            <ArcLabel text="Info" side="left" />
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel === ZOOM_LEVELS[0]} aria-disabled={zoomLevel === ZOOM_LEVELS[0]}>−</button>
-            {#if refinedLayout()}<ArcLabel text="Zoom Out" side="left" />{/if}
+            <ArcLabel text="Zoom Out" side="left" />
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetView}>◎</button>
-            {#if refinedLayout()}<ArcLabel text="Reset" side="left" />{/if}
+            <ArcLabel text="Reset" side="left" />
           </div>
           <div class="ctl-slot">
             <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
-            {#if refinedLayout()}<ArcLabel text="Zoom In" side="left" />{/if}
+            <ArcLabel text="Zoom In" side="left" />
           </div>
         </div>
 
@@ -1021,153 +939,81 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-          {#if refined0821()}
-            <h3 class="menu-title">{detailHeading}</h3>
-            <p class="menu-desc">{detailBlurb}</p>
-          {:else}
-            <h3 class="menu-title">Details</h3>
-            <p class="menu-desc">
-              {#if detailContent}
-                This cell's transitions through 12 025 years{selectedCountryMeta ? ` within ${withArticle(selectedCountryMeta.label)}` : ''}.
-              {:else if selectedCountryMeta}
-                Anthrome composition of {withArticle(selectedCountryMeta.label)} across 12 025 years.
-              {:else if refinedLayout()}
-                Anthrome composition of the whole world across 12 025 years.
-                Pick a country or a cell to narrow it.
-              {:else}
-                Select a country above, or click a cell on the map.
-              {/if}
-            </p>
-          {/if}
+          <h3 class="menu-title">{detailHeading}</h3>
+          <p class="menu-desc">{detailBlurb}</p>
           <div class="detail-body">
-            {#if refinedLayout()}
-              <!-- Option 1: the panel is never empty. World, country and cell
-                   are three scales of one chart, so they share a single slot —
-                   which is also what lets the swap between them animate: the
-                   component instance survives, sees its sourceKey change, and
-                   drains/refills in place. The header above and the cell's
-                   tooltip text below update immediately; only the field
-                   animates, exactly as the ring does. -->
-              <!-- The scope pill sits in the same place at all three scales:
-                   Earth for the world, the picked country, or an isolated
-                   cell's present-day country. Same shape, same position, so
-                   moving between scales reads as one continuous panel. -->
-              {#if scopePill}
-                <div class="detail-subhead">
-                  <span class="country-badge">{scopePill.label}</span>
-                  <span class="country-meta">
-                    {#if scopePill.note}{scopePill.note}
-                    {:else}{scopePill.samples.toLocaleString()} samples · {scopePill.species.toLocaleString()} species{/if}
-                  </span>
-                </div>
-              {/if}
-
-              {#if detailScale === 'cell'}
-                <!-- Anthrome identity, then the "In <year>, X covers …"
-                     sentence that comes with it. The country key/values and the
-                     biomes cross-link that used to live in this HTML are gone —
-                     the pill above states the same facts. -->
-                {#if detailMeta?.label}
-                  <div class="detail-subhead" bind:this={detailAnchorEl}>
-                    {#if detailMeta?.color}
-                      <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
-                    {/if}
-                    {#if refined0821()}
-                      <!-- 8/21: the leader calls the anthrome out BY NAME, so
-                           the name carries its own rule and the line lands on
-                           that rule's right end. Stacking the rule under the
-                           text in a column makes it exactly as wide as the
-                           word, however long the word turns out to be. -->
-                      <span class="detail-name">
-                        <span>{detailMeta.label}</span>
-                        <span class="detail-name-rule" bind:this={anthromeRuleEl}></span>
-                      </span>
-                    {:else}
-                      <span>{detailMeta.label}</span>
-                    {/if}
-                  </div>
-                {/if}
-                {#if detailContent}
-                  <div class="panel-content" onclick={handleDetailPanelClick}>
-                    {@html detailContent}
-                  </div>
-                {/if}
-              {/if}
-
-              <div class="history-chart-section history-chart-section--fill" bind:this={historyChartEl}>
-                <div class="history-chart-title">{detailTitle}</div>
-                <div class="pixel-chart-box" bind:this={pixelChartEl}>
-                  <PixelTimeline
-                    mode={detailScale === 'cell' ? 'ladder' : 'stack'}
-                    distribution={detailScale === 'country'
-                      ? countryDistribution?.distribution ?? worldDistribution
-                      : worldDistribution}
-                    series={cellSeries?.byYear ?? null}
-                    sourceKey={detailSourceKey}
-                    {colorMapping}
-                    {labelMapping}
-                    {orderedCodes}
-                    families={LEGEND_CATEGORIES}
-                    {selectedYear}
-                    onSelectYear={(y) => (selectedYear = y)}
-                    selectedCodes={refined0821() ? selectedAnthromes : null}
-                    scrubbable={refined0821()}
-                    width={pixelChartW}
-                    height={pixelChartH}
-                  />
-                </div>
+            <!-- Option 1: the panel is never empty. World, country and cell
+                 are three scales of one chart, so they share a single slot —
+                 which is also what lets the swap between them animate: the
+                 component instance survives, sees its sourceKey change, and
+                 drains/refills in place. The header above and the cell's
+                 tooltip text below update immediately; only the field
+                 animates, exactly as the ring does. -->
+            <!-- The scope pill sits in the same place at all three scales:
+                 Earth for the world, the picked country, or an isolated
+                 cell's present-day country. Same shape, same position, so
+                 moving between scales reads as one continuous panel. -->
+            {#if scopePill}
+              <div class="detail-subhead">
+                <span class="country-badge">{scopePill.label}</span>
+                <span class="country-meta">
+                  {#if scopePill.note}{scopePill.note}
+                  {:else}{scopePill.samples.toLocaleString()} samples · {scopePill.species.toLocaleString()} species{/if}
+                </span>
               </div>
-            {:else if detailContent}
-              <!-- Cell selection takes precedence: fine-grained detail wins.
-                   When a country is also active, its label surfaces here as
-                   context, and returning to the country overview happens by
-                   panning the map (which clears the cell isolation) or
-                   picking the same anthrome tile again. -->
+            {/if}
+
+            {#if detailScale === 'cell'}
+              <!-- Anthrome identity, then the "In <year>, X covers …"
+                   sentence that comes with it. The country key/values and the
+                   biomes cross-link that used to live in this HTML are gone —
+                   the pill above states the same facts. -->
               {#if detailMeta?.label}
-                <div class="detail-subhead">
+                <div class="detail-subhead" bind:this={detailAnchorEl}>
                   {#if detailMeta?.color}
                     <span class="overlay-swatch" style={`background: ${detailMeta.color}`}></span>
                   {/if}
-                  <span>{detailMeta.label}</span>
-                  {#if selectedCountryMeta}
-                    <span class="detail-within">within {withArticle(selectedCountryMeta.label)}</span>
-                  {/if}
+                  <!-- The leader calls the anthrome out BY NAME, so the name
+                       carries its own rule and the line lands on that rule's
+                       right end. Stacking the rule under the text in a column
+                       makes it exactly as wide as the word, however long the
+                       word turns out to be. -->
+                  <span class="detail-name">
+                    <span>{detailMeta.label}</span>
+                    <span class="detail-name-rule" bind:this={anthromeRuleEl}></span>
+                  </span>
                 </div>
               {/if}
-              <div class="panel-content" onclick={handleDetailPanelClick}>
-                {@html detailContent}
-              </div>
-              {#if barChartData?.length}
-                <div class="history-chart-section" bind:this={historyChartEl}>
-                  <div class="history-chart-title">Cell history</div>
-                  <CellHistoryBar
-                    periods={barChartData}
-                    {selectedYear}
-                    width={historyChartW}
-                    height={CELL_BAR_H}
-                  />
+              {#if detailContent}
+                <div class="panel-content" onclick={handleDetailPanelClick}>
+                  {@html detailContent}
                 </div>
               {/if}
-            {:else if selectedCountryMeta && countryDistribution}
-              <div class="detail-subhead">
-                <span class="country-badge">{selectedCountryMeta.label}</span>
-                <span class="country-meta">{selectedCountryMeta.samples_total.toLocaleString()} samples · {selectedCountryMeta.sgbs.length.toLocaleString()} species</span>
-              </div>
-              <div class="history-chart-section" bind:this={historyChartEl}>
-                <div class="history-chart-title">Anthrome timeline</div>
-                <CountryTimeseriesBar
-                  data={countryDistribution}
+            {/if}
+
+            <div class="history-chart-section history-chart-section--fill" bind:this={historyChartEl}>
+              <div class="history-chart-title">{detailTitle}</div>
+              <div class="pixel-chart-box" bind:this={pixelChartEl}>
+                <PixelTimeline
+                  mode={detailScale === 'cell' ? 'ladder' : 'stack'}
+                  distribution={detailScale === 'country'
+                    ? countryDistribution?.distribution ?? worldDistribution
+                    : worldDistribution}
+                  series={cellSeries?.byYear ?? null}
+                  sourceKey={detailSourceKey}
                   {colorMapping}
                   {labelMapping}
                   {orderedCodes}
+                  families={LEGEND_CATEGORIES}
                   {selectedYear}
-                  width={historyChartW}
-                  height={COUNTRY_BAR_H}
+                  onSelectYear={(y) => (selectedYear = y)}
+                  selectedCodes={selectedAnthromes}
+                  scrubbable
+                  width={pixelChartW}
+                  height={pixelChartH}
                 />
               </div>
-            {:else}
-              <p class="detail-hint">Select an area on the map</p>
-            {/if}
+            </div>
           </div>
         </section>
 
@@ -1219,9 +1065,8 @@
           bind:selectedAnthromes
           bind:selectedYear
           bind:mapReady
-          size={viewSize}
-          {debugMenuVisible}
-          {showBoundaries}
+          size="full"
+          showBoundaries
           bind:mapScale={zoomLevel}
           mapRotation={rotation}
           bind:mapPanX
@@ -1236,9 +1081,9 @@
           bind:rangeIso3s
           bind:rangeSource
           countryDistribution={countryRingDistribution}
-          strictCountryFocus={refinedLayout()}
-          compactCellDetail={refinedLayout()}
-          profile={topoProfile()}
+          strictCountryFocus
+          compactCellDetail
+          profile={MAP_PROFILE}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
         />
@@ -1331,9 +1176,10 @@
     </svg>
   {/if}
 {/if}
+<!-- Inside .stage so it scales with the canvas, and last so it paints over the
+     rail and the chart. Any input cancels it; see initIdleReset. -->
+<IdleOverlay show={idleWarning} />
 </div>
-<!-- Outside .stage so it renders at true screen px, unscaled -->
-<DevHud showMapResolution />
 </div>
 
 <style>
@@ -1366,32 +1212,6 @@
     position: relative;
     overflow: hidden;
   }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    margin-top: 10px;
-  }
-
-  .checkbox-label input[type="checkbox"] {
-    cursor: pointer;
-  }
-
-  .export-btn {
-    width: 100%;
-    margin-top: 13px;
-    padding: 10px;
-    background: var(--accent);
-    color: var(--bg);
-    border: none;
-    border-radius: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.2s ease;
-  }
-
 
   /* New rail + overlay styles */
   .layout {
@@ -1430,19 +1250,14 @@
     flex: 0 0 auto;
   }
 
-  /* ===== MoMA: top control circles (largest tier) ===== */
+  /* ===== MoMA: top control circles (largest tier) =====
+     The row spans the rail's full content width, evenly distributed, so the
+     controls read as one measure with the menu items below them. */
   .control-circles {
     display: flex;
-    flex-wrap: wrap;
-    gap: 28px;
-    align-items: center;
-  }
-
-  /* Option 1: the row spans the rail's full content width, evenly distributed,
-     so the controls read as one measure with the menu items below them. */
-  .control-circles--arced {
     flex-wrap: nowrap;
     gap: 0;
+    align-items: center;
     justify-content: space-between;
   }
 
@@ -1773,15 +1588,6 @@
     margin-left: 8px;
   }
 
-  .detail-within {
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-left: 6px;
-  }
-
   /* Menu item title/description — shared look with the other rail sections */
   .menu-title {
     margin: 0;
@@ -1835,21 +1641,6 @@
 
   .detail-subhead:has(.detail-name) .overlay-swatch {
     margin-top: 3px;
-  }
-
-  .detail-hint {
-    margin: 0;
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    font-size: 16.6px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--fg);
-    opacity: 0.85;
   }
 
   .detail-body {
