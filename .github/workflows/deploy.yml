@@ -3,6 +3,7 @@ name: Deploy site (combined)
 # Builds every published branch into ONE GitHub Pages artifact:
 #   main -> dist/      -> twosides.earth
 #   dev  -> dist/dev/  -> twosides.earth/dev
+#   moma -> dist/moma/ -> twosides.earth/moma   (the exhibition build)
 #
 # This file is the single source of truth and lives only on `main`.
 # `repository_dispatch` and `workflow_dispatch` always run the workflow file
@@ -92,6 +93,25 @@ jobs:
           mkdir -p dist/feat-cohorts                         
           cp -R src-feat-cohorts/dist/. dist/feat-cohorts/
 
+
+      # ---- moma -> dist/moma/ ----
+      - name: Checkout moma
+        uses: actions/checkout@v4
+        with:
+          ref: moma
+          lfs: true
+          path: src-moma
+
+      - name: Build moma (/moma/ base)
+        working-directory: src-moma
+        run: |
+          npm ci
+          BASE_PATH=/moma/ npm run build
+
+      - name: Stage moma at dist/moma/
+        run: |
+          mkdir -p dist/moma
+          cp -R src-moma/dist/. dist/moma/
 
       # ---- custom domain + upload ----
       # Required: the CNAME is held in Pages settings today, and a combined
