@@ -9,6 +9,7 @@
   } from './gridSource.js';
   import { USE_PIXEL_BOUNDARIES } from './constants.js';
   import { DEFAULT_TOPO_PROFILE, TOPO_PROFILES } from '../../shared/topoProfile.svelte.js';
+  import { countrySet, boundaryUrl } from '../../shared/countrySet.svelte.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
   import { refinedLayout, refined0821, countryFromMap } from '../../shared/uiOption.svelte.js';
@@ -557,7 +558,9 @@
       mapReady = false;
       return;
     }
-    const key = `${profile}:${targetYear}`;
+    // The set is in the key because each cell feature carries properties.c —
+    // the country it belongs to — and that is what the set decides.
+    const key = `${profile}:${countrySet()}:${targetYear}`;
     if (cache.has(key)) {
       const cached = cache.get(key);
       currentGeo = cached.geo;
@@ -634,15 +637,20 @@
     }
   }
 
-  async function loadBoundaries() {
-    if (boundariesMesh || boundariesLoading) return;
+  // The set the loaded mesh came from, so a set change can invalidate it. Read
+  // untracked inside the effect below — the effect tracks countrySet() itself.
+  let boundariesSet = null;
+
+  async function loadBoundaries(set = countrySet()) {
+    if (boundariesLoading) return;
+    if (boundariesMesh && boundariesSet === set) return;
     boundariesLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
       // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
       const url = USE_PIXEL_BOUNDARIES
         ? `${base}topojson/admin-boundaries/${profile}/countries.topojson`
-        : `${base}topojson/admin-boundaries/countries-110m.topojson`;
+        : boundaryUrl(base, set);
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
       if (!res.ok) {
@@ -655,6 +663,7 @@
       }
       boundariesMesh = topojson.mesh(topo, topo.objects[objKey]);
       boundariesGeo = topojson.feature(topo, topo.objects[objKey]);
+      boundariesSet = set;
 
       // Backfill display names from the boundary features. iso3_names.json is
       // hand-maintained and inherits the same ISO_A3 gap the boundaries had, so
@@ -680,15 +689,18 @@
   // legacy per-profile cell-history JSON. Derived from the store rather than
   // restated, so adding a profile can't leave this behind.
   const GRID_PROFILES = new Set(TOPO_PROFILES);
+  // Keyed by profile AND set: a set that fails to load must not blacklist the
+  // profile, or switching back to 110m would find the whole profile marked dead.
   const gridMissing = new Set();
-  async function tryLoadGrid(p) {
-    if (gridMissing.has(p)) return null;
+  async function tryLoadGrid(p, set = countrySet()) {
+    const key = `${p}:${set}`;
+    if (gridMissing.has(key)) return null;
     try {
-      const grid = await loadGrid(p);
+      const grid = await loadGrid(p, set);
       gridData = grid;
       return grid;
     } catch (err) {
-      gridMissing.add(p);
+      gridMissing.add(key);
       if (gridData?.manifest?.profile === p) gridData = null;
       return null;
     }
@@ -1783,12 +1795,14 @@
     };
   });
 
-  // Reload data when year or profile changes. `profile` is read here (not just
-  // inside loadYearData) so switching resolution actually refetches — the
-  // effect has to depend on it, and the tile cache is keyed by profile:year.
+  // Reload data when year, profile or country set changes. `profile` is read
+  // here (not just inside loadYearData) so switching resolution actually
+  // refetches — the effect has to depend on it, and the tile cache is keyed by
+  // profile:set:year.
   $effect(() => {
     if (!year) return;
     profile;
+    countrySet();
 
     untrack(() => {
       (async () => {
@@ -2004,10 +2018,14 @@
     }
   });
 
-  // Load boundaries when toggled on
+  // Load boundaries when toggled on, and reload them when the country set
+  // changes — the overlay geometry and the grid's country codes come from the
+  // same shapefile and have to be swapped together, or a cell's code resolves
+  // against the wrong set's ids and every dependency stops highlighting.
   $effect(() => {
-    if (showBoundaries && !boundariesMesh && !boundariesLoading) {
-      loadBoundaries();
+    const set = countrySet();
+    if (showBoundaries && !boundariesLoading && boundariesSet !== set) {
+      loadBoundaries(set);
     }
   });
 

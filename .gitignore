@@ -26,3 +26,9 @@ archive/
 utilities/
 
 temp/
+# Country sets beyond the two the app offers (110m and 50m, both committed).
+# processing/2c_generate_country_sets.py and 5_smooth_boundaries.py can still
+# build the 10m sets for comparison — see processing/README.md — but they need
+# a uint16 country blob and a 1MB overlay, so they stay out of the repo.
+public/grid/**/countries-10m*.bin
+public/topojson/admin-boundaries/countries-10m*.topojson

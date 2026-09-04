@@ -5,8 +5,9 @@
   import CountryTimeseriesBar from './lib/CountryTimeseriesBar.svelte';
   import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
-  import { loadGrid, distributionForCountry } from './lib/gridSource.js';
+  import { loadGrid, distributionForCountry, countryTableOf } from './lib/gridSource.js';
   import { topoProfile, setTopoProfile, TOPO_PROFILES, hasProfileInfo, profileSizes } from '../shared/topoProfile.svelte.js';
+  import { countrySet, boundaryUrl } from '../shared/countrySet.svelte.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
@@ -143,20 +144,22 @@
   // with no land cells at this resolution. Runs once the grid arrives.
   $effect(() => {
     if (!grid || !selectedCountryIso3) return;
-    if (!grid.manifest.countryTable.includes(selectedCountryIso3)) {
+    if (!countryTableOf(grid).includes(selectedCountryIso3)) {
       selectedCountryIso3 = null;
     }
   });
 
-  // Follow the resolution picker. The guard matters because a slow 50km fetch
-  // can resolve after the user has already switched back — without it the map
-  // would be drawing one profile while the ring plotted another.
+  // Follow the resolution and country-set pickers. The guard matters because a
+  // slow 50km fetch can resolve after the user has already switched back —
+  // without it the map would be drawing one profile while the ring plotted
+  // another. The set is checked the same way and for the same reason.
   $effect(() => {
     const wanted = topoProfile();
+    const wantedSet = countrySet();
     let live = true;
-    loadGrid(wanted)
+    loadGrid(wanted, wantedSet)
       .then((g) => {
-        if (live && g.manifest.profile === wanted) grid = g;
+        if (live && g.manifest.profile === wanted && g.countrySet.key === wantedSet) grid = g;
       })
       .catch(() => {});
     return () => {
@@ -636,34 +639,19 @@
         selectedYear = years[years.length - 1];
       }
 
-      // Country-picker data (parity with biomes side)
+      // Country-picker data (parity with biomes side). The boundaries are
+      // fetched by the effect below instead, since they have to be refetched
+      // when the country set changes.
       try {
         const base = import.meta.env.BASE_URL;
-        const [pcRes, boundariesRes, ciRes] = await Promise.all([
+        const [pcRes, ciRes] = await Promise.all([
           fetch(`${base}data/primary_countries.json`),
-          fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`),
           // Also fetched by MapCanvas; the browser serves the second hit from
           // cache, so this costs nothing beyond the parse.
           fetch(`${base}data/country_index.json`)
         ]);
         if (pcRes.ok) primaryCountries = await pcRes.json();
         if (ciRes.ok) countryIndex = await ciRes.json();
-        if (boundariesRes.ok) {
-          const topo = await boundariesRes.json();
-          const objName = Object.keys(topo.objects)[0];
-          const fc = topoFeature(topo, topo.objects[objName]);
-          // Every country, not just the eight in the picker: the highlight
-          // ring, the focus framing and countryLabel() all read from this map,
-          // and any country is selectable now. topoFeature() above already
-          // materialised all of them, so the old filter only discarded
-          // references it had already paid for.
-          const byIso = new Map();
-          for (const f of fc.features) {
-            const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
-            if (id) byIso.set(id, f);
-          }
-          countryFeatureByIso = byIso;
-        }
       } catch (e) {
         console.warn('Failed to load country picker data', e);
       }
@@ -674,6 +662,41 @@
       error = err.message;
       loading = false;
     }
+  });
+
+  // Boundary features by country id, refetched whenever the country set
+  // changes. The highlight ring, the focus framing and countryLabel() all read
+  // from this map, so it has to describe the same set the grid is attributing
+  // cells with — mixing them leaves every dependency unresolvable.
+  // MapCanvas fetches the same URL, and the browser serves the second hit from
+  // cache, so this costs a parse rather than a download.
+  $effect(() => {
+    const set = countrySet();
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch(boundaryUrl(import.meta.env.BASE_URL, set));
+        if (!res.ok || !live) return;
+        const topo = await res.json();
+        if (!live) return;
+        const objName = Object.keys(topo.objects)[0];
+        const fc = topoFeature(topo, topo.objects[objName]);
+        // Every country, not just the eight in the picker: any country is
+        // selectable now, and topoFeature() above already materialised all of
+        // them, so the old filter only discarded references it had paid for.
+        const byIso = new Map();
+        for (const f of fc.features) {
+          const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
+          if (id) byIso.set(id, f);
+        }
+        if (live) countryFeatureByIso = byIso;
+      } catch (e) {
+        console.warn('Failed to load country boundaries', e);
+      }
+    })();
+    return () => {
+      live = false;
+    };
   });
 
   // Track when initial map load completes

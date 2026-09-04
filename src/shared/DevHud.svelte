@@ -7,6 +7,9 @@
   import { DESIGN_W, DESIGN_H, stageScale, getStageEl, screenToDesign } from './stage.svelte.js';
   import { uiOption, cycleUiOption, uiOptionLabel, UI_OPTION_COUNT } from './uiOption.svelte.js';
   import { topoProfile, cycleTopoProfile, DEFAULT_TOPO_PROFILE, hasProfileInfo, profileSizes } from './topoProfile.svelte.js';
+  import {
+    countrySet, cycleCountrySet, countrySetLabel, DEFAULT_COUNTRY_SET, COUNTRY_SET_INFO
+  } from './countrySet.svelte.js';
 
   // Only the anthromes side has a map, so only it opts into the resolution
   // toggle. Biomes leaves it off.
@@ -158,6 +161,14 @@
           onclick={cycleTopoProfile}
         >
           MAP RES: {topoProfile()}
+        </button>
+        <button
+          class="hud-btn"
+          class:on={countrySet() !== DEFAULT_COUNTRY_SET}
+          title={countrySetLabel(countrySet())}
+          onclick={cycleCountrySet}
+        >
+          BOUNDARIES: {countrySet()} &middot; {COUNTRY_SET_INFO[countrySet()]?.table ?? '?'}&nbsp;u{COUNTRY_SET_INFO[countrySet()]?.bits ?? '?'}
         </button>
       {/if}
     </div>

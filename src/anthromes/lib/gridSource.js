@@ -18,15 +18,22 @@
 // downstream (d3.geoPath, d3.geoContains, WaffleChart, the country timeseries)
 // is unchanged.
 
-const cache = new Map();      // profile -> Promise<grid>
-const featureCache = new Map(); // `${profile}:${year}` -> FeatureCollection
+const cache = new Map();      // `${profile}:${set}` -> Promise<grid>
+const featureCache = new Map(); // `${profile}:${set}:${year}` -> FeatureCollection
 
 /**
  * Fetch and decode a profile's grid blobs. Cached; concurrent callers share the
  * same in-flight promise.
+ *
+ * `set` selects which admin boundary set attributes the cells — see
+ * shared/countrySet.svelte.js. The mask and the codes are the same blobs for
+ * every set (a cell's anthrome does not depend on who claims it), so switching
+ * sets refetches only the country bytes, and the browser has usually cached the
+ * other two from the profile's first load.
  */
-export function loadGrid(profile) {
-  if (cache.has(profile)) return cache.get(profile);
+export function loadGrid(profile, set = DEFAULT_SET) {
+  const key = `${profile}:${set}`;
+  if (cache.has(key)) return cache.get(key);
 
   const p = (async () => {
     const base = import.meta.env.BASE_URL;
@@ -37,28 +44,99 @@ export function loadGrid(profile) {
       throw new Error(`No grid manifest for ${profile} (${manifestRes.status})`);
     }
     const manifest = await manifestRes.json();
+    const countrySet = await resolveCountrySet(dir, manifest, set);
 
     const [maskBuf, countriesBuf, codesBuf] = await Promise.all([
       fetchBuffer(`${dir}/${manifest.files.mask}`),
-      fetchBuffer(`${dir}/${manifest.files.countries}`),
+      fetchBuffer(`${dir}/${countrySet.file}`),
       fetchBuffer(`${dir}/${manifest.files.codes}`)
     ]);
 
     const { ncols, nrows, nLand } = manifest;
     const landIds = decodeMask(new Uint8Array(maskBuf), ncols * nrows, nLand);
-    const countries = new Uint8Array(countriesBuf);
+    // uint8 while the table fits in a byte, little-endian uint16 above that —
+    // written that way by 2c_generate_country_sets.py. Every browser target is
+    // little-endian, so the typed array can view the buffer directly.
+    const countries = countrySet.bits === 16
+      ? new Uint16Array(countriesBuf)
+      : new Uint8Array(countriesBuf);
     const codes = new Uint8Array(codesBuf);
+
+    if (countries.length !== nLand) {
+      throw new Error(
+        `${profile}/${set}: ${countrySet.file} has ${countries.length} entries, expected ${nLand}`
+      );
+    }
 
     const expected = nLand * manifest.years.length;
     if (codes.length !== expected) {
       throw new Error(`${profile}: codes.bin is ${codes.length} bytes, expected ${expected}`);
     }
 
-    return { manifest, landIds, countries, codes, yearIndex: indexYears(manifest.years) };
+    return {
+      manifest, landIds, countries, codes, countrySet,
+      yearIndex: indexYears(manifest.years)
+    };
   })();
 
-  cache.set(profile, p);
-  p.catch(() => cache.delete(profile));  // let a failed load be retried
+  cache.set(key, p);
+  p.catch(() => cache.delete(key));  // let a failed load be retried
+  return p;
+}
+
+// The set baked into every profile by 2b_generate_grid.py.
+const DEFAULT_SET = '110m';
+
+const setsCache = new Map();   // dir -> Promise<sets|null>
+
+/**
+ * The active set's {key, file, bits, table}.
+ *
+ * country-sets.json is written by 2c_generate_country_sets.py and is gitignored,
+ * so it is absent on a clean checkout. When it is missing — or when it is
+ * present but does not describe the requested set — this falls back to the
+ * manifest's own countries.bin/countryTable, which is the 110m set. That is what
+ * keeps the experiment removable: delete the generated files and the map loads
+ * exactly what it loads today, with no code change.
+ */
+async function resolveCountrySet(dir, manifest, set) {
+  const baked = {
+    key: DEFAULT_SET,
+    file: manifest.files.countries,
+    bits: 8,
+    table: manifest.countryTable || []
+  };
+  if (set === DEFAULT_SET && !setsCache.has(dir)) {
+    // Fast path: the shipped set needs no extra request. A cached
+    // country-sets.json is still preferred below, so the four sets stay
+    // comparable once the experiment is installed.
+    void loadCountrySets(dir);
+    return baked;
+  }
+
+  const sets = await loadCountrySets(dir);
+  const entry = sets?.[set];
+  if (!entry) {
+    if (set !== DEFAULT_SET) {
+      console.warn(
+        `gridSource: country set "${set}" not built for this profile; using ${DEFAULT_SET}. ` +
+        'Run processing/2c_generate_country_sets.py to generate it.'
+      );
+    }
+    return baked;
+  }
+  return { key: set, file: entry.file, bits: entry.bits, table: entry.table };
+}
+
+function loadCountrySets(dir) {
+  let p = setsCache.get(dir);
+  if (!p) {
+    p = fetch(`${dir}/country-sets.json`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => json?.sets ?? null)
+      .catch(() => null);
+    setsCache.set(dir, p);
+  }
   return p;
 }
 
@@ -110,7 +188,9 @@ function decodeMask(mask, nCells, nLand) {
  * against the old pipeline by processing/verify_grid.py.
  */
 export function featuresForYear(grid, year) {
-  const key = `${grid.manifest.profile}:${year}`;
+  // The set belongs in the key: properties.c is the country this cell belongs
+  // to, and that is the one thing here that changes when the set does.
+  const key = `${grid.manifest.profile}:${grid.countrySet.key}:${year}`;
   const hit = featureCache.get(key);
   if (hit) return hit;
 
@@ -118,7 +198,8 @@ export function featuresForYear(grid, year) {
   const yi = grid.yearIndex.get(year);
   if (yi === undefined) throw new Error(`${year} not in ${manifest.profile} manifest`);
 
-  const { nLand, res, originX, originY, ncols, countryTable } = manifest;
+  const countryTable = grid.countrySet.table;
+  const { nLand, res, originX, originY, ncols } = manifest;
   const offset = yi * nLand;
   const features = [];
 
@@ -348,12 +429,21 @@ function isoIndex(grid) {
   const hit = isoIndexCache.get(grid);
   if (hit) return hit;
   const map = new Map();
-  const table = grid.manifest.countryTable || [];
+  const table = countryTableOf(grid);
   for (let i = 0; i < table.length; i++) {
     if (table[i]) map.set(table[i], i);
   }
   isoIndexCache.set(grid, map);
   return map;
+}
+
+/**
+ * The active set's country table. Every read of it goes through here so that
+ * nothing is left reaching for manifest.countryTable, which describes only the
+ * baked-in 110m set and would silently mis-name every cell under another one.
+ */
+export function countryTableOf(grid) {
+  return grid?.countrySet?.table ?? grid?.manifest?.countryTable ?? [];
 }
 
 /**
@@ -367,14 +457,18 @@ function cellsByCountry(grid) {
   if (hit) return hit;
 
   const { countries } = grid;
-  const counts = new Uint32Array(256);
+  // Sized from the table, not a hardcoded 256: the 10m sets need 258 and 298
+  // entries, and a fixed 256 would drop every country past the byte boundary
+  // (and overrun on the counting pass).
+  const nCodes = countryTableOf(grid).length;
+  const counts = new Uint32Array(nCodes);
   for (let j = 0; j < countries.length; j++) counts[countries[j]] += 1;
 
   const out = new Map();
-  for (let c = 1; c < 256; c++) {
+  for (let c = 1; c < nCodes; c++) {
     if (counts[c]) out.set(c, new Uint32Array(counts[c]));
   }
-  const cursor = new Uint32Array(256);
+  const cursor = new Uint32Array(nCodes);
   for (let j = 0; j < countries.length; j++) {
     const c = countries[j];
     if (c === 0) continue;
