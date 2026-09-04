@@ -207,7 +207,7 @@ body {
 /* ===== Docked detail-panel content typography — shared by biomes + anthromes =====
    Two kinds of content land in .panel-content:
      1. HTML built in the chart components and injected via {@html} (.title,
-        .subtitle, .summary, .detail-link, .kv, .swatch, .pill/.badge);
+        .subtitle, .summary, .kv, .swatch, .pill/.badge);
      2. Svelte markup composed in biomes/App.svelte from the structured `meta`
         BiomesChart emits (.species-*, .lineage-*, .gm-*, .sp-*).
    Both are styled here so the two detail panels stay in lockstep.
@@ -245,16 +245,6 @@ body {
 .panel-content .summary {
   font-size: 16.6px;
   color: #e7e9f1;
-}
-
-/* Inline, clickable action link at the end of the summary (e.g. "Highlight
-   countries … →") — underline + arrow signal it's tappable. */
-.panel-content .detail-link {
-  color: var(--accent, #7dd3fc);
-  text-decoration: underline;
-  text-underline-offset: 2.6px;
-  cursor: pointer;
-  pointer-events: auto;
 }
 
 .panel-content .kv {
@@ -581,65 +571,19 @@ body {
   line-height: 1.3;
 }
 
+/* The eight countries the two sides share, emphasised against the muted
+   rest-of-world chips. A readout, not a control — both sides draw the same
+   countries, so nothing here links anywhere. */
 .panel-content .sp-country-chip--primary {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.55);
   color: #fff;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease;
-}
-
-.panel-content .sp-country-chip--primary:hover {
-  background: rgba(255, 255, 255, 0.22);
-  transform: translateY(-1px);
 }
 
 .panel-content .sp-country-chip--muted {
   color: var(--muted);
   opacity: 0.75;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-}
-
-/* Cross-side CTA — hugs its text like the chips above it. As a direct child of
-   the .panel-content grid/column it would otherwise stretch the full rail
-   width, and `justify-content: space-between` threw the arrow to the far edge;
-   justify-self/align-self keep it content-width. Explicit line-height matters
-   too: without it the button inherited .panel-content's 1.5 and stood
-   noticeably taller than every other pill. */
-.panel-content .sp-cta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-start;
-  justify-self: start; /* .panel-content is a grid on the biomes side */
-  align-self: flex-start; /* …and a flex column on the anthromes side */
-  width: auto;
-  gap: 8px;
-  padding: 4px 14px;
-  border-radius: 999px;
-  border: 1.4px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  font-family: inherit;
-  font-weight: 800;
-  font-size: 16.6px; /* floor */
-  line-height: 1.3;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease;
-  margin: 0 0 4px;
-}
-
-.panel-content .sp-cta:hover {
-  background: rgba(255, 255, 255, 0.16);
-  transform: translateY(-1px);
-}
-
-.panel-content .sp-cta-arrow {
-  font-size: 16.6px; /* floor — must not out-measure the label and drive height */
-  line-height: 1.3;
-  font-weight: 700;
-  opacity: 0.9;
 }
 
 /* NOTE: .species-badges/.species-badge have no markup referencing them as of

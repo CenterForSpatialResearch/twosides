@@ -3,8 +3,8 @@
   import WaffleChart from './lib/WaffleChart.svelte';
   import PixelTimeline from './lib/PixelTimeline.svelte';
   import { prepareAnthromesData } from './lib/dataAdapter.js';
-  import { loadGrid, distributionForCountry } from './lib/gridSource.js';
-  import { MAP_PROFILE } from '../shared/mapProfile.js';
+  import { loadGrid, distributionForCountry, countryTableOf } from './lib/gridSource.js';
+  import { MAP_PROFILE, COUNTRY_SET, boundaryUrl } from '../shared/mapProfile.js';
   import { feature as topoFeature } from 'topojson-client';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
@@ -67,11 +67,6 @@
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
 
-  // Declared BEFORE selectedCountryIso3: its initialiser calls
-  // readCountryParam(), which validates against PRIMARY_ORDER. `const` is not
-  // hoisted, so with these below the state declaration any load carrying
-  // ?country=ISO3 — i.e. every hand-off from the biomes side — threw a TDZ
-  // ReferenceError and rendered a blank page.
   const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
   const SHORT_LABELS = {
     SWE: 'Sweden',
@@ -84,14 +79,10 @@
     TZA: 'Tanzania'
   };
 
-  // Country-first primary filter (Phase 3). Parity with biomes side.
-  // Seeded from ?country=ISO3 so a selection carries across the two sides.
-  let selectedCountryIso3 = $state(readCountryParam());
-  // Overlay-annotation state — multi-country highlight from the biomes side.
-  // MapCanvas populates these from URL params on mount; App reads them to
-  // render the dismissible rail tag.
-  let rangeIso3s = $state(new Set());
-  let rangeSource = $state(null); // { kind, label, sgbId, from } | null
+  // Country-first primary filter (Phase 3). Parity with biomes side. In-memory
+  // only: the two sides no longer hand a selection to one another, so there is
+  // nothing to seed from the URL and nothing to keep in sync with it.
+  let selectedCountryIso3 = $state(null);
   let primaryCountries = $state(null);
   let countryFeatureByIso = $state(new Map()); // ISO3 -> boundary feature, all countries
   // The decoded grid for the live resolution. loadGrid is module-cached and
@@ -103,58 +94,30 @@
   // buys. It also keeps gridSource's reads out of Svelte's reactive graph.
   let grid = $state.raw(null);
 
-  // Runs at module init, before the grid or the boundaries exist, so it can
-  // only check shape. An unknown-but-well-formed code is reconciled away by the
-  // effect below once the grid lands. This used to require PRIMARY_ORDER, which
-  // would now reject a perfectly valid hand-off from the biomes side.
-  function readCountryParam() {
-    if (typeof window === 'undefined') return null;
-    const p = new URLSearchParams(window.location.search).get('country');
-    return p && /^[A-Z]{3}$/.test(p) ? p : null;
-  }
+  // The nav coin's route to the other side: plain navigation, carrying no
+  // country and no species. Both sides now draw the same eight countries, and
+  // that shared vocabulary — not a URL hand-off — is what carries a reader's
+  // interest across. side= only tells the interstitial which copy to show.
+  const crossLinkHref = `${import.meta.env.BASE_URL}loading.html?side=biomes`;
 
-  function updateCountryParam(iso3) {
-    if (typeof window === 'undefined') return;
-    const url = new URL(window.location.href);
-    if (iso3) url.searchParams.set('country', iso3);
-    else url.searchParams.delete('country');
-    window.history.replaceState(null, '', url.toString());
-  }
-
-  // Cross-side link carries the picked country AND the active range's SGB, so
-  // biomes arrives with both the country lens and (if present) the species
-  // highlight from the range annotation still in play.
-  const crossLinkHref = $derived.by(() => {
-    const base = import.meta.env.BASE_URL;
-    const params = new URLSearchParams();
-    // side= tells the interstitial which copy to show and where to forward to;
-    // it strips the param and passes everything else through untouched.
-    params.set('side', 'biomes');
-    if (selectedCountryIso3) params.set('country', selectedCountryIso3);
-    if (rangeSource?.sgbId != null) params.set('highlightSGB', String(rangeSource.sgbId));
-    return `${base}loading.html?${params.toString()}`;
-  });
-
-  $effect(() => {
-    updateCountryParam(selectedCountryIso3);
-  });
-
-  // Drop a selection the grid cannot back — a hand-typed ?country=, or a code
-  // with no land cells at this resolution. Runs once the grid arrives.
+  // Drop a selection the grid cannot back — a country with no land cells at
+  // this resolution. Runs once the grid arrives.
   $effect(() => {
     if (!grid || !selectedCountryIso3) return;
-    if (!grid.manifest.countryTable.includes(selectedCountryIso3)) {
+    if (!countryTableOf(grid).includes(selectedCountryIso3)) {
       selectedCountryIso3 = null;
     }
   });
 
-  // The grid the ring plots from. One fetch, one resolution — the profile is
-  // pinned (see shared/mapProfile.js), so there is no switch to race against.
+  // The grid the ring plots from. One fetch, one resolution, one boundary set —
+  // both are pinned (see shared/mapProfile.js), so there is no switch to race
+  // against. The identity checks stay: they are what guarantees the ring is
+  // plotting the same blobs the map drew.
   $effect(() => {
     let live = true;
-    loadGrid(MAP_PROFILE)
+    loadGrid(MAP_PROFILE, COUNTRY_SET)
       .then((g) => {
-        if (live && g.manifest.profile === MAP_PROFILE) grid = g;
+        if (live && g.manifest.profile === MAP_PROFILE && g.countrySet.key === COUNTRY_SET) grid = g;
       })
       .catch(() => {});
     return () => {
@@ -628,34 +591,19 @@
         selectedYear = years[years.length - 1];
       }
 
-      // Country-picker data (parity with biomes side)
+      // Country-picker data (parity with biomes side). The boundaries are
+      // fetched by the effect below instead, since they have to be refetched
+      // when the country set changes.
       try {
         const base = import.meta.env.BASE_URL;
-        const [pcRes, boundariesRes, ciRes] = await Promise.all([
+        const [pcRes, ciRes] = await Promise.all([
           fetch(`${base}data/primary_countries.json`),
-          fetch(`${base}topojson/admin-boundaries/countries-110m.topojson`),
           // Also fetched by MapCanvas; the browser serves the second hit from
           // cache, so this costs nothing beyond the parse.
           fetch(`${base}data/country_index.json`)
         ]);
         if (pcRes.ok) primaryCountries = await pcRes.json();
         if (ciRes.ok) countryIndex = await ciRes.json();
-        if (boundariesRes.ok) {
-          const topo = await boundariesRes.json();
-          const objName = Object.keys(topo.objects)[0];
-          const fc = topoFeature(topo, topo.objects[objName]);
-          // Every country, not just the eight in the picker: the highlight
-          // ring, the focus framing and countryLabel() all read from this map,
-          // and any country is selectable now. topoFeature() above already
-          // materialised all of them, so the old filter only discarded
-          // references it had already paid for.
-          const byIso = new Map();
-          for (const f of fc.features) {
-            const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
-            if (id) byIso.set(id, f);
-          }
-          countryFeatureByIso = byIso;
-        }
       } catch (e) {
         console.warn('Failed to load country picker data', e);
       }
@@ -666,6 +614,41 @@
       error = err.message;
       loading = false;
     }
+  });
+
+  // Boundary features by country id. The highlight ring, the focus framing and
+  // countryLabel() all read from this map, so it has to describe the same set
+  // the grid is attributing cells with — mixing them leaves every dependency
+  // unresolvable. That is why both go through the one pinned COUNTRY_SET.
+  // MapCanvas fetches the same URL, and the browser serves the second hit from
+  // cache, so this costs a parse rather than a download.
+  $effect(() => {
+    const set = COUNTRY_SET;
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch(boundaryUrl(import.meta.env.BASE_URL, set));
+        if (!res.ok || !live) return;
+        const topo = await res.json();
+        if (!live) return;
+        const objName = Object.keys(topo.objects)[0];
+        const fc = topoFeature(topo, topo.objects[objName]);
+        // Every country, not just the eight in the picker: any country is
+        // selectable now, and topoFeature() above already materialised all of
+        // them, so the old filter only discarded references it had paid for.
+        const byIso = new Map();
+        for (const f of fc.features) {
+          const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
+          if (id) byIso.set(id, f);
+        }
+        if (live) countryFeatureByIso = byIso;
+      } catch (e) {
+        console.warn('Failed to load country boundaries', e);
+      }
+    })();
+    return () => {
+      live = false;
+    };
   });
 
   // Track when initial map load completes
@@ -701,10 +684,7 @@
     openPanel = null;
     detailContent = null;
     detailMeta = null;
-    // Reset also drops the multi-country range overlay so the map returns to
-    // a completely clean baseline.
-    if (rangeIso3s?.size || rangeSource) clearRange();
-    // ...and the country picker with it. A country selection is not a side
+    // Reset drops the country picker too. A country selection is not a side
     // note in the details panel: it holds the highlight, the framing AND the
     // ring's distribution, so leaving it behind would not be a reset. Clearing
     // it here is what makes the ring animate back to the world.
@@ -773,18 +753,6 @@
     isolationReset++;
   }
 
-  // Dismiss the overlay-annotation range highlight (multi-country from a
-  // biomes species). Leaves the primary picker selection alone. Also strips
-  // ?highlightSGB from the URL so a reload doesn't re-apply it.
-  function clearRange() {
-    rangeIso3s = new Set();
-    rangeSource = null;
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGB');
-      window.history.replaceState(null, '', url.toString());
-    }
-  }
 
   // Handle window click to close overlays
   function handleWindowClick(e) {
@@ -814,7 +782,6 @@
 
   function handleDetailPanelClick(event) {
     event.stopPropagation();
-    waffleChartRef?.handlePanelAction?.(event);
   }
 
   // Close detail when any panel opens (prevent stacking overlays)
@@ -914,26 +881,6 @@
             {/each}
           </div>
         </section>
-
-        <!-- Overlay annotation: multi-country range from the biomes side.
-             Distinct from the single-country picker so the two grammars
-             ("you picked one" vs "the other side sent you many") don't
-             conflate. Dismissible; also clears the ?highlightSGB URL. -->
-        {#if rangeIso3s.size > 0 && rangeSource}
-          <section class="range-tag" aria-live="polite">
-            <div class="range-tag-row">
-              <span class="range-tag-badge" aria-hidden="true"></span>
-              <div class="range-tag-body">
-                <span class="range-tag-title">Range of {rangeSource.label}</span>
-                <span class="range-tag-sub">
-                  {rangeIso3s.size} {rangeIso3s.size === 1 ? 'country' : 'countries'}
-                  {#if rangeSource.from} · from {rangeSource.from}{/if}
-                </span>
-              </div>
-              <button class="range-tag-clear" onclick={clearRange} aria-label="Clear range highlight">×</button>
-            </div>
-          </section>
-        {/if}
 
         <!-- Middle: always-visible details menu item, where Views used to be -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1078,8 +1025,6 @@
           bind:connectorStart
           panelCloseSignal={panelCloseSignal}
           bind:focusIso3={selectedCountryIso3}
-          bind:rangeIso3s
-          bind:rangeSource
           countryDistribution={countryRingDistribution}
           strictCountryFocus
           compactCellDetail
@@ -1503,72 +1448,6 @@
     margin-bottom: 6px;
   }
 
-  /* Range annotation tag — dashed-outline pattern echoes the dashed range
-     stroke on the map, so the rail tag reads as "the dashed thing you see
-     out there" at a glance. Distinct from the picker's solid ring. */
-  .range-tag {
-    display: block;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1.4px dashed rgba(255, 255, 255, 0.75);
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .range-tag-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .range-tag-badge {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1.6px dashed rgba(255, 255, 255, 0.85);
-    flex: 0 0 auto;
-  }
-
-  .range-tag-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .range-tag-title {
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: #fff;
-  }
-
-  .range-tag-sub {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .range-tag-clear {
-    background: transparent;
-    border: none;
-    color: var(--fg);
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 1;
-    padding: 4px 8px;
-    cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.15s ease;
-    flex: 0 0 auto;
-  }
-
-  .range-tag-clear:hover {
-    opacity: 1;
-  }
-
   .country-badge {
     padding: 4px 10px;
     border-radius: 999px;
@@ -1785,7 +1664,7 @@
   }
 
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
-     .detail-link/.kv/.swatch/.pill) is shared — see src/shared/styles.css. */
+     .kv/.swatch/.pill) is shared — see src/shared/styles.css. */
 
   .info-body {
     display: grid;

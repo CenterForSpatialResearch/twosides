@@ -8,7 +8,7 @@
     runsForYear, runBounds
   } from './gridSource.js';
   import { USE_PIXEL_BOUNDARIES } from './constants.js';
-  import { MAP_PROFILE } from '../../shared/mapProfile.js';
+  import { MAP_PROFILE, COUNTRY_SET, boundaryUrl } from '../../shared/mapProfile.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
 
@@ -340,12 +340,6 @@
     // continuously so the leader line follows the cell through pans and zooms
     // instead of staying pinned to wherever the click happened to land.
     isolatedPoint = $bindable(null),
-    // Overlay annotation: multi-country highlight coming from the biomes side.
-    // Kept separate from the primary picker highlight so we can render both
-    // with distinct visual language (primary = bold white ring, range =
-    // dashed white on top). App renders a dismissible rail tag off these.
-    rangeIso3s = $bindable(new Set()),
-    rangeSource = $bindable(null), // { kind, label, sgbId } | null
   } = $props();
 
   let canvasEl = $state(null);
@@ -375,7 +369,7 @@
   let initialDrawDone = $state(false);
   let isAnimating = $state(false);
 
-  // Cross-highlighting state
+  // Boundary-highlight state, driven entirely by the country picker.
   let highlightedCountries = $state(new Set());
   let crossHighlightActive = $state(false);
 
@@ -548,7 +542,9 @@
       mapReady = false;
       return;
     }
-    const key = `${profile}:${targetYear}`;
+    // The set is in the key because each cell feature carries properties.c —
+    // the country it belongs to — and that is what the set decides.
+    const key = `${profile}:${COUNTRY_SET}:${targetYear}`;
     if (cache.has(key)) {
       const cached = cache.get(key);
       currentGeo = cached.geo;
@@ -625,15 +621,21 @@
     }
   }
 
-  async function loadBoundaries() {
-    if (boundariesMesh || boundariesLoading) return;
+  // The set the loaded mesh came from. COUNTRY_SET is pinned here, so this only
+  // ever guards against a second load — but it keeps the swap honest if the set
+  // is ever moved back onto a switch.
+  let boundariesSet = null;
+
+  async function loadBoundaries(set = COUNTRY_SET) {
+    if (boundariesLoading) return;
+    if (boundariesMesh && boundariesSet === set) return;
     boundariesLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
       // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
       const url = USE_PIXEL_BOUNDARIES
         ? `${base}topojson/admin-boundaries/${profile}/countries.topojson`
-        : `${base}topojson/admin-boundaries/countries-110m.topojson`;
+        : boundaryUrl(base, set);
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
       if (!res.ok) {
@@ -646,6 +648,7 @@
       }
       boundariesMesh = topojson.mesh(topo, topo.objects[objKey]);
       boundariesGeo = topojson.feature(topo, topo.objects[objKey]);
+      boundariesSet = set;
 
       // Backfill display names from the boundary features. iso3_names.json is
       // hand-maintained and inherits the same ISO_A3 gap the boundaries had, so
@@ -671,15 +674,18 @@
   // the legacy per-profile cell-history JSON or the per-year TopoJSON fetch.
   // MAP_PROFILE is one of these, so both legacy paths are inert here.
   const GRID_PROFILES = new Set(['100km', '75km', '70km', '60km', '50km']);
+  // Keyed by profile AND set. Only one pair is ever requested here, but the key
+  // keeps a failed set from blacklisting the profile itself.
   const gridMissing = new Set();
-  async function tryLoadGrid(p) {
-    if (gridMissing.has(p)) return null;
+  async function tryLoadGrid(p, set = COUNTRY_SET) {
+    const key = `${p}:${set}`;
+    if (gridMissing.has(key)) return null;
     try {
-      const grid = await loadGrid(p);
+      const grid = await loadGrid(p, set);
       gridData = grid;
       return grid;
     } catch (err) {
-      gridMissing.add(p);
+      gridMissing.add(key);
       if (gridData?.manifest?.profile === p) gridData = null;
       return null;
     }
@@ -1029,37 +1035,6 @@
         }
       }
 
-      // Range annotation (from biomes species): dashed white on top. Draws
-      // last so it sits above the primary bold ring — countries that are
-      // both primary and range read as a dashed white inside a bold halo.
-      if (rangeIso3s && rangeIso3s.size > 0 && boundariesGeo) {
-        // Subtle dark backing so the dashes read on light-colored anthrome
-        // fills as well as dark ones.
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
-        ctx.lineWidth = 5 * dpr;
-        ctx.setLineDash([]);
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        for (const feature of boundariesGeo.features) {
-          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
-          if (!rangeIso3s.has(iso3)) continue;
-          ctx.beginPath();
-          path(feature);
-          ctx.stroke();
-        }
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.lineWidth = 2.4 * dpr;
-        ctx.setLineDash([6 * dpr, 5 * dpr]);
-        for (const feature of boundariesGeo.features) {
-          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
-          if (!rangeIso3s.has(iso3)) continue;
-          ctx.beginPath();
-          path(feature);
-          ctx.stroke();
-        }
-        ctx.setLineDash([]);
-      }
-
       phaseT.boundaries = performance.now();
       performance.mark('boundaries-render-end');
       performance.measure('boundaries-render', 'boundaries-render-start', 'boundaries-render-end');
@@ -1216,10 +1191,6 @@
         ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>`;
 
-    const linkBlock = !compactCellDetail && crosswalk?.sgbs?.length
-      ? `<a class="detail-link" data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">Highlight gut microbes found in this country →</a>`
-      : '';
-
     const html = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
@@ -1235,7 +1206,6 @@
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
       ${kvBlock}
-      ${linkBlock}
     `;
 
     return { html, meta };
@@ -1440,17 +1410,12 @@
     // Clear cross-highlighting only — isolation/tooltip/chart are closed via
     // isolationReset signal from App so the full state clears together.
     //
-    // Under strictCountryFocus a picker selection is NOT a cross-highlight:
-    // clicking dead space outside the disk must leave the country highlighted
-    // and its ring in place. Only the ?highlightSGB overlay (which has no rail
-    // control of its own) is dismissed this way.
+    // Under strictCountryFocus, clicking dead space outside the disk must
+    // leave the picked country highlighted and its ring in place.
     if (strictCountryFocus && focusIso3) return;
     if (crossHighlightActive) {
       highlightedCountries = new Set();
       crossHighlightActive = false;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGB');
-      window.history.replaceState({}, '', url);
     }
   }
 
@@ -1555,9 +1520,9 @@
     };
   });
 
-  // Reload data when year or profile changes. `profile` is read here (not just
-  // inside loadYearData) so switching resolution actually refetches — the
-  // effect has to depend on it, and the tile cache is keyed by profile:year.
+  // Reload data when the year changes. `profile` is read here (not just inside
+  // loadYearData) so a resolution change would actually refetch — the tile cache
+  // is keyed by profile:set:year, and the set half of that key is pinned.
   $effect(() => {
     if (!year) return;
     profile;
@@ -1603,15 +1568,13 @@
     crossHighlightActive;
     highlightedCountries;
     isolatedCellId;
-    rangeIso3s;
 
     if (initialDrawDone) {
       scheduleDraw();
     }
   });
 
-  // Country picker (Phase 3): drive the same highlight mechanism as the
-  // cross-highlight URL param, so selecting a country strokes its boundary.
+  // Country picker (Phase 3): selecting a country strokes its boundary.
   // NOTE: we no longer reset pan/scale here on clear — that decision belongs
   // to the parent App, which distinguishes "picker deselect" (reset view)
   // from "pan-cleared" (keep the panned view).
@@ -1758,10 +1721,14 @@
     focusNeedsCorrection = true;
   }
 
-  // Load boundaries when toggled on
+  // Load boundaries when toggled on, and reload them when the country set
+  // changes — the overlay geometry and the grid's country codes come from the
+  // same shapefile and have to be swapped together, or a cell's code resolves
+  // against the wrong set's ids and every dependency stops highlighting.
   $effect(() => {
-    if (showBoundaries && !boundariesMesh && !boundariesLoading) {
-      loadBoundaries();
+    const set = COUNTRY_SET;
+    if (showBoundaries && !boundariesLoading && boundariesSet !== set) {
+      loadBoundaries(set);
     }
   });
 

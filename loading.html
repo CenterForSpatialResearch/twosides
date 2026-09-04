@@ -172,18 +172,17 @@
     initPageStage();
 
     // --- Route params -------------------------------------------------------
-    // side= picks the copy + target viz. Any other params (country, highlightSGB,
-    // etc.) get forwarded verbatim to the target so cross-linking preserves state.
+    // side= is the whole contract: it picks the copy and the target viz. The
+    // two sides no longer hand each other a selection, so nothing is carried
+    // through here — any other param is dropped rather than forwarded.
     const params = new URLSearchParams(window.location.search);
     const side = params.get('side') === 'anthromes' ? 'anthromes' : 'biomes';
-    params.delete('side');
-    const forwardQuery = params.toString();
 
     const BASE = document.querySelector('meta[name="base-url"]')?.content
       || location.pathname.replace(/[^\/]*$/, '');
 
     const d = SIDE_COPY[side];
-    const target = BASE + d.path + (forwardQuery ? '?' + forwardQuery : '');
+    const target = BASE + d.path;
 
     // --- References ---------------------------------------------------------
     const labelLeft   = document.getElementById('label-left');
