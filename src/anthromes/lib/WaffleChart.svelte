@@ -62,6 +62,9 @@
 
   const fullSize = 7000;
   const previewSize = 1200;
+  // Outer radius of the map disk in the full view, in viewBox units. Held
+  // constant so the ring thins from the outside in — see `layout` below.
+  const MAP_RADIUS = 2475;
 
   let svgElement = $state(null);
   let chartContainer = $state(null);
@@ -294,11 +297,18 @@
 
     performance.mark('layout-start');
     const dim = size === 'full' ? fullSize : previewSize;
-    const outerMargin = size === 'full' ? 200 : 150;
+    const outerMargin = size === 'full' ? 265 : 150;
     const radius = dim / 2 - outerMargin;
-    // Target a thicker ring (~50% of radial span)
-    // Slightly thinner ring (about 1/3 thinner than previous)
-    const innerRadius = radius * 0.75;
+    // Full view pins the map disk instead of deriving it from `radius`, so
+    // `outerMargin` spends itself on ring thickness rather than on the globe.
+    // At 200 the year handle's outward tip (radius + dome + stroke, see
+    // updateYearHighlight) sat 6px inside the 3000x2000 canvas edge and its
+    // drop-shadow clipped against .stage at 6 and 12 o'clock. 265 buys ~26px of
+    // headroom for ~19px of ring — enough to clear the edge without pulling the
+    // disk back to the biomes side's much roomier ~80px (that would want 460,
+    // which read as too severe). Preview keeps the original proportion; it is
+    // never near an edge.
+    const innerRadius = size === 'full' ? MAP_RADIUS : radius * 0.75;
 
     const angle = d3.scaleBand()
       .domain(years)
