@@ -59,10 +59,6 @@
     proxyKey = $bindable(null),
     studyKey = $bindable(null),
     countryIso3 = $bindable(null),
-    // Overlay-annotation state — multi-species range coming from anthromes
-    // (cell tooltip or SGB link). Rendered as a dismissible rail tag by the
-    // App; the internal tree-dim behaviour is unchanged.
-    rangeSource = $bindable(null),
     // UI Option 1: recolour leaf lines / dots / bars by lifestyle exclusivity
     // (magenta = non-Westernized-exclusive, near-white = also found in
     // Westernized populations) instead of by phylum. The phylum region bands
@@ -87,10 +83,6 @@
   let selectedLeafId = $state(null);
   let maxGenomeCount = $state(1);
   let tickDenom = $state(1);
-
-  // Cross-highlighting state
-  let highlightedSGBs = $state(new Set());
-  let crossHighlightActive = $state(false);
 
   // Country name lookup (ISO3 → display name)
   let iso3ToName = $state(new Map());
@@ -357,9 +349,9 @@
   export function zoomInControl() { zoomIn(); }
   export function zoomOutControl() { zoomOut(); }
   export function resetControl() {
-    // Full reset to page-load state: drop any URL cross-highlight, close the
-    // details panel, and reset zoom + rotation. (Filters live in App.)
-    clearHighlight();
+    // Full reset to page-load state: close the details panel and reset zoom +
+    // rotation, then repaint from the live filters. (Filters live in App.)
+    applyFiltersNow();
     closePanel();
     resetView();
   }
@@ -1033,15 +1025,11 @@
     const loc = locationsFromMeta(meta, iso3ToName);
     const sgb = sgbLabel(d);
     const recWord = rec === 1 ? 'genome' : 'genomes';
-    const highlightLink = (leaf && meta?.SGB_ID)
-      ? ` <a class="detail-link" data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</a>`
-      : '';
-    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> ${recWord} within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.${highlightLink}`;
+    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> ${recWord} within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.`;
 
     // The title / phylum / lineage / status-geo pairs are now composed
     // graphically by the App (mini-glyph, breadcrumb chips, badge row, genome
-    // meter). The tooltip HTML keeps just the descriptive prose summary and
-    // the cross-side "highlight countries" call-to-action.
+    // meter). The tooltip HTML keeps just the descriptive prose summary.
     return `<div class="summary">${summary}</div>`;
   }
 
@@ -1049,14 +1037,6 @@
 
   function clearSelected() {
     selectedLeafId = null;
-  }
-
-  // Clear any URL cross-highlight and fall back to the current filter state.
-  export function clearHighlight() {
-    highlightedSGBs = new Set();
-    crossHighlightActive = false;
-    rangeSource = null;
-    applyFiltersNow();
   }
 
   // Filtering logic
@@ -1187,39 +1167,11 @@
     filterRaf = requestAnimationFrame(cb);
   }
 
-  // Handle tooltip actions
-  export function handleTooltipAction(event) {
-    // Match both the old <button> actions and the new inline <a class="detail-link">.
-    const btn = event.target.closest('[data-act]');
-    if (!btn) return;
-
-    const act = btn.getAttribute('data-act');
-    if (act === 'highlight-countries') {
-      const sgbId = parseInt(btn.getAttribute('data-sgb'), 10);
-      if (sgbId) {
-        const base = import.meta.env.BASE_URL;
-        window.location.href = `${base}loading.html?side=anthromes&highlightSGB=${sgbId}`;
-      }
-    }
-  }
-
-
-  // Handle window click (clear URL cross-highlight when tapping away from the disk/rail)
+  // Handle window click (tapping away from the disk/rail repaints from filters)
   function handleWindowClick(event) {
     const target = event.target;
     // Ignore clicks on the disk itself — center-select owns the details panel now.
     if (target.closest('.viz-area') || target.closest('#info-panel') || target.closest('.zoom-controls') || target.closest('.rail') || target.closest('.control-circles') || target.closest('.detail-modal') || target.closest('.info-modal')) return;
-
-    // Only clear an active URL cross-highlight; the center-select panel stays.
-    if (crossHighlightActive) {
-      crossHighlightActive = false;
-      rangeSource = null;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGBs');
-      url.searchParams.delete('highlightSGB');
-      window.history.replaceState({}, '', url);
-      sessionStorage.removeItem('highlightSGBs');
-    }
 
     scheduleFilters();
   }
@@ -1231,7 +1183,6 @@
       tooltipVisible = false;
       currentTooltipDatum = null;
       clearSelected();
-      clearHighlight();
       scheduleFilters();
     }
   }
@@ -1365,72 +1316,6 @@
     resetView();
 
     // Don't render here - let $effect handle it when taxonomyTree is set
-
-    // Check for cross-highlighting from URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const highlightSGBsParam = urlParams.get('highlightSGBs');
-    const highlightSGBParam = urlParams.get('highlightSGB');
-
-    if (highlightSGBsParam || highlightSGBParam) {
-      crossHighlightActive = true;
-
-      // Wait for taxonomy tree to load using polling
-      const checkTreeInterval = setInterval(() => {
-        if (taxonomyTree && handles.root) {
-          clearInterval(checkTreeInterval);
-
-          // Parse comma-separated SGB IDs (or single SGB ID).
-          // If sentinel 'session', read the full list from sessionStorage
-          // to avoid URI Too Long errors for large countries.
-          const resolvedSGBsParam = highlightSGBsParam === 'session'
-            ? (sessionStorage.getItem('highlightSGBs') || '')
-            : highlightSGBsParam;
-          const sgbIds = resolvedSGBsParam
-            ? resolvedSGBsParam.split(',').map(id => parseInt(id.trim(), 10))
-            : [parseInt(highlightSGBParam, 10)];
-
-          // Find ALL matching leaves
-          const leaves = handles.root.leaves();
-          const matchedLeaves = leaves.filter(leaf => {
-            const sgbId = leaf?.data?.metadata?.SGB_ID;
-            return sgbId && sgbIds.includes(sgbId);
-          });
-
-          if (matchedLeaves.length > 0) {
-            // Keep matched leaves + ancestors visible; dim the rest (canvas + overlay).
-            const keep = new Set();
-            matchedLeaves.forEach(leaf => {
-              keep.add(leaf);
-              leaf.ancestors().forEach(a => keep.add(a));
-            });
-            applyKeepSet(keep);
-            requestDraw();
-            // Publish a dismissible tag payload up to App. `session` means
-            // the arrival came from an anthromes cell tooltip (many SGBs);
-            // a single numeric param means a specific SGB was pushed over.
-            rangeSource = highlightSGBsParam === 'session'
-              ? {
-                  kind: 'cell',
-                  label: matchedLeaves.length === 1
-                    ? 'Cell selection'
-                    : `Cell selection · ${matchedLeaves.length} species`,
-                  count: matchedLeaves.length,
-                  from: 'Anthromes'
-                }
-              : {
-                  kind: 'species',
-                  label: `SGB ${sgbIds[0]}`,
-                  sgbId: sgbIds[0],
-                  count: matchedLeaves.length,
-                  from: 'Anthromes'
-                };
-          }
-        }
-      }, 100);
-
-      // Safety timeout
-      setTimeout(() => clearInterval(checkTreeInterval), 10000);
-    }
 
     // Keep the canvas backing store matched to the viz-area size
     let ro = null;

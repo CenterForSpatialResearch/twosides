@@ -12,7 +12,7 @@
   import { countrySet, boundaryUrl } from '../../shared/countrySet.svelte.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
-  import { refinedLayout, refined0821, countryFromMap } from '../../shared/uiOption.svelte.js';
+  import { refined0821, countryFromMap } from '../../shared/uiOption.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -343,12 +343,6 @@
     // continuously so the leader line follows the cell through pans and zooms
     // instead of staying pinned to wherever the click happened to land.
     isolatedPoint = $bindable(null),
-    // Overlay annotation: multi-country highlight coming from the biomes side.
-    // Kept separate from the primary picker highlight so we can render both
-    // with distinct visual language (primary = bold white ring, range =
-    // dashed white on top). App renders a dismissible rail tag off these.
-    rangeIso3s = $bindable(new Set()),
-    rangeSource = $bindable(null), // { kind, label, sgbId } | null
   } = $props();
 
   let canvasEl = $state(null);
@@ -379,7 +373,7 @@
   let initialDrawDone = $state(false);
   let isAnimating = $state(false);
 
-  // Cross-highlighting state
+  // Boundary-highlight state, driven entirely by the country picker.
   let highlightedCountries = $state(new Set());
   let crossHighlightActive = $state(false);
 
@@ -1078,37 +1072,6 @@
         }
       }
 
-      // Range annotation (from biomes species): dashed white on top. Draws
-      // last so it sits above the primary bold ring — countries that are
-      // both primary and range read as a dashed white inside a bold halo.
-      if (rangeIso3s && rangeIso3s.size > 0 && boundariesGeo) {
-        // Subtle dark backing so the dashes read on light-colored anthrome
-        // fills as well as dark ones.
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.55)';
-        ctx.lineWidth = 5 * dpr;
-        ctx.setLineDash([]);
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        for (const feature of boundariesGeo.features) {
-          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
-          if (!rangeIso3s.has(iso3)) continue;
-          ctx.beginPath();
-          path(feature);
-          ctx.stroke();
-        }
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.lineWidth = 2.4 * dpr;
-        ctx.setLineDash([6 * dpr, 5 * dpr]);
-        for (const feature of boundariesGeo.features) {
-          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
-          if (!rangeIso3s.has(iso3)) continue;
-          ctx.beginPath();
-          path(feature);
-          ctx.stroke();
-        }
-        ctx.setLineDash([]);
-      }
-
       phaseT.boundaries = performance.now();
       performance.mark('boundaries-render-end');
       performance.measure('boundaries-render', 'boundaries-render-start', 'boundaries-render-end');
@@ -1369,10 +1332,6 @@
         ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>`;
 
-    const linkBlock = !compactCellDetail && crosswalk?.sgbs?.length
-      ? `<a class="detail-link" data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">Highlight gut microbes found in this country →</a>`
-      : '';
-
     const html = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
@@ -1388,7 +1347,6 @@
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
       ${kvBlock}
-      ${linkBlock}
     `;
 
     return { html, meta };
@@ -1593,17 +1551,12 @@
     // Clear cross-highlighting only — isolation/tooltip/chart are closed via
     // isolationReset signal from App so the full state clears together.
     //
-    // Under strictCountryFocus a picker selection is NOT a cross-highlight:
-    // clicking dead space outside the disk must leave the country highlighted
-    // and its ring in place. Only the ?highlightSGB overlay (which has no rail
-    // control of its own) is dismissed this way.
+    // Under strictCountryFocus, clicking dead space outside the disk must
+    // leave the picked country highlighted and its ring in place.
     if (strictCountryFocus && focusIso3) return;
     if (crossHighlightActive) {
       highlightedCountries = new Set();
       crossHighlightActive = false;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGB');
-      window.history.replaceState({}, '', url);
     }
   }
 
@@ -1845,15 +1798,13 @@
     crossHighlightActive;
     highlightedCountries;
     isolatedCellId;
-    rangeIso3s;
 
     if (initialDrawDone) {
       scheduleDraw();
     }
   });
 
-  // Country picker (Phase 3): drive the same highlight mechanism as the
-  // cross-highlight URL param, so selecting a country strokes its boundary.
+  // Country picker (Phase 3): selecting a country strokes its boundary.
   // NOTE: we no longer reset pan/scale here on clear — that decision belongs
   // to the parent App, which distinguishes "picker deselect" (reset view)
   // from "pan-cleared" (keep the panned view).
@@ -2095,38 +2046,6 @@
   // timelineHeightPx kept as constant 0 since vertical bar chart is removed;
   // processHistoryData still uses it with a safe fallback when 0.
   const timelineHeightPx = 0;
-
-  // Cross-highlighting from URL parameter — fills the *range* set (multi-
-  // country annotation), separate from the primary picker highlight above.
-  //
-  // Option 1 does not carry a species across the sides at all: arriving from
-  // biomes should land on the plain map, not on a set of countries lit up by
-  // whichever leaf the disk happened to be resting on. The biomes side already
-  // omits ?highlightSGB from its links under Option 1; this also ignores the
-  // param on a pasted or bookmarked URL.
-  $effect(() => {
-    if (!countryData) return;
-    if (refinedLayout()) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const highlightSGB = urlParams.get('highlightSGB');
-
-    if (highlightSGB) {
-      const sgbId = parseInt(highlightSGB, 10);
-      const matchingCountries = [];
-
-      for (const [iso3, data] of countryData.entries()) {
-        if (data.sgbs && data.sgbs.includes(sgbId)) {
-          matchingCountries.push(iso3);
-        }
-      }
-
-      rangeIso3s = new Set(matchingCountries);
-      rangeSource = matchingCountries.length
-        ? { kind: 'species', label: `SGB ${sgbId}`, sgbId, from: 'biomes' }
-        : null;
-    }
-  });
 
 </script>
 

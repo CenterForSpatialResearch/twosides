@@ -55,14 +55,6 @@
   let settingsOpen = $state(false);
   let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
   let selectedStudyKey = $state(null);
-  // Declared BEFORE selectedCountryIso3: its initialiser calls
-  // readCountryParam(), which validates against PRIMARY_ORDER. `const` is not
-  // hoisted, so with these below the state declaration any load carrying
-  // ?country=ISO3 — i.e. every hand-off from the anthromes side — threw a TDZ
-  // ReferenceError and rendered a blank page. It only ever showed up WITH the
-  // param, because `p && PRIMARY_ORDER.includes(p)` short-circuits before
-  // touching PRIMARY_ORDER when there is no param to check. Same fix, same
-  // reason, as on the anthromes side.
   const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
   // Compact display labels — iso3_names.json expands SWE→"Sweden", USA→"United
   // States of America", GBR→"United Kingdom" etc. The picker needs short,
@@ -78,9 +70,10 @@
     TZA: 'Tanzania'
   };
 
-  // Country-first primary filter (Phase 2). ISO3 or null.
-  // Seeded from ?country=ISO3 so a selection carries across the two sides.
-  let selectedCountryIso3 = $state(readCountryParam());
+  // Country-first primary filter (Phase 2). ISO3 or null. In-memory only: the
+  // two sides no longer hand a selection to one another, so there is nothing
+  // to seed from the URL and nothing to keep in sync with it.
+  let selectedCountryIso3 = $state(null);
   let primaryCountries = $state(null);        // { ISO3: {label, sgbs, ...} } from primary_countries.json
   let countryFeatureByIso = $state(new Map()); // ISO3 -> feature (target countries only)
 
@@ -113,48 +106,11 @@
   const westernRow = $derived(rankRow(WESTERN_ISOS));
   const nonWesternRow = $derived(rankRow(NONWESTERN_ISOS));
 
-  function readCountryParam() {
-    if (typeof window === 'undefined') return null;
-    const p = new URLSearchParams(window.location.search).get('country');
-    return p && PRIMARY_ORDER.includes(p) ? p : null;
-  }
-
-  function updateCountryParam(iso3) {
-    if (typeof window === 'undefined') return;
-    const url = new URL(window.location.href);
-    if (iso3) url.searchParams.set('country', iso3);
-    else url.searchParams.delete('country');
-    window.history.replaceState(null, '', url.toString());
-  }
-
-  // Cross-side link carries every part of the current context that the other
-  // side knows how to accept: the picked country AND (if the disk has landed
-  // on a species) that species' SGB, so anthromes arrives with both the
-  // primary country highlighted and the range annotation for the species.
-  //
-  // Option 1 sends the country only. Carrying the species meant that merely
-  // resting the disk on a leaf lit up every country it occurs in on arrival —
-  // a selection the reader never made, competing with the country lens that
-  // now drives the whole anthromes view.
-  const carrySgbAcross = $derived(!refinedLayout());
-
-  const crossLinkHref = $derived.by(() => {
-    const base = import.meta.env.BASE_URL;
-    const params = new URLSearchParams();
-    // side= tells the interstitial which copy to show and where to forward to;
-    // it strips the param and passes everything else through untouched.
-    params.set('side', 'anthromes');
-    if (selectedCountryIso3) params.set('country', selectedCountryIso3);
-    const sgbId = detailMeta?.metadata?.SGB_ID;
-    if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
-    return `${base}loading.html?${params.toString()}`;
-  });
-
-  // Persist current selection in the URL so a page reload or cross-side link
-  // preserves the country. replaceState keeps the history stack clean.
-  $effect(() => {
-    updateCountryParam(selectedCountryIso3);
-  });
+  // The nav coin's route to the other side: plain navigation, carrying no
+  // country and no species. Both sides now draw the same eight countries, and
+  // that shared vocabulary — not a URL hand-off — is what carries a reader's
+  // interest across. side= only tells the interstitial which copy to show.
+  const crossLinkHref = `${import.meta.env.BASE_URL}loading.html?side=anthromes`;
   let zoomIdx = $state(0);
   const cohortOptions = [
     { key: 'CM_madagascar', label: 'Madagascar' },
@@ -226,22 +182,6 @@
   let detailContent = $state(null);
   let detailPoint = $state(null);
   let detailMeta = $state(null); // { metadata, name, phylum, leafId } from BiomesChart
-  // Overlay-annotation state — multi-species range from anthromes (cell
-  // tooltip or SGB link). BiomesChart writes this when the URL brings a
-  // highlight; App renders a dismissible rail tag off it.
-  let rangeSource = $state(null);
-
-  function clearRange() {
-    rangeSource = null;
-    biomesChartRef?.clearHighlight?.();
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGB');
-      url.searchParams.delete('highlightSGBs');
-      window.history.replaceState(null, '', url.toString());
-      sessionStorage.removeItem('highlightSGBs');
-    }
-  }
   let detailPanelEl = $state(null);
   let detailPanelAnchor = $state(null);
   // 8/21: the rule under the SGB name — the leader's terminus on this side.
@@ -786,7 +726,6 @@
 
   function handleDetailPanelClick(event) {
     event.stopPropagation();
-    biomesChartRef?.handleTooltipAction?.(event);
   }
 
   function handleDetailClose() {
@@ -872,17 +811,6 @@
     other.sort();
     return { primary, other };
   });
-
-  function goToAnthromes(iso3) {
-    const base = import.meta.env.BASE_URL;
-    const params = new URLSearchParams();
-    params.set('side', 'anthromes');
-    if (iso3) params.set('country', iso3);
-    const sgbId = detailMeta?.metadata?.SGB_ID;
-    // See carrySgbAcross: Option 1 hands over the country only.
-    if (carrySgbAcross && sgbId != null) params.set('highlightSGB', String(sgbId));
-    window.location.href = `${base}loading.html?${params.toString()}`;
-  }
 
   const speciesPhylumColor = $derived.by(() => {
     const p = detailMeta?.phylum;
@@ -1012,7 +940,6 @@
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
           lifestyleColor={uiOption() === 5 && selectedCountryIso3 !== null}
-          bind:rangeSource
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
           on:zoomchange={handleZoomChange}
@@ -1189,11 +1116,7 @@
                     </span>
                     <div class="sp-country-chips">
                       {#each speciesCountries.primary as iso3 (iso3)}
-                        <button
-                          class="sp-country-chip sp-country-chip--primary"
-                          onclick={() => goToAnthromes(iso3)}
-                          title={`Open ${SHORT_LABELS[iso3] ?? iso3} on the anthromes side`}
-                        >{SHORT_LABELS[iso3] ?? iso3}</button>
+                        <span class="sp-country-chip sp-country-chip--primary">{SHORT_LABELS[iso3] ?? iso3}</span>
                       {/each}
                       {#each speciesCountries.other as iso3 (iso3)}
                         <span class="sp-country-chip sp-country-chip--muted">{iso3}</span>
@@ -1202,12 +1125,6 @@
                   </div>
                 {/if}
 
-                {#if detailMeta.metadata?.SGB_ID != null}
-                  <button class="sp-cta" onclick={() => goToAnthromes(null)}>
-                    <span class="sp-cta-label">See this species on the anthromes map</span>
-                    <span class="sp-cta-arrow" aria-hidden="true">→</span>
-                  </button>
-                {/if}
               </div>
             {/if}
           </section>
@@ -1411,25 +1328,6 @@
             </div>
           {/if}
         </section>
-
-        <!-- Overlay annotation: multi-species range from the anthromes side.
-             Same visual vocabulary as anthromes' range-tag so both rails
-             share the "sent from the other side" pattern. -->
-        {#if rangeSource}
-          <section class="range-tag" aria-live="polite">
-            <div class="range-tag-row">
-              <span class="range-tag-badge" aria-hidden="true"></span>
-              <div class="range-tag-body">
-                <span class="range-tag-title">Range: {rangeSource.label}</span>
-                <span class="range-tag-sub">
-                  {#if rangeSource.count}{rangeSource.count} species{/if}
-                  {#if rangeSource.from}{rangeSource.count ? ' · ' : ''}from {rangeSource.from}{/if}
-                </span>
-              </div>
-              <button class="range-tag-clear" onclick={clearRange} aria-label="Clear range highlight">×</button>
-            </div>
-          </section>
-        {/if}
 
         {@render detailPanel()}
         {:else if uiOption() === 7}
@@ -2067,71 +1965,6 @@
     justify-content: space-between;
     gap: 15px;
     margin-bottom: 9px;
-  }
-
-  /* Range annotation tag — mirrors the anthromes-side treatment so both
-     rails share the same "sent from the other side" vocabulary. */
-  .range-tag {
-    display: block;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1.4px dashed rgba(255, 255, 255, 0.75);
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .range-tag-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .range-tag-badge {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1.6px dashed rgba(255, 255, 255, 0.85);
-    flex: 0 0 auto;
-  }
-
-  .range-tag-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .range-tag-title {
-    font-size: 16px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: #fff;
-  }
-
-  .range-tag-sub {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .range-tag-clear {
-    background: transparent;
-    border: none;
-    color: var(--fg);
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 1;
-    padding: 4px 8px;
-    cursor: pointer;
-    opacity: 0.6;
-    transition: opacity 0.15s ease;
-    flex: 0 0 auto;
-  }
-
-  .range-tag-clear:hover {
-    opacity: 1;
   }
 
   /* Bacteria Species Details enrichment header */
@@ -2777,7 +2610,7 @@
   }
 
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
-     .detail-link/.kv/.swatch/.pill) is shared — see src/shared/styles.css. */
+     .kv/.swatch/.pill) is shared — see src/shared/styles.css. */
 
   .chevron {
     background: var(--bg);

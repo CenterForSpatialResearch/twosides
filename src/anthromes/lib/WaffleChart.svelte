@@ -40,8 +40,6 @@
     panelCloseSignal = 0,
     connectorStart = $bindable(null),
     focusIso3 = $bindable(null),
-    rangeIso3s = $bindable(new Set()),
-    rangeSource = $bindable(null),
     // Per-year anthrome shares for the focused country, shaped
     // { "1850AD": { "61": 0.42, ... } }. When set, the ring plots this instead
     // of the world-wide distribution and swaps with an animated transition.
@@ -210,21 +208,6 @@
       dispatch('detail', { content: html, meta: panelMeta });
     } else {
       dispatch('detail-close');
-    }
-  }
-
-  export function handlePanelAction(event) {
-    // Match both old <button> actions and the new inline <a class="detail-link">.
-    const btn = event.target.closest('[data-act]');
-    if (!btn) return;
-    const act = btn.getAttribute('data-act');
-    if (act === 'highlight-biomes') {
-      const sgbs = btn.getAttribute('data-sgbs');
-      if (sgbs) {
-        const base = import.meta.env.BASE_URL;
-        sessionStorage.setItem('highlightSGBs', sgbs);
-        window.location.href = `${base}loading.html?side=biomes&highlightSGBs=session`;
-      }
     }
   }
 
@@ -989,8 +972,6 @@
     {strictCountryFocus}
     {compactCellDetail}
     bind:isolatedPoint
-    bind:rangeIso3s
-    bind:rangeSource
   />
 
   {#if debugMenuVisible}
