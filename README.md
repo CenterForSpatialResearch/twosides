@@ -1,19 +1,21 @@
 # twosides
 
-A double-sided interactive visualization presenting two datasets as two faces of one disk — anthromes and biomes — built for *Full Disclosure: The Edge of Information Design* at the Museum of Modern Art, opening September 27, 2026.
+Production release for the interactive portion of *Two Sides of the Same Coin*, a double-sided visualization featuring a dataset on each side — anthromes and biomes. It was built for *Full Disclosure: The Edge of Information Design* at the Museum of Modern Art, opening September 27, 2026.
 
-**[twosides.earth/moma](https://twosides.earth/moma)**
+This production build (twosides-moma-v1.0.0) can be run locally using the instructions below. The most up-to-date build is also served at **[twosides.earth/moma](https://twosides.earth/moma)**.
 
 ## Serving a production build locally
 
-Download the latest release zip from the [Releases](https://github.com/CenterForSpatialResearch/twosides/releases) page. Unzip it and serve the contents over HTTP. The app cannot be opened as a `file://` path — it uses ES modules and `fetch()`, both of which browsers block without a server.
+Download the latest release zip from the [Releases](https://github.com/CenterForSpatialResearch/twosides/releases) page. Unzip it and serve the contents over HTTP.
+
+Easiest: double-click `start-windows.bat` or `start-macos.command` inside the unzipped folder. It starts a server and opens the browser. The manual steps below do the same thing.
 
 ### Windows
 
 Open PowerShell, navigate to the unzipped folder, and start a server with Python:
 
 ```powershell
-cd C:\Users\you\Downloads\twosides-v1.0.0   # adjust to your actual path
+cd C:\Users\you\Downloads\twosides-moma-v1.0.0   # adjust to your actual path
 python -m http.server 8000
 ```
 
@@ -28,13 +30,11 @@ Then open `http://localhost:8000` in a browser.
 ### macOS / Linux
 
 ```bash
-cd twosides-v1.0.0 # adjust to your actual path
+cd twosides-moma-v1.0.0 # adjust to your actual path
 python3 -m http.server 8000
 ```
 
 Then open `http://localhost:8000` in a browser.
-
-The idle reset returns to the splash after 30 seconds of no input. To disable it for debugging, add `?idle=0` to the URL.
 
 ### Building from source
 

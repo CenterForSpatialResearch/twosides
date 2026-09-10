@@ -1,9 +1,12 @@
-name: Release MoMA build
+name: Release exhibition build
 
 on:
   push:
     tags:
-      - 'v*'
+      # Project-scoped releases: <project>-v<semver>, e.g. moma-v1.0.0.
+      # The [0-9] guard keeps a non-release tag like `moma-vfinal` from
+      # building. 
+      - '*-v[0-9]*'
 
 permissions:
   contents: write
@@ -28,10 +31,16 @@ jobs:
       - name: Build (base path /)
         run: npm run build
 
-      - name: Zip dist
+      # Wrap the build in a folder named after the tag so a terminal `unzip`
+      # lands in one directory (GUI extractors invent one anyway), and drop the
+      # run instructions and launchers from release/ inside it.
+      - name: Stage release folder and zip
         run: |
-          cd dist
-          zip -r ../twosides-${{ github.ref_name }}.zip .
+          STAGE=twosides-${{ github.ref_name }}
+          mv dist "$STAGE"
+          cp release/README.txt release/start-macos.command release/start-windows.bat "$STAGE"/
+          chmod +x "$STAGE"/start-macos.command
+          zip -r "$STAGE.zip" "$STAGE"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
