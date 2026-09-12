@@ -6,7 +6,7 @@ A double-sided visualization with a dataset on each face: **Biomes**, the microb
 
 **5000 Lines 5000 Species**
 
-This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.
+This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.
 
 Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.
 
@@ -28,7 +28,7 @@ As global population increases, and urbanization accelerates, **biodiversity shr
 
 ### Citations
 
-Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Diaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. "People have shaped most of terrestrial nature for at least 12,000 years." *Proceedings of the National Academy of Sciences* 118(17): e2023483118. [https://doi.org/10.1073/pnas.2023483118](https://doi.org/10.1073/pnas.2023483118)
+Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. "People have shaped most of terrestrial nature for at least 12,000 years." *Proceedings of the National Academy of Sciences* 118(17): e2023483118. [https://doi.org/10.1073/pnas.2023483118](https://doi.org/10.1073/pnas.2023483118)
 
 Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. [https://public.yoda.uu.nl/geo/UU01/F45D44.html](https://public.yoda.uu.nl/geo/UU01/F45D44.html)
 

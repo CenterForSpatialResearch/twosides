@@ -507,6 +507,63 @@
     togglePhylum(datum.name);
   }
 
+  // Which set of samples the phylum shares are computed over. null = the whole
+  // catalog. The caption under the key and the percentages in the pills both
+  // read off this one value, so they can never name different denominators —
+  // a selected country with no resolvable SGBs falls back to the catalog on
+  // both at once rather than captioning a column of 0%.
+  const phylumScopeIso3 = $derived(
+    selectedCountryIso3 &&
+    primaryCountries?.[selectedCountryIso3]?.sgbs?.length &&
+    leafBySgbId.size
+      ? selectedCountryIso3
+      : null
+  );
+
+  // "in the UK", not "in USA": the short labels are written for the circles,
+  // where they stand alone, and two of them need an article to sit in a
+  // sentence. Mirrors withArticle() on the anthromes side.
+  const ARTICLE_LABELS = new Set(['UK', 'USA']);
+
+  const phylumScopeLabel = $derived.by(() => {
+    if (!phylumScopeIso3) return 'all samples';
+    const label = SHORT_LABELS[phylumScopeIso3] ?? primaryCountries?.[phylumScopeIso3]?.label ?? phylumScopeIso3;
+    return `samples found in ${ARTICLE_LABELS.has(label) ? 'the ' : ''}${label}`;
+  });
+
+  // Share of the scope's species that fall in each phylum, as a percentage.
+  // Species, not samples, is the unit throughout this side — the disk draws one
+  // line per SGB — so the share is "of the species reported here, this many are
+  // Firmicutes". Kept separate from phylumCountByName, which stays global
+  // because it sizes the bubble pack.
+  const phylumPctByName = $derived.by(() => {
+    const counts = {};
+    if (phylumScopeIso3) {
+      for (const sgb of primaryCountries[phylumScopeIso3].sgbs) {
+        const leaf = leafBySgbId.get(Number(sgb));
+        if (!leaf) continue;
+        const name = getPhylum(leaf);
+        counts[name] = (counts[name] || 0) + 1;
+      }
+    } else {
+      Object.assign(counts, phylumCountByName);
+    }
+    let total = 0;
+    for (const n of Object.values(counts)) total += n;
+    if (!total) return {};
+    const out = {};
+    for (const [name, n] of Object.entries(counts)) out[name] = (n / total) * 100;
+    return out;
+  });
+
+  // Same thresholds as the anthromes key, so a share reads the same on both
+  // sides of the coin: anything under a percent is "<1%" rather than "0%".
+  function fmtPct(p) {
+    if (!p || p <= 0) return '0%';
+    if (p < 1) return '<1%';
+    return `${Math.round(p)}%`;
+  }
+
   // Bubble input: derived list of {name, count, color, isOther?, memberNames?}.
   // Any phylum that falls through to the palette's Other colour collapses into
   // a single Other bubble carrying the summed count and its member names.
@@ -516,20 +573,24 @@
     const primary = [];
     const otherMembers = [];
     let otherCount = 0;
+    let otherPct = 0;
     for (const name of allPhyla) {
       const count = phylumCountByName[name] || 0;
+      const pct = phylumPctByName[name] || 0;
       const color = colorMapping[name] || OTHER_COLOR;
       if (color === OTHER_COLOR) {
         otherMembers.push(name);
         otherCount += count;
+        otherPct += pct;
       } else {
-        primary.push({ name, count, color });
+        primary.push({ name, count, pct, color });
       }
     }
     if (otherMembers.length) {
       primary.push({
         name: 'Other',
         count: otherCount,
+        pct: otherPct,
         color: OTHER_COLOR,
         isOther: true,
         memberNames: otherMembers
@@ -1040,10 +1101,10 @@
                       {speciesStats.status.name}
                     </span>
                     <span class="sp-stat">
-                      {speciesStats.abundance.name}<span class="sp-stat-detail"> · {speciesStats.abundance.detail}</span>
+                      {speciesStats.abundance.name}<span class="sp-stat-detail">&nbsp;· {speciesStats.abundance.detail}</span>
                     </span>
                     <span class="sp-stat">
-                      {speciesStats.reach.name}<span class="sp-stat-detail"> · {speciesStats.reach.detail}</span>
+                      {speciesStats.reach.name}<span class="sp-stat-detail">&nbsp;· {speciesStats.reach.detail}</span>
                     </span>
                     <span class="sp-stat">
                       {speciesStats.population.name}
@@ -1150,13 +1211,13 @@
 
           {@render lifestyleRow(
             finalUi() ? 'Westernized' : 'Western',
-            'Populations with more exposure to urbanization, industrialized food and medicine.',
+            'Populations with more exposure to urbanization, industrialized food and medicine:',
             westernRow
           )}
 
           {@render lifestyleRow(
             finalUi() ? 'Non-Westernized' : 'Non-Western',
-            'Populations with limited exposure to urbanization and industrialized systems.',
+            'Populations with limited exposure to urbanization and industrialized systems:',
             nonWesternRow
           )}
 
@@ -1452,10 +1513,19 @@
                  Phyla the palette has no colour for (drawn gray on the disk)
                  collapse into one Other pill, the same grouping the bubble pack
                  uses. -->
+            <!-- The caption belongs to the pills, not to the section: it names
+                 the denominator the percentages in them are taken over, and the
+                 bubble pack below carries no percentages. -->
+            <p class="rail-leadin phylum-scope">Phylum share in {phylumScopeLabel}:</p>
             <div class="phylum-key phylum-key--pills">
               {#each phylumBubbles as b (b.name)}
-                <span class="phylum-dot" style="background:{b.color}; color:{pickTextColor(b.color)};">
-                  <span>{b.name.replace(/_/g, ' ')}</span>
+                {@const label = b.name.replace(/_/g, ' ')}
+                <span
+                  class="phylum-dot"
+                  style="background:{b.color}; color:{pickTextColor(b.color)};"
+                  title="{label} — {fmtPct(b.pct)}"
+                >
+                  <span>{label} ({fmtPct(b.pct)})</span>
                 </span>
               {/each}
             </div>
@@ -1527,13 +1597,13 @@
         </div>
         <div class="info-body">
           <p><strong>5000 Lines 5000 Species</strong></p>
-          <p>This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
+          <p>This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
           <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
           <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
           <p><strong>{finalUi() ? 'Westernized / Non-Westernized' : 'Western / Non Western'}:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
           <div class="info-citations">
             <div class="info-citations-title">Citations</div>
-            <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. "Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle." <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
+            <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. “Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle.” <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
             <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
           </div>
         </div>
@@ -1757,8 +1827,12 @@
      blocks read as one crowded mass. This is the air, spent between them
      rather than pooled at the bottom. Nothing above the SGB rule is touched:
      the leader lands on that rule, so the space all goes below it. */
+  /* 22px while the panel had over a hundred px unused beneath the last block.
+     The phylum key below now spends most of that — the percentages in its
+     pills carry it to six rows, and it has a caption — so the rhythm gives
+     back the four px per gap that the panel no longer has to spare. */
   .detail-block--compact .panel-content {
-    gap: 22px;
+    gap: 18px;
   }
   .detail-block--compact .species-graphic {
     gap: 10px;
@@ -2249,9 +2323,33 @@
 
   .phylum-band-head {
     display: flex;
-    align-items: center;
+    /* Baseline, mirroring .fblock-headrow: "All" sits on the headline's first
+       line whether or not the one-liner wraps. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
+  }
+
+  /* Rail lead-in: the line under a section head that names what the block
+     under IT shows — the country panel's two row descriptions, the phylum
+     key's share line. One treatment for all of them so a reader learns it
+     once: full white at 18.5px rather than muted body copy, because these
+     lines are part of the rail's structure and not commentary on it, and each
+     ends in a colon because each introduces what follows. Same values as
+     .ls-row-head--promoted .ls-row-desc, which is this same voice inside the
+     country panel. Mirrors .rail-leadin on the anthromes rail. */
+  .rail-leadin {
+    margin: 0;
+    font-size: 18.5px;
+    line-height: 1.32;
+    color: #fff;
+  }
+
+  /* Hugs the headline it qualifies rather than sitting midway between it and
+     the pills — heading, caption, key, not three evenly spaced bands. Mirrors
+     .key-scope on the anthromes rail. */
+  .phylum-scope {
+    margin-top: -7px;
   }
 
   .phylum-band-title {

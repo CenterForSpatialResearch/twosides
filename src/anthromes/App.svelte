@@ -262,10 +262,10 @@
   // scope a second time and cost a row of its height.
   const detailBlurb = $derived(
     detailScale === 'cell'
-      ? "This cell's anthrome transitions over 12,025 years."
+      ? "This cell's anthrome transitions over 12,025 years:"
       : detailScale === 'country'
-        ? `Anthrome timeline of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}.`
-        : 'Anthrome timeline of the World.'
+        ? `Anthrome timeline of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}:`
+        : 'Anthrome timeline of the World:'
   );
 
   // No title over the field at world or country scale — the line under the
@@ -329,12 +329,14 @@
     return `${Math.round(p)}%`;
   }
 
-  // "2025AD" → "2025", "10000BC" → "10000 BCE"
+  // "2025AD" → "2025", "10000BC" → "10,000 BCE". Thousands are grouped in the
+  // BCE era only: five-digit BCE dates are read as quantities and are written
+  // grouped ("10,000 BCE"), while a CE year is a name and never is ("2025").
   function formatYear(yearStr) {
     if (!yearStr) return '';
     const isBCE = /(BCE?|BC)$/.test(yearStr);
     const n = parseInt(yearStr.replace(/[^\d]/g, ''), 10);
-    return isBCE ? `${n} BCE` : `${n}`;
+    return isBCE ? `${n.toLocaleString()} BCE` : `${n}`;
   }
 
   // ── Anthrome filter: click to isolate one, drag across to select a range ──
@@ -931,12 +933,12 @@
 
           {@render lifestyleRow(
             'Westernized',
-            'Populations with more exposure to urbanization, industrialized food and medicine.',
+            'Populations with more exposure to urbanization, industrialized food and medicine:',
             WESTERN_ISOS
           )}
           {@render lifestyleRow(
             'Non-Westernized',
-            'Populations with limited exposure to urbanization and industrialized systems.',
+            'Populations with limited exposure to urbanization and industrialized systems:',
             NONWESTERN_ISOS
           )}
         </section>
@@ -947,7 +949,7 @@
         <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
           {#if refined0821()}
             <h3 class="menu-title">{detailHeading}</h3>
-            <p class="menu-desc">{detailBlurb}</p>
+            <p class="rail-leadin">{detailBlurb}</p>
           {:else}
             <h3 class="menu-title">Details</h3>
             <p class="menu-desc">
@@ -1088,11 +1090,18 @@
         <!-- Bottom tier: always-visible anthrome filter key. Click to isolate one, drag across to select a range. -->
         <section class="anthrome-key">
           <div class="anthrome-key-head">
-            <span class="anthrome-key-title">Anthromes in {formatYear(selectedYear)}: patterns of human habitation and land use.</span>
+            <!-- Headline says what an anthrome IS; the line under it says what
+                 the numbers in the pills are a share OF. The year moved out of
+                 the headline and into that line, where it belongs with the
+                 percentages it qualifies. Set as .menu-oneliner so this
+                 bottom-tier headline reads in the same voice as the biomes
+                 phylum key opposite it. -->
+            <span class="menu-oneliner anthrome-key-title">Anthromes are patterns of human habitation and land use.</span>
             <div class="anthrome-key-actions">
               <button class="mini-link" class:active={selectedAnthromes.length === orderedCodes.length} onclick={handleSelectAll}>All</button>
             </div>
           </div>
+          <p class="rail-leadin key-scope">Anthrome share in {formatYear(selectedYear)}:</p>
           <div class="key-legend">
             <div class="key-axis" aria-hidden="true">
               <span class="key-axis-label">more intensive anthromes</span>
@@ -1176,7 +1185,7 @@
 
           <div class="info-citations">
             <div class="info-citations-title">Citations</div>
-            <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Diaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. "People have shaped most of terrestrial nature for at least 12,000 years." <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
+            <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. “People have shaped most of terrestrial nature for at least 12,000 years.” <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
             <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
             <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
           </div>
@@ -1398,15 +1407,39 @@
 
   .anthrome-key-head {
     display: flex;
-    align-items: center;
+    /* Baseline, not centre: the headline wraps to two lines and `center`
+       floated "All" between them. Mirrors .fblock-headrow above. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
   }
 
+  /* Type comes from .menu-oneliner; this only claims the row's free width so
+     the headline wraps inside it and "All" stays pinned right. */
   .anthrome-key-title {
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Rail lead-in: the line under a section head that names what the block
+     under IT shows — the country panel's two row descriptions, the details
+     subhead, the key's share line. One treatment for all of them so a reader
+     learns it once: full white at 18.5px rather than muted body copy, because
+     these lines are part of the rail's structure and not commentary on it, and
+     each ends in a colon because each introduces what follows. Same values as
+     .ls-row-desc below, which is this same voice inside the country panel. */
+  .rail-leadin {
+    margin: 0;
+    font-size: 18.5px;
+    line-height: 1.32;
+    color: #fff;
+  }
+
+  /* The share line hugs the headline it qualifies rather than sitting midway
+     between it and the legend, so the three parts read as heading, caption,
+     key — not as three evenly spaced bands. */
+  .key-scope {
+    margin-top: -4px;
   }
 
   .anthrome-key-actions {

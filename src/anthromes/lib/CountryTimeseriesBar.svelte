@@ -110,7 +110,7 @@
 
   function formatEra(y) {
     if (y == null) return '';
-    if (y < 0) return `${Math.abs(y).toLocaleString()} BC`;
+    if (y < 0) return `${Math.abs(y).toLocaleString()} BCE`;
     if (y === 0) return '0';
     return `${y.toLocaleString()}`;
   }

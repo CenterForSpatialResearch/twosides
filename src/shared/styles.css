@@ -219,13 +219,13 @@ body {
    TYPE SCALE — all sizes are design px, scaled by the stage transform.
    The floor is 16.6px, matching .fblock-desc (the "Select a country to lens…"
    copy) and the .panel-content base. Body text sizes up from the floor.
-     12px    micro — lineage chips ONLY (see below)
+     14px    micro — lineage chips ONLY (see below)
      16.6px  floor — chips, uppercase micro-labels, CTA, stat pills
      18.5px  step  — numeric values
      23px    title — panel headline (.title / .species-sgb)
    The single sanctioned exception to the floor is the taxonomic lineage row:
    it is reference detail meant to sit visually beneath everything else, so it
-   is set at 12px. Do not borrow that size for anything else — for all other
+   is set at 14px. Do not borrow that size for anything else — for all other
    panel content, smaller than 16.6px is a bug.
 
    LAYOUT STABILITY — the panel re-renders continuously while the disk spins,
@@ -306,7 +306,7 @@ body {
    Glyph and text sit on one baseline; chips wrap. */
 .panel-content .species-graphic {
   display: flex;
-  gap: 18px; /* clears the 2x glyph without crowding the lineage chips */
+  gap: 18px; /* clears the glyph without crowding the lineage chips */
   align-items: center;
   margin: 6px 0 11px;
 }
@@ -339,12 +339,16 @@ body {
   margin-top: -4px;
 }
 
-/* 2x the original 64px. The SVG's viewBox is cropped to the path's extent
-   (see biomes/App.svelte) so the box is the glyph — there is no dead margin
-   baked into the artwork, and this width is the real optical size. */
+/* The SVG's viewBox is cropped to the path's extent (see biomes/App.svelte) so
+   the box IS the glyph — there is no dead margin baked into the artwork, and
+   this width is the real optical size. Grown from 128px (itself 2x the
+   original 64px) to spend some of the rail's spare height on the one graphic
+   in the panel; the margins around .species-graphic are untouched, so the
+   block gets taller without changing its spacing to the rule above it or the
+   genome meter below. */
 .panel-content .species-glyph {
-  width: 128px;
-  height: 128px;
+  width: 148px;
+  height: 148px;
   flex: 0 0 auto;
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.14));
 }
@@ -366,30 +370,43 @@ body {
   line-height: 1.05;
 }
 
-/* Lineage depth varies by species, so this row lands on one line for some and
-   two for others — another source of the rail jumping during a spin. Reserve
-   two rows' worth of height unconditionally and top-align, so a short lineage
-   leaves empty space rather than collapsing the block.
-   Row height = 12px * 1.4 line-height + 4px padding + 2.6px border = 23.4px. */
+/* Lineage depth varies by species, so this row lands on two lines for some and
+   three for others — another source of the rail jumping during a spin. Reserve
+   three rows' worth of height unconditionally and top-align, so a short lineage
+   leaves empty space rather than collapsing the block, and cap it at the same
+   three rows so a long one cannot grow it either: the height of this row is a
+   constant, whatever species the marker lands on.
+   Four rows is the measured worst case, not a guess: laid out at this width
+   (705px) every one of the 4,931 lineages in the catalog wraps to 2 rows
+   (4,391 of them), 3 (396) or 4 (144) — so at four rows nothing is ever
+   clipped and nothing ever moves.
+   Row height = 14px * 1.4 line-height + 4px padding + 2.6px border = 26.2px.
+   Four rows + three row-gaps = 113.8px, which is inside the 148px glyph beside
+   it, so the whole reserve costs the panel nothing. */
 .panel-content .lineage-chips {
   display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
+  /* Centred inside that fixed height, not top-aligned: the reserve is taller
+     than most lineages need, and centring puts a two-row lineage on the
+     glyph's own centre line so the leftover height reads as the row's
+     breathing space rather than as a gap under the chips. */
+  align-content: center;
   align-items: flex-start;
   gap: 3px 5px;
-  min-height: calc(2 * 23.4px + 3px); /* two rows + one row-gap */
+  height: calc(4 * 26.2px + 3 * 3px);
+  overflow: hidden;
 }
 
 /* Deliberately the smallest type in the piece — the lineage is reference
-   detail, subordinate to everything else in the card. Sized well below the
-   16.6px floor on purpose; see the type-scale note above. */
+   detail, subordinate to everything else in the card. Sized below the 16.6px
+   floor on purpose; see the type-scale note above. */
 .panel-content .lineage-chip {
   padding: 2px 7px;
   border-radius: 999px;
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
-  font-size: 12px; /* micro */
+  font-size: 14px; /* micro */
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -409,7 +426,7 @@ body {
 
 .panel-content .lineage-sep {
   color: var(--muted);
-  font-size: 12px; /* micro — matches .lineage-chip */
+  font-size: 14px; /* micro — matches .lineage-chip */
   opacity: 0.6;
   padding: 0 1px;
 }

@@ -435,11 +435,14 @@
   const markerIndex = $derived(yearOrder.indexOf(displayYear));
   const markerX = $derived(markerIndex >= 0 ? fieldLeft + markerIndex * cellW : null);
 
+  // Grouped in the BCE era only, matching the rail's own year labels: a
+  // five-digit BCE date reads as a quantity ("10,000 BCE"), a CE year is a
+  // name and takes no separator ("2025", as on the ring around the map).
   function formatEra(y) {
     if (y == null || !Number.isFinite(y)) return '';
-    if (y < 0) return `${Math.abs(y).toLocaleString()} BC`;
+    if (y < 0) return `${Math.abs(y).toLocaleString()} BCE`;
     if (y === 0) return '0';
-    return `${y.toLocaleString()}`;
+    return `${y}`;
   }
 
   // Ticks sit at their COLUMN, since the axis is equal-count rather than linear.
@@ -450,7 +453,7 @@
   const TICK_PAD = 10;   // clear space required between two labels
 
   // Rough advance width for the tick face (700-weight, uppercase digits and a
-  // possible " BC"). Only used to decide which labels fit, so an estimate is
+  // possible " BCE"). Only used to decide which labels fit, so an estimate is
   // fine — and it must not depend on measuring the DOM, since this runs before
   // the SVG is laid out.
   const labelWidth = (s) => s.length * TICK_FONT_PX * 0.62;
