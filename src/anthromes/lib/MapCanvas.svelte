@@ -1804,7 +1804,7 @@
     }
   });
 
-  // Country picker (Phase 3): selecting a country strokes its boundary.
+  // Country picker: selecting a country strokes its boundary.
   // NOTE: we no longer reset pan/scale here on clear — that decision belongs
   // to the parent App, which distinguishes "picker deselect" (reset view)
   // from "pan-cleared" (keep the panned view).

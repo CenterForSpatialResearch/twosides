@@ -86,7 +86,7 @@
     TZA: 'Tanzania'
   };
 
-  // Country-first primary filter (Phase 3). Parity with biomes side. In-memory
+  // Country-first primary filter. Parity with biomes side. In-memory
   // only: the two sides no longer hand a selection to one another, so there is
   // nothing to seed from the URL and nothing to keep in sync with it.
   let selectedCountryIso3 = $state(null);

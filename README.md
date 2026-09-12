@@ -56,7 +56,9 @@ twosides/
 │   ├── data/              # JSON data files (biomes taxonomy, anthrome summaries)
 │   ├── topojson/          # Map tiles (tracked via Git LFS)
 │   ├── fonts/             # Web fonts
-│   └── index.html         # Landing page
+│   ├── splash/            # Splash imagery
+│   └── grid/              # Packed grid binaries per resolution
+├── index.html             # Landing page
 ├── src/
 │   ├── biomes/            # Biomes visualization
 │   │   ├── App.svelte     # Main component with filter UI
@@ -66,7 +68,6 @@ twosides/
 │   │   └── lib/           # WaffleChart, dataAdapter
 │   └── shared/            # Shared components
 ├── processing/            # Data pipeline for GeoTIFF → GeoJSON/TopoJSON
-├── archive/               # Legacy assets and prototypes (includes old biomes/anthromes D3 pages)
 └── vite.config.js         # Multi-page build config
 ```
 

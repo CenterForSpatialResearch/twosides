@@ -606,33 +606,3 @@ body {
   opacity: 0.75;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
-
-/* NOTE: .species-badges/.species-badge have no markup referencing them as of
-   the feat/cohorts merge — the stat line replaced them. Kept (rescaled to the
-   floor) because they're part of this panel's vocabulary; delete if the badge
-   row isn't coming back. */
-.panel-content .species-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 11px;
-  margin: 6px 0 12px;
-}
-
-.panel-content .species-badge {
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1.3px solid rgba(255, 255, 255, 0.18);
-  color: var(--fg);
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: none;
-  white-space: nowrap;
-}
-
-.panel-content .species-badge.accent {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #fff;
-}

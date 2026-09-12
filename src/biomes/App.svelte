@@ -70,7 +70,7 @@
     TZA: 'Tanzania'
   };
 
-  // Country-first primary filter (Phase 2). ISO3 or null. In-memory only: the
+  // Country-first primary filter. ISO3 or null. In-memory only: the
   // two sides no longer hand a selection to one another, so there is nothing
   // to seed from the URL and nothing to keep in sync with it.
   let selectedCountryIso3 = $state(null);
@@ -325,7 +325,7 @@
       widespreadPct = Math.round((widespread / totalLeaves) * 100);
       concentratedPct = Math.round((concentrated / totalLeaves) * 100);
 
-      // Country-first picker data (Phase 2): the curated 8-country manifest and
+      // Country-first picker data: the curated 8-country manifest and
       // the admin boundary geometries used to draw each CountryCircle globe.
       try {
         const base = import.meta.env.BASE_URL;
@@ -874,15 +874,9 @@
     URL.revokeObjectURL(url);
   }
 
-  // Resize handler
-  function handleResize() {
-    // no-op for now; reserved for responsive tweaks
-  }
-
   // Mount effects
   onMount(() => {
     window.addEventListener('click', handleWindowClick);
-    window.addEventListener('resize', handleResize);
     const setSize = () => {
       viewportW = window.innerWidth;
       viewportH = window.innerHeight;
@@ -892,7 +886,6 @@
 
     return () => {
       window.removeEventListener('click', handleWindowClick);
-      window.removeEventListener('resize', handleResize);
       window.removeEventListener('resize', setSize);
     };
   });
@@ -926,8 +919,6 @@
       linkAriaLabel="Go to Anthromes"
       homeHref={import.meta.env.BASE_URL}
     />
-
-    <!-- Settings toggle & panel intentionally hidden for now -->
 
     <div class="layout">
       <div class="viz-area">
