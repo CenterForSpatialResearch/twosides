@@ -8,6 +8,7 @@
   import { loadGrid, distributionForCountry, countryTableOf } from './lib/gridSource.js';
   import { topoProfile, setTopoProfile, TOPO_PROFILES, hasProfileInfo, profileSizes } from '../shared/topoProfile.svelte.js';
   import { countrySet, boundaryUrl } from '../shared/countrySet.svelte.js';
+  import { timelineMode } from '../shared/timelineMode.svelte.js';
   import { feature as topoFeature } from 'topojson-client';
   import DevHud from '../shared/DevHud.svelte';
   import NavCircle from '../shared/NavCircle.svelte';
@@ -180,11 +181,9 @@
     cellSeries ? 'cell' : selectedCountryIso3 ? 'country' : 'world'
   );
 
-  // Debug-panel experiment: how the details timeline apportions its rows (see
-  // PixelTimeline's rowsMode). 1 is the exhibited chart; 2 and 3 give each
-  // dataset as many cells as it has land cells at the drawn resolution,
-  // uncapped and capped. Reset on load; nothing persists it.
-  let timelineMode = $state(1);
+  // How the details timeline apportions its rows lives in the DevHud, beside
+  // the other switchable renders — see src/shared/timelineMode.svelte.js for
+  // what the three modes are and PixelTimeline's rowsMode for how they draw.
 
   // Land cells in whatever the timeline is showing, at the drawn resolution:
   // the country's largest per-year total (years with nodata cells run a few
@@ -258,27 +257,30 @@
       ? 'Anthrome composition of a cell'
       : 'MODELING 12,025 YEARS OF LAND USE'
   );
+  // World and country scale say what the panel IS — a timeline of somewhere —
+  // because the chart title that used to sit above the field said the same
+  // scope a second time and cost a row of its height.
   const detailBlurb = $derived(
     detailScale === 'cell'
       ? "This cell's anthrome transitions over 12,025 years."
       : detailScale === 'country'
-        ? `Anthrome composition of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}.`
-        : 'Anthrome composition of the World.'
+        ? `Anthrome timeline of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}.`
+        : 'Anthrome timeline of the World.'
   );
 
-  // The land-area timeline variants name their cell count instead, since the
-  // count is what they are showing.
+  // No title over the field at world or country scale — the line under the
+  // heading carries the scope. The land-area variants behind the dev HUD's
+  // TIMELINE toggle keep one, because what they have to say (how many cells the
+  // rows stand for) is said nowhere else.
   const detailTitle = $derived.by(() => {
     if (detailScale === 'cell') return 'Cell history';
-    if (timelineMode !== 1 && detailCellCount != null) {
+    if (timelineMode() !== 1 && detailCellCount != null) {
       const scope = detailScale === 'country'
         ? withArticle(countryLabel(selectedCountryIso3))
         : 'the World';
       return `${detailCellCount.toLocaleString()} cells in ${scope}`;
     }
-    return detailScale === 'country'
-      ? `${countryLabel(selectedCountryIso3)} anthrome timeline`
-      : 'World anthrome timeline';
+    return '';
   });
 
   // Cell history chart state (lifted from MapCanvas via WaffleChart bindings)
@@ -848,13 +850,9 @@
         <span>Show Projection Debug Menu</span>
       </label>
 
-      <label>
-        <span>Anthrome Timeline</span>
-        <select bind:value={timelineMode}>
-          <option value={1}>1 · Equal cells (as-is)</option>
-          <option value={2}>2 · Cells match land area</option>
-          <option value={3}>3 · Cells match land area, capped</option>
-        </select>
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={showBoundaries} />
+        <span>Show Country Boundaries</span>
       </label>
 
       <button class="export-btn" onclick={handleExport}>
@@ -917,8 +915,8 @@
                       {iso3}
                       label={SHORT_LABELS[iso3] ?? iso3}
                       {feature}
-                      size={168}
-                      labelFontSize={20}
+                      size={150}
+                      labelFontSize={19}
                       ringStroke={3.4}
                       ringStrokeSelected={5}
                       selected={selectedCountryIso3 === iso3}
@@ -1007,7 +1005,9 @@
               {/if}
 
               <div class="history-chart-section history-chart-section--fill" bind:this={historyChartEl}>
-                <div class="history-chart-title">{detailTitle}</div>
+                {#if detailTitle}
+                  <div class="history-chart-title">{detailTitle}</div>
+                {/if}
                 <div class="pixel-chart-box" bind:this={pixelChartEl}>
                   <PixelTimeline
                     mode={detailScale === 'cell' ? 'ladder' : 'stack'}
@@ -1016,7 +1016,7 @@
                       : worldDistribution}
                     series={cellSeries?.byYear ?? null}
                     sourceKey={detailSourceKey}
-                    rowsMode={timelineMode}
+                    rowsMode={timelineMode()}
                     cellCount={detailCellCount}
                     {colorMapping}
                     {labelMapping}
@@ -1099,21 +1099,22 @@
             </div>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="key-swatches" onpointerdown={keyPointerDown}>
+              <!-- Two grid columns, not six stacked blocks: the category name
+                   sits beside its pills instead of on a line of its own, which
+                   is six lines of height the timeline above gets back. -->
               {#each LEGEND_CATEGORIES as category}
-                <div class="key-family">
-                  <div class="key-cat-name">{category.name}</div>
-                  <div class="key-pills">
-                    {#each category.codes as code}
-                      {@const pct = currentPercentages[String(code)] ?? 0}
-                      <button
-                        class="key-pill"
-                        class:dim={!selectedAnthromes.includes(code)}
-                        data-idx={displayedCodes.indexOf(code)}
-                        style="background:{colorMapping[code]}; color:{textColor(colorMapping[code])};"
-                        title="{labelMapping[code]} — {fmtPct(pct)}"
-                      >{labelMapping[code]} ({fmtPct(pct)})</button>
-                    {/each}
-                  </div>
+                <div class="key-cat-name">{category.name}</div>
+                <div class="key-pills">
+                  {#each category.codes as code}
+                    {@const pct = currentPercentages[String(code)] ?? 0}
+                    <button
+                      class="key-pill"
+                      class:dim={!selectedAnthromes.includes(code)}
+                      data-idx={displayedCodes.indexOf(code)}
+                      style="background:{colorMapping[code]}; color:{textColor(colorMapping[code])};"
+                      title="{labelMapping[code]} — {fmtPct(pct)}"
+                    >{labelMapping[code]} ({fmtPct(pct)})</button>
+                  {/each}
                 </div>
               {/each}
             </div>
@@ -1379,8 +1380,15 @@
   }
 
   /* ===== MoMA: bottom anthrome filter key (always visible) ===== */
+  /* `0 0 auto`, not `0 1 auto`: the key is sized to its content and the details
+     dock above it takes whatever is left, so there is nothing for shrinking to
+     buy — and shrinking is what put a scrollbar on it. The content fitted its
+     box to the pixel, so on any display where the stage scale is not exactly 1
+     the flex distribution rounded the box a fraction under the content and
+     .key-legend's overflow:auto showed a bar. The max-height still bounds it,
+     and the overflow is still there as the valve if the key ever hits it. */
   .anthrome-key {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1486,24 +1494,44 @@
     user-select: none;
   }
 
+  /* Eight rows of pills under six category heads, and the whole thing has to
+     fit the rail's bottom slot without a scrollbar — on the target display it
+     fitted to the pixel, so at any other scale the rounding tipped it into
+     scrolling. The gaps below are what pays for the headroom; the pills keep
+     their type size, since the key is read from across a room. */
+  /* One grid row per category: name on the left, its pills on the right.
+     The name column is a FIXED width, so all six names start on the same left
+     edge and the pill rows all start on the same one too — the column reads as
+     a single list of headings rather than six of different lengths. 116px is
+     the longest word in the set ("SETTLEMENTS", 110px) plus slack; "Dense
+     Settlements" is the one name that wraps, onto two lines, which is what the
+     min-height on the name below is sized for. */
   .key-swatches {
     flex: 1;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    /* 12px between categories against 4px between a category's own wrapped
+       rows (below): with the name beside the first row rather than above the
+       group, that ratio is what tells the eye a second row of pills belongs to
+       the name on its left and not to the one underneath. */
+    gap: 12px 14px;
     align-content: start;
   }
 
-  .key-family {
-    display: flex;
-    flex-direction: column;
-    gap: 3.8px;
-  }
-
   .key-cat-name {
+    /* Top of its row, not centred in it: a category whose pills wrap to two
+       rows should still have its name beside the FIRST row. min-height is one
+       pill row, so a name is centred on the pills it labels — and at
+       line-height 1.2 the two lines of "Dense Settlements" come to 33.6px,
+       inside that same row, so the wrap costs no height. */
+    align-self: start;
+    display: flex;
+    align-items: center;
+    min-height: 34px;
     font-size: 14px;
     font-weight: 700;
+    line-height: 1.2;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
@@ -1512,7 +1540,7 @@
   .key-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 7.7px;
+    gap: 4px 6px;
     align-items: center;
   }
 
@@ -1520,8 +1548,8 @@
   .key-pill {
     display: inline-flex;
     align-items: center;
-    height: 38px;
-    padding: 0 14px;
+    height: 34px;
+    padding: 0 13px;
     border-radius: 10px;
     border: 1.3px solid rgba(0, 0, 0, 0.18);
     font-size: 15px;
@@ -1551,7 +1579,13 @@
   }
 
   /* Country picker: one row of 4 per lifestyle group. Cells are equal-width
-     regardless of label length so the grid stays uniform. Mirrors biomes side. */
+     regardless of label length so the grid stays uniform. Mirrors biomes side.
+     The circles, labels, head and headrow are all identical to that side; the
+     one thing this side does not carry is the "{n}% unknown" caption under
+     each globe, which is 22px of biomes' rows. The padding here and the gap
+     between the two groups below spend exactly that 44px as air instead, so
+     the two country panels stay the same height and the details titles under
+     them ("MODELING 12,025 YEARS…" here, "5000 LINES…" there) stay level. */
   .country-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1560,7 +1594,7 @@
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 16px;
+    padding-top: 24px;
   }
 
   .country-cell {
@@ -1572,10 +1606,12 @@
 
   .fblock-headrow {
     display: flex;
-    align-items: center;
+    /* Baseline, so "All" sits on the first line of the wrapped one-liner
+       headline rather than floating between its two lines. Mirrors biomes. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
-    margin-bottom: 12px;    /* mirrors the biomes rail */
+    margin-bottom: 8px;     /* mirrors the biomes rail */
   }
 
   .country-badge {
@@ -1650,11 +1686,11 @@
   .ls-row {
     display: flex;
     flex-direction: column;
-    gap: 11px;
+    gap: 9px;
   }
 
   .ls-row + .ls-row {
-    margin-top: 34px;       /* mirrors the biomes rail */
+    margin-top: 36px;       /* biomes' 20px + its share of the caption line */
   }
 
   .ls-row-head {

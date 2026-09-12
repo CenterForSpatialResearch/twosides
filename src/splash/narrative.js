@@ -51,6 +51,17 @@ const ENTER_GAP = 58;                         // hint radius = title radius − 
 const PERIOD   = 20000;
 const FADE_MS  = 4000;
 
+// Where the turn begins. Not 0 — at 0 the biomes face is already square to the
+// screen, so the emphasis is at its peak on the first frame and has nowhere to
+// go but down: the screen opens on biomes and hands over to anthromes within
+// five seconds, before the reader has finished the framing line. A quarter turn
+// earlier the disk starts edge on with the biomes face just coming round, so
+// biomes brightens into its half of the turn and holds it for the full half.
+// This is also the rotation boundary — content swaps land here, a full 360
+// later — so a new framing line and a new pair of dichotomies always arrive as
+// the biomes face comes into view.
+const START_ANGLE = -90;
+
 // Commit transition. The disk comes to rest on the side that was chosen, square
 // to the screen: biomes at 0 degrees, anthromes at 180. Those are also the only
 // two angles at which it reads as a circle at all — at 90 and 270 it is edge on,
@@ -322,7 +333,7 @@ export function mountNarrative(root) {
     }
 
     const t = now - startT;
-    currentAngle = (t / PERIOD) * 360;
+    currentAngle = START_ANGLE + (t / PERIOD) * 360;
     coin.style.transform = `rotateY(${currentAngle}deg)`;
 
     const rotNum = Math.floor(t / PERIOD);
@@ -385,6 +396,11 @@ export function mountNarrative(root) {
     // Still needs a frame loop: it is what drives the commit transition.
     rafId = requestAnimationFrame(render);
   } else {
+    // Place the disk at the start angle before the first frame, or the markup's
+    // rotateY(0) would flash one frame of the biomes face square to the screen
+    // before the turn picks it up edge on.
+    currentAngle = START_ANGLE;
+    coin.style.transform = `rotateY(${START_ANGLE}deg)`;
     rafId = requestAnimationFrame(render);
   }
 

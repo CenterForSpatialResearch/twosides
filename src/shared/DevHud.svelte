@@ -8,11 +8,12 @@
   import { uiOption, cycleUiOption, uiOptionLabel, UI_OPTION_COUNT } from './uiOption.svelte.js';
   import { topoProfile, cycleTopoProfile, DEFAULT_TOPO_PROFILE, hasProfileInfo, profileSizes } from './topoProfile.svelte.js';
   import {
-    countrySet, cycleCountrySet, countrySetLabel, DEFAULT_COUNTRY_SET, COUNTRY_SET_INFO
-  } from './countrySet.svelte.js';
+    timelineMode, cycleTimelineMode, timelineModeLabel,
+    DEFAULT_TIMELINE_MODE, TIMELINE_MODES, TIMELINE_MODE_INFO
+  } from './timelineMode.svelte.js';
 
-  // Only the anthromes side has a map, so only it opts into the resolution
-  // toggle. Biomes leaves it off.
+  // Only the anthromes side has a map and a details timeline, so only it opts
+  // into those two toggles. Biomes leaves them off.
   let {
     showMapResolution = false
   } = $props();
@@ -164,11 +165,11 @@
         </button>
         <button
           class="hud-btn"
-          class:on={countrySet() !== DEFAULT_COUNTRY_SET}
-          title={countrySetLabel(countrySet())}
-          onclick={cycleCountrySet}
+          class:on={timelineMode() !== DEFAULT_TIMELINE_MODE}
+          title={timelineModeLabel(timelineMode())}
+          onclick={cycleTimelineMode}
         >
-          BOUNDARIES: {countrySet()} &middot; {COUNTRY_SET_INFO[countrySet()]?.table ?? '?'}&nbsp;u{COUNTRY_SET_INFO[countrySet()]?.bits ?? '?'}
+          TIMELINE: {timelineMode()}/{TIMELINE_MODES.length} &middot; {TIMELINE_MODE_INFO[timelineMode()]?.label ?? '?'}
         </button>
       {/if}
     </div>

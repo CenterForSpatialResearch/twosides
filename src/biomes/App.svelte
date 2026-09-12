@@ -1133,8 +1133,8 @@
                       iso3={item.iso3}
                       label={SHORT_LABELS[item.iso3] ?? item.iso3}
                       {feature}
-                      size={168}
-                      labelFontSize={20}
+                      size={150}
+                      labelFontSize={19}
                       ringStroke={3.4}
                       ringStrokeSelected={5}
                       selected={selectedCountryIso3 === item.iso3}
@@ -1742,18 +1742,23 @@
 
   /* Sits under the SGB rule inside .panel-content, whose grid gap already
      spaces it; the only correction it needs is to sit a little tighter to the
-     rule it glosses than to the block that follows. */
+     rule it glosses than to the block that follows. Pulled up by most of that
+     gap, so widening the panel's rhythm below (see .detail-block--compact
+     .panel-content) does not push the gloss off the name it glosses. */
   .detail-oneliner {
-    margin-top: -2px;
+    margin-top: -13px;
   }
 
-  /* Compact detail panel — tighter internal gaps + smaller section margins so
-     the added one-liner header fits without pushing content off-rail. Note the
-     8/21 pass had also given .panel-content `align-content: start`, which
-     already reclaims the slack that used to pool under each heading; this trims
-     what is left to pay for the new header line. */
+  /* Compact detail panel — `align-content: start` (see .panel-content) stacks
+     the blocks from the top rather than spreading them, so this sets the
+     rhythm between them outright. The gap was 7px when the rail had no room
+     to spare; the panel now runs to the foot of the rail with well over a
+     hundred px unused under the last block, and at that height the five
+     blocks read as one crowded mass. This is the air, spent between them
+     rather than pooled at the bottom. Nothing above the SGB rule is touched:
+     the leader lands on that rule, so the space all goes below it. */
   .detail-block--compact .panel-content {
-    gap: 7px;
+    gap: 22px;
   }
   .detail-block--compact .species-graphic {
     gap: 10px;
@@ -1762,6 +1767,17 @@
   .detail-block--compact .sp-statline,
   .detail-block--compact .sp-countries {
     padding: 0;
+  }
+  /* Within a block, one step looser as well, so the added rhythm between
+     blocks doesn't make each block look tighter by comparison. */
+  .detail-block--compact .genome-meter {
+    gap: 9px;
+  }
+  .detail-block--compact .sp-statline {
+    gap: 10px 8px;
+  }
+  .detail-block--compact .sp-countries {
+    gap: 10px 11px;
   }
 
   .fblock-desc {
@@ -1887,12 +1903,19 @@
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 16px;
+    padding-top: 10px;
   }
 
+  /* A column, not a row: .ls-pct is a SIBLING of the circle, so while this was
+     `display:flex` with the default row direction the caption sat beside the
+     globe and ran into the next one along. Stacking it puts the caption under
+     the country's name, which is what its centred text and top margin were
+     written for. */
   .country-cell {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
     width: 100%;
     min-width: 0;
   }
@@ -1901,10 +1924,15 @@
      right — same visual weight as the phylum-band-head. */
   .fblock-headrow {
     display: flex;
-    align-items: center;
+    /* Baseline, not centre: the one-liner headline wraps to two lines and
+       `center` floated "All" between them, reading as misaligned against both
+       the first line and the top of the panel. On the baseline it sits on the
+       headline's first line, where the eye expects the block's top-right
+       corner to be. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
-    margin-bottom: 12px;    /* same as the anthromes rail — the two country
+    margin-bottom: 8px;     /* same as the anthromes rail — the two country
                                panels mirror each other down to the titles */
   }
 
@@ -2284,11 +2312,11 @@
   .ls-row {
     display: flex;
     flex-direction: column;
-    gap: 11px;
+    gap: 9px;
   }
 
   .ls-row + .ls-row {
-    margin-top: 34px;       /* breathing room between the two groups; mirrored */
+    margin-top: 20px;       /* breathing room between the two groups; mirrored */
   }
 
   .ls-row-head {
@@ -2327,9 +2355,10 @@
      row line up regardless of digit widths. */
   .ls-pct {
     display: block;
-    margin-top: 7px;
+    margin-top: 4px;
     text-align: center;
-    font-size: 15.5px;
+    line-height: 1.2;
+    font-size: 15px;
     font-weight: 600;
     letter-spacing: 0.01em;
     font-variant-numeric: tabular-nums;
