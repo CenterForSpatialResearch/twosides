@@ -190,12 +190,12 @@ export function parseUSGB(meta) {
 /**
  * Get western label for display
  * @param {Object} meta - Metadata object
- * @returns {string} 'Western', 'Non-Western', or '—'
+ * @returns {string} 'Westernized', 'Non-Westernized', or '—'
  */
 export function westernLabel(meta) {
   const v = parseWestern(meta);
-  if (v === 'western') return 'Western';
-  if (v === 'nonwestern') return 'Non-Western';
+  if (v === 'western') return 'Westernized';
+  if (v === 'nonwestern') return 'Non-Westernized';
 
   const mode = meta?.Westernized_Mode ?? meta?.westernized_mode ?? null;
   if (mode) return String(mode);

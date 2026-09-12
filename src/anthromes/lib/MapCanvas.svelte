@@ -12,7 +12,7 @@
   import { countrySet, boundaryUrl } from '../../shared/countrySet.svelte.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
-  import { refined0821, countryFromMap } from '../../shared/uiOption.svelte.js';
+  import { refined0821, countryFromMap, finalUi } from '../../shared/uiOption.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -1329,7 +1329,7 @@
       <div class="kv">
         ${countryISO3 ? `<div class="k">Present Day Country</div><div>${meta.countryName}</div>` : ''}
         ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
-        ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
+        ${crosswalk ? `<div class="k">Percent of "${finalUi() ? 'Westernized' : 'Western'}" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>`;
 
     const html = `

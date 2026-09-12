@@ -23,6 +23,9 @@
   position: fixed;
   inset: 0;
   overflow: hidden;
+  /* No double-tap page zoom anywhere on the piece; the two charts go further
+     and take the whole gesture (touch-action: none) for their own pan/pinch. */
+  touch-action: manipulation;
   /* DevHud swaps this for blue when we're off-target. */
   background: var(--letterbox-bg, var(--bg));
 }

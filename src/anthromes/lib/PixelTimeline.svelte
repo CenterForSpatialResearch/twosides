@@ -70,6 +70,18 @@
     // on DROP, not on every move, so scrubbing does not re-render the map
     // dozens of times on the way past.
     scrubbable = false,
+    // How many rows a stack-mode column has:
+    //   1 — enough for roughly square cells; the box decides (the exhibited
+    //       chart, and the same count for every dataset)
+    //   2 — one row per grid cell in the dataset at the drawn resolution, so
+    //       a small country's column is a handful of tall cells and the
+    //       world's is a continuous band
+    //   3 — as 2, but never more rows than mode 1 gives, so a large dataset
+    //       still resolves in squares
+    // Modes 2 and 3 read cellCount (the dataset's land cells) and fall back to
+    // mode 1 without it. A debug-panel experiment; see App's timelineMode.
+    rowsMode = 1,
+    cellCount = null,
     width = 800,
     height = 300
   } = $props();
@@ -219,12 +231,23 @@
 
   // Stack mode picks a row count that keeps cells roughly square, then divides
   // the exact height evenly so the field fills its box top to bottom.
-  const rows = $derived(
-    isLadder
-      ? Math.max(1, ladderCodes.length)
-      : Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.round(fieldH / Math.max(1, cellW))))
+  const squareRows = $derived(
+    Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.round(fieldH / Math.max(1, cellW))))
   );
+  const rows = $derived.by(() => {
+    if (isLadder) return Math.max(1, ladderCodes.length);
+    if (rowsMode === 1 || !cellCount) return squareRows;
+    const n = Math.max(1, Math.round(cellCount));
+    return rowsMode === 3 ? Math.min(squareRows, n) : n;
+  });
   const cellH = $derived(fieldH / rows);
+
+  // Past this many rows a cell is thinner than a hairline, so the column is
+  // drawn as continuous bands — one per anthrome, sized by its exact share —
+  // which is what a stack of that many pixels would look like anyway, at a
+  // few rects per column instead of thousands.
+  const BAND_ROWS = 160;
+  const banded = $derived(!isLadder && rows > BAND_ROWS);
 
   // One label per family, centred on the rows its member codes occupy.
   const ladderBands = $derived.by(() => {
@@ -304,6 +327,23 @@
               label: labelMapping[rowCode] || String(rowCode)
             });
           }
+        }
+      } else if (banded) {
+        const dist = renderedData[year] || {};
+        let top = fieldTop + fieldH; // bands stack upward from the base
+        for (const code of [...orderedCodes].reverse()) {
+          const share = dist[String(code)] || 0;
+          if (share <= 0) continue;
+          const h = share * fieldH;
+          top -= h;
+          cells.push({
+            key: `b${code}`,
+            y: top,
+            h,
+            color: colorMapping[code] || '#666',
+            opacity: dimFor(code, 1),
+            label: labelMapping[code] || String(code)
+          });
         }
       } else {
         const dist = renderedData[year] || {};
@@ -484,11 +524,13 @@
   {#each visibleColumns as col (col.year)}
     <g class="col">
       {#each col.cells as cell (cell.key)}
+        <!-- A band carries its own height and no inset; a pixel is inset by
+             CELL_GAP on every side so the field reads as cells. -->
         <rect
-          x={col.x + CELL_GAP / 2}
-          y={cell.y + CELL_GAP / 2}
-          width={Math.max(0.5, cellW - CELL_GAP)}
-          height={Math.max(0.5, cellH - CELL_GAP)}
+          x={col.x + (cell.h != null ? 0 : CELL_GAP / 2)}
+          y={cell.y + (cell.h != null ? 0 : CELL_GAP / 2)}
+          width={Math.max(0.5, cellW - (cell.h != null ? 0 : CELL_GAP))}
+          height={cell.h != null ? cell.h : Math.max(0.5, cellH - CELL_GAP)}
           fill={cell.color}
           opacity={cell.opacity}
         />
@@ -577,6 +619,9 @@
   .col-hit {
     fill: transparent;
     cursor: pointer;
+    /* The scrub owns the touch: without this the browser cancels the drag as a
+       scroll after a few px. */
+    touch-action: none;
   }
 
   .col-hit:hover {

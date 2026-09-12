@@ -19,12 +19,12 @@
   import PhylumBubbles from './lib/PhylumBubbles.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   // Option numbers live in shared/uiOption.svelte.js. Comments below that say
-  // "Option 1" mean the refined arrangement, which is now options 1-3 (the
-  // narrative pass, the 8/21 pass and 8/14) — hence refinedLayout() for
-  // anything all three share, refined0821() for what 8/21 introduced and the
-  // narrative pass inherits, and narrative0821() for the copy that is the
-  // narrative pass's alone.
-  import { uiOption, refinedLayout, refined0821, narrative0821 } from '../shared/uiOption.svelte.js';
+  // "Option 1" mean the refined arrangement, which is now options 1-5 (the
+  // final ui, country-from-map, the narrative pass, the 8/21 pass and 8/14) —
+  // hence refinedLayout() for anything they all share, refined0821() for what
+  // 8/21 introduced and the later passes inherit, narrative0821() for the copy
+  // that arrived with the narrative pass, and finalUi() for the final wording.
+  import { uiOption, refinedLayout, refined0821, narrative0821, finalUi } from '../shared/uiOption.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -415,8 +415,6 @@
     selectedStudyKey = null;
     selectedCountryIso3 = null;
     openPanel = null;
-    detailContent = null;
-    detailPoint = null;
     biomesChartRef?.resetControl?.();
   }
 
@@ -625,42 +623,6 @@
     return best;
   });
 
-  // ── Phylum pills: tap isolates one, drag across selects a contiguous range ──
-  // (mirrors the anthromes filter key; pointer-based so it works on touch)
-  let phDragging = $state(false);
-  let phAnchor = $state(null);
-
-  function phIdxFromPoint(e) {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const pill = el?.closest?.('.phylum-dot');
-    const idx = pill?.dataset?.idx;
-    return idx == null ? null : parseInt(idx, 10);
-  }
-  function selectPhylaRange(a, b) {
-    const s = Math.min(a, b), e = Math.max(a, b);
-    selectedPhyla = allPhyla.slice(s, e + 1);
-  }
-  function phPointerDown(e) {
-    const pill = e.target?.closest?.('.phylum-dot');
-    if (!pill || pill.dataset.idx == null) return;
-    e.preventDefault();
-    phDragging = true;
-    phAnchor = parseInt(pill.dataset.idx, 10);
-    selectPhylaRange(phAnchor, phAnchor);
-    window.addEventListener('pointermove', phPointerMove);
-    window.addEventListener('pointerup', phPointerUp, { once: true });
-  }
-  function phPointerMove(e) {
-    if (!phDragging || phAnchor == null) return;
-    const idx = phIdxFromPoint(e);
-    if (idx != null) selectPhylaRange(phAnchor, idx);
-  }
-  function phPointerUp() {
-    phDragging = false;
-    phAnchor = null;
-    window.removeEventListener('pointermove', phPointerMove);
-  }
-
   function toggleBodySite(site) {
     const next = new Set(selectedBodySites);
     next.has(site) ? next.delete(site) : next.add(site);
@@ -686,36 +648,22 @@
     }
   }
 
-  // Handle click outside to close panel
+  // Handle click outside to close panel. Clicks inside the rail (the control
+  // circles, the filters, the details block) and inside the info modal never
+  // close anything, as on the anthromes side. The Info button toggles the
+  // modal in its own handler; this one used to null openPanel right after
+  // that toggle because the button sits in the rail, so the modal never showed.
   function handleWindowClick(e) {
     const target = e.target;
-    // Never close things when interacting inside the modals
-    if (target.closest('.detail-rail') || target.closest('.info-modal')) {
-      return;
-    }
-    // Rail interactions (filters/controls) keep the detail panel open
-    if (target.closest('.rail') || target.closest('#settings') || target.closest('#menuToggle')) {
-      openPanel = null;
+    if (target.closest('.rail') || target.closest('.info-modal') || target.closest('#settings') || target.closest('#menuToggle')) {
       return;
     }
     openPanel = null;
-    if (!target.closest('.viz-area')) {
-      detailContent = null;
-      detailPoint = null;
-    }
   }
 
   function handleZoomChange(event) {
     zoomIdx = event.detail?.index ?? 0;
   }
-
-  // Close detail when any panel opens
-  $effect(() => {
-    if (openPanel && detailContent) {
-      detailContent = null;
-      detailPoint = null;
-    }
-  });
 
   function handleDetail(event) {
     detailContent = event.detail?.content || null;
@@ -728,12 +676,9 @@
     event.stopPropagation();
   }
 
-  function handleDetailClose() {
-    detailContent = null;
-    detailPoint = null;
-    detailMeta = null;
-    detailPanelAnchor = null;
-  }
+  // 'detail-close' is only dispatched when the chart has nothing to show,
+  // which no longer happens in use; the panel keeps its last species.
+  function handleDetailClose() {}
 
   // Per-species stats grid — the four axes the paper reports on. Each axis
   // returns a categorical label + the raw count that classified it. The
@@ -939,7 +884,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() === 5 && selectedCountryIso3 !== null}
+          lifestyleColor={uiOption() === 6 && selectedCountryIso3 !== null}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
           on:zoomchange={handleZoomChange}
@@ -985,15 +930,14 @@
             bind:this={detailPanelEl}
             onclick={(e) => e.stopPropagation()}
           >
-            {#if !detailContent}
-              <!-- Nothing selected, so there is no rule for the leader to land
-                   on and nothing for the one-liner to displace. It heads the
-                   panel here, which is where it sits in the empty state. -->
-              {#if narrative0821()}
-                <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
-              {/if}
-              <p class="detail-hint">Spin the disk to inspect a species.</p>
-            {:else if detailMeta}
+            <!-- Section head, the side's subheadline: the same slot the
+                 anthromes details panel gives "MODELING 12,025 YEARS OF LAND
+                 USE". It sits inside the SGB title's measured lead-in, so the
+                 rule under the SGB name still lands at the marker's height. -->
+            <h3 class="fblock-title detail-heading">5000 LINES 5000 SPECIES</h3>
+            <!-- Never empty: the disk selects whichever species the marker
+                 points at, from first render on, and nothing clears it. -->
+            {#if detailMeta}
               <!-- .panel-content carries the shared panel typography (see
                    src/shared/styles.css); .detail-scroll supplies the
                    min-height:0 that lets it scroll inside the flex column
@@ -1021,7 +965,7 @@
                      stay the first thing in the panel for the leader to run
                      straight, exactly as it does in the 8/21 pass. -->
                 {#if narrative0821()}
-                  <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
+                  <h3 class="fblock-oneliner detail-oneliner">A species is defined through genomic similarity.</h3>
                 {/if}
                 <div class="species-graphic">
                   {#if detailMeta.glyphPath}
@@ -1130,8 +1074,8 @@
           </section>
         {/snippet}
 
-        {#if uiOption() <= 5}
-        <!-- Options 1-4 (Lifestyle): the eight countries split into the two
+        {#if uiOption() <= 6}
+        <!-- Options 1-5 (Lifestyle): the eight countries split into the two
              categories the study itself assigns, each row ranked by the share
              of that country's species previously unknown to science. Selecting
              a country recolours the disk by lifestyle exclusivity; the magenta
@@ -1139,9 +1083,10 @@
              structurally absent from every Westernized country (any species
              found there is by definition in a Westernized sample).
 
-             Option 1 differs only in the row head: the "Western"/"Non-Western"
-             titles are dropped and each row's description is promoted into
-             that slot (see lifestyleRow below). -->
+             The refined options differ only in the row head: the "Western"/
+             "Non-Western" titles are dropped and each row's description is
+             promoted into that slot (see lifestyleRow below). The final ui
+             also renames those titles Westernized / Non-Westernized. -->
         <section class="fblock">
           <div class="fblock-headrow">
             <!-- Narrative pass: the category label and the instruction under it
@@ -1150,7 +1095,7 @@
                  mini-link still carries the affordance the instruction spelled
                  out, so nothing is lost but the prose. -->
             {#if narrative0821()}
-              <h3 class="fblock-oneliner">Samples become cohorts; cohorts become a geography of microbial observation.</h3>
+              <h3 class="fblock-oneliner">An extensive microbiome contains fragments of DNA from people in many countries.</h3>
             {:else}
               <h3 class="fblock-title">Country</h3>
             {/if}
@@ -1188,8 +1133,8 @@
                       iso3={item.iso3}
                       label={SHORT_LABELS[item.iso3] ?? item.iso3}
                       {feature}
-                      size={150}
-                      labelFontSize={19}
+                      size={168}
+                      labelFontSize={20}
                       ringStroke={3.4}
                       ringStrokeSelected={5}
                       selected={selectedCountryIso3 === item.iso3}
@@ -1204,14 +1149,14 @@
           {/snippet}
 
           {@render lifestyleRow(
-            'Western',
-            'Populations living with industrialized food, medicine and urban land use.',
+            finalUi() ? 'Westernized' : 'Western',
+            'Populations with more exposure to urbanization, industrialized food and medicine.',
             westernRow
           )}
 
           {@render lifestyleRow(
-            'Non-Western',
-            'Populations with limited exposure to industrialized systems and urbanized land.',
+            finalUi() ? 'Non-Westernized' : 'Non-Western',
+            'Populations with limited exposure to urbanization and industrialized systems.',
             nonWesternRow
           )}
 
@@ -1221,7 +1166,7 @@
                Option 1 drops the magenta encoding entirely, so it needs
                neither the key nor the space it reserved — the details panel
                moves up into it. -->
-          {#if uiOption() === 5}
+          {#if uiOption() === 6}
             <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
               {#if selectedIsNonWestern}
                 <span class="ls-key-item">
@@ -1241,7 +1186,7 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 6}
+        {:else if uiOption() === 7}
         <!-- Option 5 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
@@ -1330,7 +1275,7 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 7}
+        {:else if uiOption() === 8}
         <!-- Option 6 (Split): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
@@ -1498,25 +1443,20 @@
               <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
             </div>
           </div>
-          {#if uiOption() <= 5}
-            <!-- Options 1-4 use the flat pill key (same vocabulary as the
+          {#if uiOption() <= 6}
+            <!-- Options 1-6 use a flat pill key (same vocabulary as the
                  anthromes legend) rather than the bubble pack: the disk is
                  already carrying the magenta/white lifestyle encoding, so the
-                 phylum key stays a quiet filter instead of a second chart.
-                 Tap to isolate, drag across to select a contiguous range. -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="phylum-key phylum-key--pills" onpointerdown={phPointerDown}>
-              {#each allPhyla as phylum, i (phylum)}
-                {@const color = colorMapping[phylum] || colorMapping.Other}
-                <button
-                  class="phylum-dot"
-                  class:active={selectedPhyla.includes(phylum)}
-                  class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
-                  data-idx={i}
-                  style="background:{color}; color:{pickTextColor(color)};"
-                >
-                  <span>{phylum.replace(/_/g, ' ')}</span>
-                </button>
+                 phylum key stays a quiet legend instead of a second chart. The
+                 pills are a key only, not a filter: they cannot be selected.
+                 Phyla the palette has no colour for (drawn gray on the disk)
+                 collapse into one Other pill, the same grouping the bubble pack
+                 uses. -->
+            <div class="phylum-key phylum-key--pills">
+              {#each phylumBubbles as b (b.name)}
+                <span class="phylum-dot" style="background:{b.color}; color:{pickTextColor(b.color)};">
+                  <span>{b.name.replace(/_/g, ' ')}</span>
+                </span>
               {/each}
             </div>
           {:else}
@@ -1541,7 +1481,7 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 8}
+        {#if uiOption() === 9}
           <!-- Option 7: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns
@@ -1582,7 +1522,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
         <div class="overlay-head">
-          <div class="overlay-title">Biomes Overview</div>
+          <div class="overlay-title">BIOMES</div>
           <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
         </div>
         <div class="info-body">
@@ -1590,11 +1530,11 @@
           <p>This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
           <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
           <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
-          <p><strong>Western / Non Western:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
+          <p><strong>{finalUi() ? 'Westernized / Non-Westernized' : 'Western / Non Western'}:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
           <div class="info-citations">
             <div class="info-citations-title">Citations</div>
             <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. "Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle." <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
-            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
           </div>
         </div>
       </div>
@@ -1947,7 +1887,7 @@
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 12px;
+    padding-top: 16px;
   }
 
   .country-cell {
@@ -1964,7 +1904,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 15px;
-    margin-bottom: 9px;
+    margin-bottom: 12px;    /* same as the anthromes rail — the two country
+                               panels mirror each other down to the titles */
   }
 
   /* Bacteria Species Details enrichment header */
@@ -2347,7 +2288,7 @@
   }
 
   .ls-row + .ls-row {
-    margin-top: 22px;
+    margin-top: 34px;       /* breathing room between the two groups; mirrored */
   }
 
   .ls-row-head {
@@ -2427,9 +2368,8 @@
     border-radius: 2px;
   }
 
-  /* Compact key pill; colour = phylum, tap to toggle. Matches the anthromes
-     key-pill: selection is shown by opacity alone (dimmed when not selected),
-     never a border/box-shadow ring. */
+  /* Compact key pill; colour = phylum. A legend entry, not a control: the
+     same shape as the anthromes key-pill but with no selected/dimmed state. */
   .phylum-dot {
     display: inline-flex;
     align-items: center;
@@ -2437,12 +2377,9 @@
     padding: 0 17px;
     border-radius: 11.5px;
     border: 1.3px solid rgba(0, 0, 0, 0.18);
-    cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
     user-select: none;
-    touch-action: none;
-    transition: opacity 0.15s ease;
   }
 
   .phylum-dot span {
@@ -2450,10 +2387,6 @@
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.01em;
-  }
-
-  .phylum-dot.dim {
-    opacity: 0.35;
   }
 
   /* ===== Leader line from the chart selection marker to the details panel =====
@@ -2484,30 +2417,22 @@
     overflow: auto;
   }
 
-  .detail-hint {
-    margin: 0;
-    font-size: 16.6px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--fg);
-    opacity: 0.85;
-  }
-
   /* Info stays a centered overlay on the design canvas (longer read).
      Percentages resolve against .stage, i.e. the 3000x2000 canvas. */
   .info-modal {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 973px;
-    max-width: calc(100% - 123px);
-    max-height: 82%;
-    overflow: auto;
     transform: translate(-50%, -50%);
+    width: 960px;             /* a comfortable measure at 17px, ~75 chars */
+    max-width: calc(100% - 123px);
+    max-height: 84%;
+    display: flex;
+    flex-direction: column;
     background: var(--bg);
     border: 3.8px solid rgba(255, 255, 255, 0.85);
     border-radius: 33px;
-    padding: 38px 44px;
+    padding: 33px 38px;
     box-shadow: var(--shadow);
     z-index: 20;
     pointer-events: auto;
@@ -2520,11 +2445,17 @@
     to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   }
 
+  /* Same measure as the anthromes info-body; the body scrolls under a fixed
+     head when the text outgrows the box. */
   .info-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
     display: grid;
-    gap: 18px;
-    font-size: 22px;
-    line-height: 1.6;
+    align-content: start;
+    gap: 13px;
+    font-size: 17px;
+    line-height: 1.55;
     color: var(--muted);
   }
 
@@ -2549,14 +2480,14 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 15px;
-    margin-bottom: 23px;
+    gap: 10px;
+    margin-bottom: 13px;
   }
 
   .overlay-title {
     font-weight: 700;
     letter-spacing: 0.04em;
-    font-size: 33px;
+    font-size: 20.5px;
   }
 
   .panel-content {
@@ -2590,7 +2521,7 @@
   }
 
   .info-citations p {
-    font-size: 13px;
+    font-size: 14.5px;
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 10px;
@@ -2617,9 +2548,9 @@
     border: 2.6px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     border-radius: 50%;
-    width: 61px;
-    height: 61px;
-    font-size: 28px;
+    width: 38px;
+    height: 38px;
+    font-size: 17px;
     display: grid;
     place-items: center;
     font-weight: 800;
