@@ -1672,14 +1672,16 @@
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
-  /* Rail rhythm. Looser than the anthromes rail's 23px: this side's blocks
-     leave a lot of the column empty, so the separators spend that height
-     rather than pooling it at the foot. The anthromes rail has no such slack
-     and stays tight — see the note there. */
+  /* Rail rhythm: 28px of visible space above and below every divider, the
+     same as the anthromes rail — see the note there for why margin and
+     padding differ (28 - 4 below a block's last ink, 28 - 6 above a
+     headline's letters). The arc labels on this side hang 3px below the
+     control circles, so .control-circles--arced pays back 7px here where the
+     anthromes rail pays 4. */
   .rail > * + * {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 32px;
-    padding-top: 32px;
+    margin-top: 24px;
+    padding-top: 22px;
   }
 
   .control-circles,
@@ -1729,6 +1731,7 @@
     flex-wrap: nowrap;
     gap: 0;
     justify-content: space-between;
+    padding-bottom: 7px;    /* see the rail rhythm note above */
   }
 
   /* Positioning context for ArcLabel, which paints centred on the button and
@@ -1748,7 +1751,7 @@
     background: var(--bg);
     border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
-    font-weight: 700;
+    font-weight: 500;
     font-size: 44px;
     cursor: pointer;
     display: grid;
@@ -1801,10 +1804,21 @@
     flex: 1 1 auto;
     min-width: 0;
     font-size: 27px;
-    font-weight: 500;
+    font-weight: 700;
     line-height: 1.28;
     letter-spacing: 0.005em;
     color: var(--fg);
+  }
+
+  /* "5000 LINES 5000 SPECIES" is set in the section-headline voice, the same as
+     .fblock-oneliner above and as "MODELING 12,025 YEARS OF LAND USE" opposite
+     it. Its own rule rather than that class, because .fblock-oneliner claims
+     flex-grow and this sits in a column. */
+  .detail-heading {
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.28;
+    letter-spacing: 0.005em;
   }
 
   /* Sits under the SGB rule inside .panel-content, whose grid gap already
@@ -1813,7 +1827,7 @@
      gap, so widening the panel's rhythm below (see .detail-block--compact
      .panel-content) does not push the gloss off the name it glosses. */
   .detail-oneliner {
-    margin-top: -13px;
+    margin-top: -22.75px;
   }
 
   /* Compact detail panel — `align-content: start` (see .panel-content) stacks
@@ -1826,10 +1840,18 @@
      the leader lands on that rule, so the space all goes below it. */
   /* 22px while the panel had over a hundred px unused beneath the last block.
      The phylum key below now spends most of that — the percentages in its
-     pills carry it to six rows, and it has a caption — so the rhythm gives
-     back the four px per gap that the panel no longer has to spare. */
+     pills carry it to six rows, and it has a caption — so the rhythm gave
+     back four px per gap and sat at 18.
+     27.75px since the rail dividers went to an even 28px: that handed this
+     panel 39px it had no use for, which pooled under the country chips and
+     left the phylum divider 67px below them against 28px everywhere else.
+     Spread over the panel's gaps instead, it puts that divider back on the
+     rhythm. Four gaps, not five, carry it: the one-liner's pull-up below grows
+     by the same amount so it stays 5px under the SGB rule. The panel is one
+     height for every species (see .sp-country-chips), so this is exact for
+     all of them, not only the one on screen at load. */
   .detail-block--compact .panel-content {
-    gap: 18px;
+    gap: 27.75px;
   }
   .detail-block--compact .species-graphic {
     gap: 10px;
@@ -1838,6 +1860,12 @@
   .detail-block--compact .sp-statline,
   .detail-block--compact .sp-countries {
     padding: 0;
+  }
+  /* The last row's bottom margin draws nothing but still counts toward the
+     panel's scroll height, and with the panel now fitted to within 4px it was
+     what tipped .detail-scroll into a scrollbar. */
+  .detail-block--compact .sp-countries {
+    margin-bottom: 0;
   }
   /* Within a block, one step looser as well, so the added rhythm between
      blocks doesn't make each block look tighter by comparison. */
@@ -2330,14 +2358,14 @@
   /* Rail lead-in: the line under a section head that names what the block
      under IT shows — the country panel's two row descriptions, the phylum
      key's share line. One treatment for all of them so a reader learns it
-     once: full white at 18.5px rather than muted body copy, because these
+     once: full white at 19px rather than muted body copy, because these
      lines are part of the rail's structure and not commentary on it, and each
      ends in a colon because each introduces what follows. Same values as
      .ls-row-head--promoted .ls-row-desc, which is this same voice inside the
      country panel. Mirrors .rail-leadin on the anthromes rail. */
   .rail-leadin {
     margin: 0;
-    font-size: 18.5px;
+    font-size: 19px;
     line-height: 1.32;
     color: #fff;
   }
@@ -2369,7 +2397,7 @@
     border-bottom: 2.6px solid transparent;
     padding: 0 0 2.6px;
     font-size: 23px;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.2;
     cursor: pointer;
     opacity: 0.45;
@@ -2436,7 +2464,7 @@
      — larger, full white, no dimming. Sized between .ls-row-title (21px) and
      .ls-row-desc (16px) so it reads as a lead-in rather than a heading. */
   .ls-row-head--promoted .ls-row-desc {
-    font-size: 18.5px;
+    font-size: 19px;
     line-height: 1.32;
     color: #fff;
     opacity: 1;
@@ -2453,8 +2481,8 @@
     margin-top: 4px;
     text-align: center;
     line-height: 1.2;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     letter-spacing: 0.01em;
     font-variant-numeric: tabular-nums;
     opacity: 0.78;
@@ -2507,8 +2535,8 @@
   }
 
   .phylum-dot span {
-    font-size: 16.6px;
-    font-weight: 600;
+    font-size: 17px;
+    font-weight: 500;
     line-height: 1;
     letter-spacing: 0.01em;
   }
@@ -2609,13 +2637,13 @@
   }
 
   .overlay-title {
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.04em;
-    font-size: 20.5px;
+    font-size: 23px;
   }
 
   .panel-content {
-    font-size: 16.6px;
+    font-size: 17px;
     color: var(--muted);
     line-height: 1.5;
     display: grid;
@@ -2636,8 +2664,8 @@
   }
 
   .info-citations-title {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
@@ -2645,7 +2673,7 @@
   }
 
   .info-citations p {
-    font-size: 14.5px;
+    font-size: 14px;
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 10px;
@@ -2677,7 +2705,7 @@
     font-size: 17px;
     display: grid;
     place-items: center;
-    font-weight: 800;
+    font-weight: 500;
     cursor: pointer;
     flex: none;
   }

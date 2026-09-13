@@ -97,8 +97,9 @@
   // to avoid a race where the reset effect fires after handleCanvasClick isolates a cell.
   let panHasMoved = false;
 
-  const SCROLL_ZOOM_MIN = 0.5;
-  const SCROLL_ZOOM_MAX = 8;
+  // Match the zoom buttons' range (ZOOM_LEVELS in App.svelte).
+  const SCROLL_ZOOM_MIN = 1;
+  const SCROLL_ZOOM_MAX = 7;
 
   // Cursor state — grab only inside inner circle
   let hoverInCircle = $state(false);
@@ -141,6 +142,55 @@
     closePanel();
     isolationReset++;
     if (focusIso3) focusIso3 = null;
+  }
+
+  // Keep the globe inside the disk. It is fitted to the disk at mapScale 1, so
+  // its radius is innerRadiusPx * mapScale and the pan may travel the
+  // difference between the two, plus PAN_SLACK of the disk radius so the edge
+  // of the world can come a little way in. At zoom 1 the limit is zero: a
+  // fitted globe has no slack to give. Clamped radially rather than per-axis so
+  // a diagonal drag stops on the circle, not on a square inscribed around it.
+  const PAN_SLACK = 0.25;
+  function panLimit(scale) {
+    const z = Math.max(0, scale - 1);
+    return innerRadiusPx * (z + PAN_SLACK * Math.min(1, z));
+  }
+
+  // The radius a pan may reach at `toScale`, stepping from pan (fx, fy) at
+  // `fromScale`. applyFocusFraming() in MapCanvas frames a selected country
+  // without this limit, so an edge country (Australia) can leave the view past
+  // it. Rather than snapping that back on the next gesture, the overshoot is
+  // kept — a gesture can't push further out, but it isn't yanked in — and it
+  // shrinks as the user zooms out, gone by zoom 1. PAN_EASE > 1 makes it
+  // shrink faster than the scale does, so a small zoom-out near the default
+  // view recentres firmly while the same step deep in barely moves it.
+  const PAN_EASE = 1.5;
+  function panAllowance(fx, fy, fromScale, toScale) {
+    const excess = Math.max(0, Math.hypot(fx, fy) - panLimit(fromScale));
+    const shrink = toScale < fromScale && fromScale > 1
+      ? Math.pow(Math.max(0, toScale - 1) / (fromScale - 1), PAN_EASE)
+      : 1;
+    return panLimit(toScale) + excess * shrink;
+  }
+
+  function clampPan(x, y, max) {
+    if (max <= 0) return { x: 0, y: 0 };
+    const d = Math.hypot(x, y);
+    if (d <= max) return { x, y };
+    const k = max / d;
+    return { x: x * k, y: y * k };
+  }
+
+  // Zoom about the disk centre to `scale`, clamping the pan. Used by the zoom
+  // buttons so stepping out also recentres.
+  export function zoomToScale(scale) {
+    if (!innerRadiusPx) { mapScale = scale; return; }
+    const f = scale / (mapScale || 1);
+    const max = panAllowance(mapPanX, mapPanY, mapScale, scale);
+    const next = clampPan(mapPanX * f, mapPanY * f, max);
+    mapPanX = next.x;
+    mapPanY = next.y;
+    mapScale = scale;
   }
 
   // Multiply the scale by `factor`, clamped to the wheel/pinch range, and
@@ -191,17 +241,27 @@
       const factor = clampedZoomFactor(cur.dist / pinchPrev.dist);
       const px = mapPanX + (cur.mx - pinchPrev.mx) / s;
       const py = mapPanY + (cur.my - pinchPrev.my) / s;
-      mapPanX = dx + factor * (px - dx);
-      mapPanY = dy + factor * (py - dy);
-      mapScale = mapScale * factor;
+      const newScale = mapScale * factor;
+      const max = panAllowance(mapPanX, mapPanY, mapScale, newScale);
+      const next = clampPan(dx + factor * (px - dx), dy + factor * (py - dy), max);
+      mapPanX = next.x;
+      mapPanY = next.y;
+      mapScale = newScale;
       pinchPrev = cur;
       return;
     }
 
     noteMovement();
     const s = panStart.s || 1;
-    mapPanX = panStart.px + (event.clientX - panStart.x) / s;
-    mapPanY = panStart.py + (event.clientY - panStart.y) / s;
+    // Measured from where the drag began, so a drag that started past the
+    // limit can return to that spot but go no further.
+    const next = clampPan(
+      panStart.px + (event.clientX - panStart.x) / s,
+      panStart.py + (event.clientY - panStart.y) / s,
+      panAllowance(panStart.px, panStart.py, mapScale, mapScale)
+    );
+    mapPanX = next.x;
+    mapPanY = next.y;
   }
 
   function handlePanEnd(event) {
@@ -259,9 +319,17 @@
 
     // Zoom to cursor: adjust pan so the point under the pointer stays fixed.
     // dx/dy is the cursor offset from the container center, in design px.
-    mapPanX = dx + clampedFactor * (mapPanX - dx);
-    mapPanY = dy + clampedFactor * (mapPanY - dy);
-    mapScale = mapScale * clampedFactor;
+    // Clamped against the NEW scale — zooming out shrinks the slack, so a pan
+    // that was legal at the old scale can be out of bounds at this one.
+    const newScale = mapScale * clampedFactor;
+    const next = clampPan(
+      dx + clampedFactor * (mapPanX - dx),
+      dy + clampedFactor * (mapPanY - dy),
+      panAllowance(mapPanX, mapPanY, mapScale, newScale)
+    );
+    mapPanX = next.x;
+    mapPanY = next.y;
+    mapScale = newScale;
   }
 
   function closePanel() {
@@ -1215,18 +1283,20 @@
     stroke-opacity: 0.6;
   }
 
+  /* The ring's SVG is scaled down to ~0.287 on the stage, so these user-unit
+     sizes land on the type tiers as rendered: 49 -> 14px, 66 -> 19px. */
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 52px;
+    font-size: 49px;
     opacity: 0.95;
-    font-weight: 800;
+    font-weight: 500;
     letter-spacing: 0.08em;
     pointer-events: all;
   }
 
   :global(.year-axis text.selected) {
     fill: var(--accent);
-    font-size: 65px;
+    font-size: 66px;
   }
 
   :global(.year-bracket) {

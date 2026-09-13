@@ -29,6 +29,15 @@ export const TITLE_FONT = Math.round(BASE_FONT * 1.8);  // 61
 export const INSIDE_CAP = Math.floor(BASE_FONT * 0.72); // 24
 export const ENTER_FONT = Math.round(BASE_FONT * 0.6);  // 20
 
+// Title ring radius, in viewBox units (the disk's radius is 500), for the
+// final ui's splash (and the trials) and loading.html, so the cross-link
+// interstitial lands its titles where the splash's commit state left them. The
+// framing line across the top of the splash rides this ring; its ascenders
+// reach ~r+25, i.e. ~860 design px above centre: ~140px clear of the top edge
+// of the 2000px canvas. The older passes' splash anchors its titles to the
+// canvas instead (~1083).
+export const TITLE_RING_R = 930;
+
 // The dimmed state a title takes when the other side is the one being entered
 // (LOADING, on both this screen and loading.html).
 export const TITLE_DIM = 0.32;

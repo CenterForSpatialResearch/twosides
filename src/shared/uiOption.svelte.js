@@ -13,14 +13,14 @@
 // are seven) plus the splash test in index.html. Anthromes carries no literals
 // — it reads only the predicates — which is what keeps this cheap.
 //
-// Options 1-3 are splash trials (splash-1/2/3): three alternative sequences for
-// the rotating splash, prepended in front of the final ui so they can be
-// compared on the dev server. Everywhere except the splash they ARE the final
-// ui — every predicate below widens to cover them — and splashVariant() is the
-// only thing that tells them apart. Once one is picked it replaces the final
-// ui's splash and these three go away, which unshifts every number by three.
+// Option 1 is the final ui, whose splash is the refined splash-1 sequence.
+// Options 2-4 are the splash trials it was picked from (splash-1/2/3), kept for
+// comparison. Everywhere except the splash they ARE the final ui — every
+// predicate below widens to cover them — and splashVariant() is the only thing
+// that tells options 1-4 apart. Dropping the trials unshifts every number by
+// three.
 //
-// Options 4-8 are five passes over ONE arrangement, newest first. They share a
+// Options 1 and 5-8 are five passes over ONE arrangement, newest first. They share a
 // layout, so almost every branch tests refinedLayout() rather than a literal
 // number; the behaviours each pass added test finalUi() / countryFromMap() /
 // narrative0821() / refined0821() instead. Options 9-12 are biomes-only arrangements, and the
@@ -32,17 +32,21 @@
 // arrived with the 8/21 narrative pass and everything before it shares the
 // older screen.
 export const UI_OPTIONS = [
-  'splash-1', // 1 — final ui; splash framing lines top then bottom (half a
-  //                  turn each) on the title ring, then one turn of
+  'final ui', // 1 — splash-1's sequence, refined: the two framing lines
+  //                  stack (the top one holds while the bottom one joins it,
+  //                  and they fade out together) and both titles hold full
+  //                  white for that turn; the emphasis fade returns with
+  //                  "…organize…". Everywhere but the splash it is the
+  //                  country-from-map pass with the final copy: the lifestyle
+  //                  split is named Westernized / Non-Westernized everywhere
+  //                  (info panel, row titles), as on the species stat line
+  'splash-1', // 2 — splash framing lines top then bottom (half a turn each)
+  //                  on the title ring, then one turn of
   //                  "Biomes organize…" / "Anthromes organize…"
-  'splash-2', // 2 — as splash-1, with a turn of "Biomes begin…" /
+  'splash-2', // 3 — as splash-1, with a turn of "Biomes begin…" /
   //                  "Anthromes begin…" before the "organize" turn
-  'splash-3', // 3 — final ui; one turn with the framing lines set in the
-  //                  titles' place, then the titles return with "organize…"
-  'final ui', // 4 — the country-from-map pass with the final copy: the
-  //                  lifestyle split is named Westernized / Non-Westernized
-  //                  everywhere (info panel, row titles), as it is on the
-  //                  species stat line
+  'splash-3', // 4 — one turn with the framing lines set in the titles'
+  //                  place, then the titles return with "organize…"
   'country from map', // 5 — the narrative pass, with the map's click target
   //                  changed from the pixel to the country: touching anywhere
   //                  on land selects that cell's country, the same end state as
@@ -76,8 +80,8 @@ export function uiOption() {
   return option;
 }
 
-// True for ALL FIVE refinement passes and the splash trials in front of them
-// (1-3 = splash trials, 4 = final ui, 5 = country-from-map, 6 = narrative,
+// True for ALL FIVE refinement passes and the splash trials beside them
+// (1 = final ui, 2-4 = splash trials, 5 = country-from-map, 6 = narrative,
 // 7 = 8/21, 8 = 8/14). They are one arrangement, so every layout
 // branch that used to test `uiOption() === 1` tests this instead — otherwise
 // switching to an older pass would drop the arced labels, the country-driven
@@ -120,10 +124,11 @@ export function finalUi() {
   return option <= 4;
 }
 
-// Which splash trial is selected: 1, 2 or 3 for options splash-1/2/3, and 0
-// for everything else (the final ui's own sequence). Read only by the splash.
+// Which stepped splash sequence runs: 'final' for the final ui, 'splash-1/2/3'
+// for the trials, and null for the older passes (the 8/21 per-rotation
+// sequence). Read only by the splash.
 export function splashVariant() {
-  return option <= 3 ? option : 0;
+  return option === 1 ? 'final' : option <= 4 ? UI_OPTIONS[option - 1] : null;
 }
 
 export function setUiOption(n) {

@@ -184,7 +184,7 @@
     .splash--narrative .caption-svg text.subhead {
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 500;
     }
 
     /* Both titles are always clickable, whichever face is turned forward —
@@ -426,10 +426,10 @@
 
     function render() {
       teardown?.();
-      // Options 1-6 (the three splash trials, final ui, country-from-map,
+      // Options 1-6 (final ui, the three splash trials, country-from-map,
       // narrative) use the narrative splash; every arrangement before it
-      // predates that screen and shares the original one. The trials differ
-      // only in the sequence it runs, which splashVariant() picks.
+      // predates that screen and shares the original one. Final ui and the
+      // trials differ only in the sequence it runs, which splashVariant() picks.
       const narrative = uiOption() <= 6;
       const tpl = document.getElementById(narrative ? 'tpl-narrative' : 'tpl-classic');
       host.replaceChildren(tpl.content.cloneNode(true));

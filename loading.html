@@ -95,7 +95,7 @@
     .caption-svg text.subhead {
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 500;
     }
     /* Dots always take their slot; only opacity changes so the LOADING text
        never shifts as the ellipsis animates. */
@@ -109,8 +109,8 @@
     <div class="disk-area">
       <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
         <defs>
-          <!-- Title arcs (adaptive — same as home: halfway between disk edge
-               and viewport edge). Both use sweep=1 for the short arc. -->
+          <!-- Title arcs on the splash's title ring (TITLE_RING_R, set at
+               boot). Both use sweep=1 for the short arc. -->
           <path id="arc-title-left"  d="" />
           <path id="arc-title-right" d="" />
 
@@ -140,7 +140,7 @@
     // this screen covers it with the destination's own framing.
     import { initPageStage } from './src/shared/pageStage.js';
     import {
-      SIDE_COPY, BASE_FONT, TITLE_FONT, TITLE_DIM, buildLoadingLabel
+      SIDE_COPY, BASE_FONT, TITLE_FONT, TITLE_DIM, TITLE_RING_R, buildLoadingLabel
     } from './src/shared/splashCopy.js';
 
     initPageStage();
@@ -178,17 +178,11 @@
     // stay full white here.
     loadEl.style.opacity = TITLE_DIM;
 
-    // --- Adaptive title arc (same formula as the splash) --------------------
-    // Anchored to the fixed design canvas, not the window: the page is authored
-    // 1:1 against DESIGN_W and scaled by one transform, so this is a constant
-    // and is measured once rather than on every resize.
-    const DESIGN_W = 3000;
-
+    // --- Title arcs ------------------------------------------------------------
+    // The final ui splash's title ring, so a title lands where the splash's
+    // commit state leaves it.
     function updateTitleArcs() {
-      // Layout width, so the .stage transform doesn't enter into it.
-      const diskWidth = document.querySelector('.disk-area').offsetWidth;
-      if (!diskWidth) return;
-      const r = Math.round(250 * (DESIGN_W / diskWidth + 1));
+      const r = TITLE_RING_R;
       const off = (r * Math.SQRT1_2).toFixed(2);
       document.getElementById('arc-title-left').setAttribute('d',
         `M -${off} ${off} A ${r} ${r} 0 0 1 -${off} -${off}`);

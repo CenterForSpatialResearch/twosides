@@ -483,7 +483,8 @@
       .attr('text-anchor', d => d.x < Math.PI ? 'start' : 'end')
       .text(d => (d.data.name || '').split('__').pop().replace(/_/g, ' '));
 
-    // Bar axis (SVG overlay)
+    // Bar axis (SVG overlay). Ticks only: the 1 / 10 / 100 / 500 labels drew at
+    // ~3px on the stage, too small to read, so they are gone.
     const axisGroup = g.append('g').attr('class', 'bar-axis');
     axisGroup.append('line')
       .attr('x1', 0).attr('y1', barInner)
@@ -492,7 +493,6 @@
     [1, 10, 100, 500].filter(v => v <= maxRec).forEach(t => {
       const y = barInner + barScale(t);
       axisGroup.append('line').attr('x1', 0).attr('y1', y).attr('x2', 8).attr('y2', y);
-      axisGroup.append('text').attr('x', 10).attr('y', y).attr('dy', '.32em').text(t);
     });
 
     // Leaves sorted by angle → binary-search for the center-selected leaf

@@ -217,16 +217,18 @@ body {
    Both are styled here so the two detail panels stay in lockstep.
 
    TYPE SCALE — all sizes are design px, scaled by the stage transform.
-   The floor is 16.6px, matching .fblock-desc (the "Select a country to lens…"
-   copy) and the .panel-content base. Body text sizes up from the floor.
+   These are four of the piece's six type tiers (12 / 14 / 17 / 19 / 23 / 27);
+   the rails use the same six, so nothing here should fall between them.
+   The floor is 17px, matching the .panel-content base. Body text sizes up
+   from the floor.
      14px    micro — lineage chips ONLY (see below)
-     16.6px  floor — chips, uppercase micro-labels, CTA, stat pills
-     18.5px  step  — numeric values
+     17px    floor — chips, uppercase micro-labels, CTA, stat pills
+     19px    step  — numeric values
      23px    title — panel headline (.title / .species-sgb)
    The single sanctioned exception to the floor is the taxonomic lineage row:
    it is reference detail meant to sit visually beneath everything else, so it
    is set at 14px. Do not borrow that size for anything else — for all other
-   panel content, smaller than 16.6px is a bug.
+   panel content, smaller than 17px is a bug.
 
    LAYOUT STABILITY — the panel re-renders continuously while the disk spins,
    so blocks whose height depends on the selected species' text length read as
@@ -235,19 +237,19 @@ body {
    for exactly this reason. */
 .panel-content .title {
   font-size: 23px;
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: 0.04em;
   color: #fff;
 }
 
 .panel-content .subtitle {
-  font-size: 16.6px;
+  font-size: 17px;
   color: #cfd3e0;
   letter-spacing: 0.02em;
 }
 
 .panel-content .summary {
-  font-size: 16.6px;
+  font-size: 17px;
   color: #e7e9f1;
 }
 
@@ -260,7 +262,7 @@ body {
 }
 
 .panel-content .kv .k {
-  font-size: 16.6px; /* floor */
+  font-size: 17px; /* floor */
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9ba3c0;
@@ -268,8 +270,8 @@ body {
 
 .panel-content .kv .v {
   color: #f6f7fb;
-  font-weight: 600;
-  font-size: 16.6px;
+  font-weight: 500;
+  font-size: 17px;
 }
 
 .panel-content .swatch {
@@ -292,7 +294,7 @@ body {
   background: rgba(255, 255, 255, 0.08);
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   color: #fff;
-  font-size: 16.6px; /* floor */
+  font-size: 17px; /* floor */
   letter-spacing: 0.03em;
 }
 
@@ -364,7 +366,7 @@ body {
 /* The panel headline — same size/weight as .title, which it replaced. */
 .panel-content .species-sgb {
   font-size: 23px; /* title */
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: 0.02em;
   color: #fff;
   line-height: 1.05;
@@ -398,7 +400,7 @@ body {
 }
 
 /* Deliberately the smallest type in the piece — the lineage is reference
-   detail, subordinate to everything else in the card. Sized below the 16.6px
+   detail, subordinate to everything else in the card. Sized below the 17px
    floor on purpose; see the type-scale note above. */
 .panel-content .lineage-chip {
   padding: 2px 7px;
@@ -407,7 +409,7 @@ body {
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
   font-size: 14px; /* micro */
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
   line-height: 1.4;
@@ -447,23 +449,23 @@ body {
 }
 
 .panel-content .gm-label {
-  font-size: 16.6px; /* floor */
-  font-weight: 800;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .panel-content .gm-count {
-  font-size: 18.5px; /* step */
-  font-weight: 800;
+  font-size: 19px; /* step */
+  font-weight: 500;
   color: #fff;
   letter-spacing: 0.02em;
 }
 
 .panel-content .gm-max {
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -518,15 +520,15 @@ body {
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   letter-spacing: 0.02em;
   line-height: 1.3;
   white-space: nowrap;
 }
 
 .panel-content .sp-stat--hero {
-  font-size: 18.5px; /* step */
+  font-size: 19px; /* step */
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.35);
   color: #fff;
@@ -538,7 +540,7 @@ body {
 }
 
 .panel-content .sp-stat-detail {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--muted);
 }
 
@@ -564,8 +566,8 @@ body {
    pulled the chips to the row height and rounded them into circles. */
 .panel-content .sp-countries-title {
   flex: 0 0 100%;
-  font-size: 16.6px; /* floor */
-  font-weight: 800;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -576,7 +578,11 @@ body {
   flex-wrap: wrap;
   align-items: flex-start; /* never stretch chips to the row height — that reads as circles */
   flex: 1 1 100%;
-  gap: 5px 7px;
+  /* 6px, not 7: at 17px the widest of the catalog's 1,414 distinct country
+     lists (five primaries and six ISO codes) ran 5.5px past the 878px rail
+     at 7px and wrapped to a second row. At 6px every list is one row, so the
+     species panel is one height for every species. */
+  gap: 5px 6px;
 }
 
 .panel-content .sp-country-chip {
@@ -585,8 +591,8 @@ body {
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   letter-spacing: 0.03em;
   font-family: inherit;
   line-height: 1.3;

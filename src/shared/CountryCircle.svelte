@@ -164,7 +164,7 @@
 
   .cc-label {
     font-size: var(--cc-label-font, 16px);
-    font-weight: 800;
+    font-weight: 500;
     letter-spacing: 0.03em;
     text-transform: uppercase;
     color: var(--fg);

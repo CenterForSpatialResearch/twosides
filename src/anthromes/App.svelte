@@ -636,7 +636,9 @@
 
   function zoomOut() {
     const prev = [...ZOOM_LEVELS].reverse().find(z => z < zoomLevel);
-    if (prev != null) zoomLevel = prev;
+    if (prev == null) return;
+    if (waffleChartRef?.zoomToScale) waffleChartRef.zoomToScale(prev);
+    else zoomLevel = prev;
   }
 
   function resetView() {
@@ -949,7 +951,7 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
           {#if refined0821()}
-            <h3 class="menu-title">{detailHeading}</h3>
+            <h3 class="menu-title detail-heading">{detailHeading}</h3>
             <p class="rail-leadin">{detailBlurb}</p>
           {:else}
             <h3 class="menu-title">Details</h3>
@@ -1316,14 +1318,20 @@
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
-  /* Rail rhythm. The same 32px as the biomes rail: the two country panels are
-     built to mirror each other, so the details titles under them ("MODELING
-     12,025 YEARS…" here, "5000 LINES…" there) land at the same height. The
-     chart below takes whatever is left. */
+  /* Rail rhythm: 28px of visible space above and below every divider, the same
+     as the biomes rail (whose country panel mirrors this one, so the details
+     titles under them — "MODELING 12,025 YEARS…" here, "5000 LINES…" there —
+     land at the same height). The chart below takes whatever is left.
+     The two values differ because what the eye measures is ink, not boxes:
+     a 27px headline carries ~6px of empty line box above its letters, and the
+     blocks above a divider end ~4px of box below their last ink. So
+     margin = 28 - 4 and padding = 28 - 6. The top divider sits under the
+     control circles, whose box ends on the ink; .control-circles--arced pays
+     that 4px back as padding. */
   .filter-rail > * + * {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 32px;
-    padding-top: 32px;
+    margin-top: 24px;
+    padding-top: 22px;
   }
 
   .control-circles,
@@ -1345,6 +1353,7 @@
     flex-wrap: nowrap;
     gap: 0;
     justify-content: space-between;
+    padding-bottom: 4px;    /* see the rail rhythm note above */
   }
 
   /* Positioning context for ArcLabel, which paints centred on the button and
@@ -1363,7 +1372,7 @@
     background: var(--bg);
     border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
-    font-weight: 700;
+    font-weight: 500;
     font-size: 44px;
     cursor: pointer;
     display: grid;
@@ -1425,13 +1434,13 @@
   /* Rail lead-in: the line under a section head that names what the block
      under IT shows — the country panel's two row descriptions, the details
      subhead, the key's share line. One treatment for all of them so a reader
-     learns it once: full white at 18.5px rather than muted body copy, because
+     learns it once: full white at 19px rather than muted body copy, because
      these lines are part of the rail's structure and not commentary on it, and
      each ends in a colon because each introduces what follows. Same values as
      .ls-row-desc below, which is this same voice inside the country panel. */
   .rail-leadin {
     margin: 0;
-    font-size: 18.5px;
+    font-size: 19px;
     line-height: 1.32;
     color: #fff;
   }
@@ -1457,7 +1466,7 @@
     border-bottom: 2.6px solid transparent;
     padding: 0 0 2.6px;
     font-size: 23px;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.2;
     cursor: pointer;
     opacity: 0.45;
@@ -1564,7 +1573,7 @@
     align-items: center;
     min-height: 34px;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.2;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -1586,8 +1595,8 @@
     padding: 0 13px;
     border-radius: 10px;
     border: 1.3px solid rgba(0, 0, 0, 0.18);
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
     box-sizing: border-box;
@@ -1616,10 +1625,13 @@
      regardless of label length so the grid stays uniform. Mirrors biomes side.
      The circles, labels, head and headrow are all identical to that side; the
      one thing this side does not carry is the "{n}% unknown" caption under
-     each globe, which is 22px of biomes' rows. The padding here and the gap
-     between the two groups below spend exactly that 44px as air instead, so
+     each globe, which is 20.8px of biomes' rows at 14px. The padding here and
+     the gap between the two groups below spend that height as air instead, so
      the two country panels stay the same height and the details titles under
-     them ("MODELING 12,025 YEARS…" here, "5000 LINES…" there) stay level. */
+     them ("MODELING 12,025 YEARS…" here, "5000 LINES…" there) stay level.
+     24.3 rather than a round number: it also absorbs the 3px more that the
+     biomes control row pays back under its arc labels (see the rail rhythm
+     note), which is what lands both titles on the same y. */
   .country-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1628,7 +1640,7 @@
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 24px;
+    padding-top: 24.3px;
   }
 
   .country-cell {
@@ -1685,6 +1697,17 @@
     color: var(--fg);
   }
 
+  /* The details section's head ("MODELING 12,025 YEARS OF LAND USE") is set in
+     the section-headline voice, the same as .menu-oneliner below and as
+     "5000 LINES 5000 SPECIES" opposite it. Its own rule rather than that class,
+     because .menu-oneliner claims flex-grow and this sits in a column. */
+  .detail-heading {
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.28;
+    letter-spacing: 0.005em;
+  }
+
   .menu-desc {
     margin: 0;
     font-size: 16.6px;
@@ -1699,7 +1722,7 @@
     flex: 1 1 auto;
     min-width: 0;
     font-size: 27px;
-    font-weight: 500;
+    font-weight: 700;
     line-height: 1.28;
     letter-spacing: 0.005em;
     color: var(--fg);
@@ -1734,7 +1757,7 @@
   }
 
   .ls-row-desc {
-    font-size: 18.5px;
+    font-size: 19px;
     line-height: 1.32;
     color: #fff;
   }
@@ -1745,7 +1768,7 @@
     align-items: center;
     gap: 10px;
     font-size: 19px;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.02em;
     color: #fff;
   }
@@ -1888,7 +1911,7 @@
 
   .history-chart-title {
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
@@ -1903,8 +1926,8 @@
   }
 
   .overlay-title {
-    font-size: 20.5px;
-    font-weight: 700;
+    font-size: 23px;
+    font-weight: 500;
     letter-spacing: 0.04em;
   }
 
@@ -1917,7 +1940,7 @@
   }
 
   .panel-content {
-    font-size: 16.6px;
+    font-size: 17px;
     color: var(--muted);
     line-height: 1.5;
     display: flex;
@@ -1969,8 +1992,8 @@
   }
 
   .info-citations-title {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
@@ -1978,7 +2001,7 @@
   }
 
   .info-citations p {
-    font-size: 14.5px;
+    font-size: 14px;
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 10px;
@@ -2004,7 +2027,7 @@
     display: grid;
     place-items: center;
     font-size: 17px;
-    font-weight: 800;
+    font-weight: 500;
   }
 
   .viz-area {
