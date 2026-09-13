@@ -16,8 +16,9 @@
   import ArcLabel from '../shared/ArcLabel.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   // Option numbers live in shared/uiOption.svelte.js. Comments below that say
-  // "Option 1" mean the refined arrangement, which is now options 1-5 (final
-  // ui, country-from-map, the narrative pass, 8/21 and 8/14) — hence
+  // "Option 1" mean the refined arrangement, which is now options 1-8 (the
+  // three splash trials, final ui, country-from-map, the narrative pass, 8/21
+  // and 8/14) — hence
   // refinedLayout() for anything they all share, and refined0821() for what
   // 8/21 introduced and the later passes inherit. This side's copy (the
   // country one-liner, the lifestyle rows, the details header) is not gated:

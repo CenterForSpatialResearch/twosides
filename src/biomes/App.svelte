@@ -19,8 +19,9 @@
   import PhylumBubbles from './lib/PhylumBubbles.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
   // Option numbers live in shared/uiOption.svelte.js. Comments below that say
-  // "Option 1" mean the refined arrangement, which is now options 1-5 (the
-  // final ui, country-from-map, the narrative pass, the 8/21 pass and 8/14) —
+  // "Option 1" mean the refined arrangement, which is now options 1-8 (the
+  // three splash trials, which are the final ui here, then the final ui,
+  // country-from-map, the narrative pass, the 8/21 pass and 8/14) —
   // hence refinedLayout() for anything they all share, refined0821() for what
   // 8/21 introduced and the later passes inherit, narrative0821() for the copy
   // that arrived with the narrative pass, and finalUi() for the final wording.
@@ -936,7 +937,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
-          lifestyleColor={uiOption() === 6 && selectedCountryIso3 !== null}
+          lifestyleColor={uiOption() === 9 && selectedCountryIso3 !== null}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
           on:zoomchange={handleZoomChange}
@@ -1126,7 +1127,7 @@
           </section>
         {/snippet}
 
-        {#if uiOption() <= 6}
+        {#if uiOption() <= 9}
         <!-- Options 1-5 (Lifestyle): the eight countries split into the two
              categories the study itself assigns, each row ranked by the share
              of that country's species previously unknown to science. Selecting
@@ -1218,7 +1219,7 @@
                Option 1 drops the magenta encoding entirely, so it needs
                neither the key nor the space it reserved — the details panel
                moves up into it. -->
-          {#if uiOption() === 6}
+          {#if uiOption() === 9}
             <div class="ls-key" class:ls-key--on={selectedIsNonWestern} aria-live="polite">
               {#if selectedIsNonWestern}
                 <span class="ls-key-item">
@@ -1238,7 +1239,7 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 7}
+        {:else if uiOption() === 10}
         <!-- Option 5 (Country): Country is the primary filter. Known/Unknown and
              Western/Non-Western are no longer standalone filter radios — they
              surface inside the country breakdown panel when a country is
@@ -1327,7 +1328,7 @@
         </section>
 
         {@render detailPanel()}
-        {:else if uiOption() === 8}
+        {:else if uiOption() === 11}
         <!-- Option 6 (Split): Known/Unknown and Non/Western share a row. No
              "All" button — like Cohort, all are shown by default; tap to isolate,
              tap again to reset. -->
@@ -1491,11 +1492,16 @@
             {:else}
               <span class="phylum-band-title">Phylum</span>
             {/if}
-            <div class="phylum-band-actions">
-              <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
-            </div>
+            <!-- No "All" over the pill key: those pills are a legend, not a
+                 filter, so there is nothing to clear. The bubble pack still
+                 toggles phyla and keeps it. -->
+            {#if uiOption() > 9}
+              <div class="phylum-band-actions">
+                <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
+              </div>
+            {/if}
           </div>
-          {#if uiOption() <= 6}
+          {#if uiOption() <= 9}
             <!-- Options 1-6 use a flat pill key (same vocabulary as the
                  anthromes legend) rather than the bubble pack: the disk is
                  already carrying the magenta/white lifestyle encoding, so the
@@ -1542,7 +1548,7 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        {#if uiOption() === 9}
+        {#if uiOption() === 12}
           <!-- Option 7: details panel is at the top, so the leader runs
                horizontally from the marker to the disk-canvas edge (rail left,
                = title left − 61px rail padding), kinks up vertically, then turns

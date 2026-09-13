@@ -167,6 +167,12 @@
       letter-spacing: 0.005em;
       font-weight: 500;
     }
+    /* splash-3: the framing lines set in the titles' place, at the titles'
+       size but in sentence case, in the one-liners' voice. */
+    .splash--narrative .caption-svg text.sentence {
+      letter-spacing: 0.01em;
+      font-weight: 500;
+    }
     /* "select to enter" under each title; follows the title's emphasis. */
     .splash--narrative .caption-svg text.enter-hint {
       letter-spacing: 0.12em;
@@ -303,6 +309,12 @@
                   d="M -424.26 424.26 A 600 600 0 0 1 -424.26 -424.26" />
             <path id="arc-enter-right"
                   d="M 424.26 -424.26 A 600 600 0 0 1 424.26 424.26" />
+
+            <!-- splash-1/2/3: see the text elements of the same names below. -->
+            <path id="arc-frame-top"    d="" />
+            <path id="arc-frame-bottom" d="" />
+            <path id="arc-sent-left"    d="" />
+            <path id="arc-sent-right"   d="" />
           </defs>
 
           <text id="label-biomes"    class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle">BIOMES</textPath></text>
@@ -321,6 +333,16 @@
                 d="M -459.62 459.62 A 650 650 0 0 1 -459.62 -459.62" />
           <path id="hit-anthromes" class="title-hit"
                 d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
+
+          <!-- splash-1/2/3 only (empty otherwise). The framing lines on the
+               title ring above and below the disk (splash-1/2), and the same
+               two lines set on half-turn arcs in the titles' place
+               (splash-3). All four arcs are set from the ring radius in
+               updateTitleArcs(). -->
+          <text id="frame-top"     class="line"><textPath href="#arc-frame-top"     startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="frame-bottom"  class="line"><textPath href="#arc-frame-bottom"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sent-biomes"    class="sentence"><textPath href="#arc-sent-left"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sent-anthromes" class="sentence"><textPath href="#arc-sent-right" startOffset="50%" text-anchor="middle"></textPath></text>
 
           <text id="line-top"    class="line"><textPath href="#arc-line-top"    startOffset="50%" text-anchor="middle"></textPath></text>
           <text id="line-bottom" class="line"><textPath href="#arc-line-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
@@ -395,7 +417,7 @@
     // `display` keeps exactly one copy of each id in the document, which the
     // SVG textPath href="#..." references depend on.
     import { initPageStage } from './src/shared/pageStage.js';
-    import { UI_OPTIONS, uiOption, cycleUiOption } from './src/shared/uiOption.svelte.js';
+    import { UI_OPTIONS, uiOption, cycleUiOption, splashVariant } from './src/shared/uiOption.svelte.js';
     import { mountNarrative } from './src/splash/narrative.js';
     import { mountClassic } from './src/splash/classic.js';
 
@@ -404,13 +426,14 @@
 
     function render() {
       teardown?.();
-      // Options 1-3 (final ui, country-from-map, narrative) use the narrative
-      // splash; every arrangement before it predates that screen and shares
-      // the original one.
-      const narrative = uiOption() <= 3;
+      // Options 1-6 (the three splash trials, final ui, country-from-map,
+      // narrative) use the narrative splash; every arrangement before it
+      // predates that screen and shares the original one. The trials differ
+      // only in the sequence it runs, which splashVariant() picks.
+      const narrative = uiOption() <= 6;
       const tpl = document.getElementById(narrative ? 'tpl-narrative' : 'tpl-classic');
       host.replaceChildren(tpl.content.cloneNode(true));
-      teardown = (narrative ? mountNarrative : mountClassic)(host);
+      teardown = narrative ? mountNarrative(host, { variant: splashVariant() }) : mountClassic(host);
     }
 
     initPageStage({
