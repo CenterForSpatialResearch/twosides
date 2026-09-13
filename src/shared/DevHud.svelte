@@ -8,12 +8,13 @@
   import { uiOption, cycleUiOption, uiOptionLabel, UI_OPTION_COUNT } from './uiOption.svelte.js';
   import { topoProfile, cycleTopoProfile, DEFAULT_TOPO_PROFILE, hasProfileInfo, profileSizes } from './topoProfile.svelte.js';
   import {
-    timelineMode, cycleTimelineMode, timelineModeLabel,
-    DEFAULT_TIMELINE_MODE, TIMELINE_MODES, TIMELINE_MODE_INFO
-  } from './timelineMode.svelte.js';
+    fontWeights, cycleFontWeights, DEFAULT_FONT_WEIGHTS, FONT_WEIGHT_INFO
+  } from './fontWeights.svelte.js';
 
-  // Only the anthromes side has a map and a details timeline, so only it opts
-  // into those two toggles. Biomes leaves them off.
+  // Only the anthromes side has a map, so only it opts into the map resolution
+  // toggle. Biomes leaves it off. The TIMELINE row-mode toggle that sat beside
+  // it is gone: mode 1 (equal cells) is the one that ships, and the WEIGHTS
+  // button below took its place on both sides.
   let {
     showMapResolution = false
   } = $props();
@@ -163,15 +164,15 @@
         >
           MAP RES: {topoProfile()}
         </button>
-        <button
-          class="hud-btn"
-          class:on={timelineMode() !== DEFAULT_TIMELINE_MODE}
-          title={timelineModeLabel(timelineMode())}
-          onclick={cycleTimelineMode}
-        >
-          TIMELINE: {timelineMode()}/{TIMELINE_MODES.length} &middot; {TIMELINE_MODE_INFO[timelineMode()]?.label ?? '?'}
-        </button>
       {/if}
+      <button
+        class="hud-btn"
+        class:on={fontWeights() !== DEFAULT_FONT_WEIGHTS}
+        title="Pelikan Regular + Medium + Bold, or Regular + Bold only"
+        onclick={cycleFontWeights}
+      >
+        WEIGHTS: {FONT_WEIGHT_INFO[fontWeights()]}
+      </button>
     </div>
   {/if}
 </div>

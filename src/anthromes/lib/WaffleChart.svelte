@@ -1289,7 +1289,7 @@
     fill: #ffffff;
     font-size: 49px;
     opacity: 0.95;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.08em;
     pointer-events: all;
   }

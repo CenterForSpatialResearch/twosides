@@ -182,9 +182,10 @@
     cellSeries ? 'cell' : selectedCountryIso3 ? 'country' : 'world'
   );
 
-  // How the details timeline apportions its rows lives in the DevHud, beside
-  // the other switchable renders — see src/shared/timelineMode.svelte.js for
-  // what the three modes are and PixelTimeline's rowsMode for how they draw.
+  // How the details timeline apportions its rows — see
+  // src/shared/timelineMode.svelte.js for what the three modes are and
+  // PixelTimeline's rowsMode for how they draw. Mode 1 ships; the DevHud no
+  // longer offers a switch, so setTimelineMode() is the only way to 2 or 3.
 
   // Land cells in whatever the timeline is showing, at the drawn resolution:
   // the country's largest per-year total (years with nodata cells run a few
@@ -1911,7 +1912,7 @@
 
   .history-chart-title {
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
@@ -1927,7 +1928,7 @@
 
   .overlay-title {
     font-size: 23px;
-    font-weight: 500;
+    font-weight: 700;
     letter-spacing: 0.04em;
   }
 
@@ -1993,7 +1994,7 @@
 
   .info-citations-title {
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 400;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);

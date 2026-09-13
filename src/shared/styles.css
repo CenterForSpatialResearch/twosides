@@ -12,6 +12,17 @@
   --design-h: 2000;
   /* Set from JS on load + resize; CSS can't divide length/length to a factor. */
   --stage-scale: 1;
+
+  /* The piece's one typeface. Two weights by default — Regular and Bold, with
+     an outline standing in for Medium on the keys (see the @font-face blocks
+     below). The DevHud's WEIGHTS button swaps in the three-weight family by
+     setting data-font-weights="3" on <html> — see fontWeights.svelte.js. The
+     default lives here rather than in JS so the first paint is already right. */
+  --font-sans: 'ABCPelikan Two Weights', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
+}
+
+:root[data-font-weights="3"] {
+  --font-sans: 'ABCPelikan', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
 }
 
 /* ===== Fixed-canvas scaling =====
@@ -42,12 +53,60 @@
   transform-origin: center center;
 }
 
-/* ABCPelikan font declarations */
+/* ABC Pelikan, three weights: 400 body, 500 everything else, 700 headlines.
+   Each weight is its own cut, so nothing is synthesised — before these, only
+   Regular was loaded and 600-800 were the browser's faux bold of it. Dinamo
+   trial files for now; swap in the licensed web files (woff2) when they land. */
 @font-face {
   font-family: 'ABCPelikan';
-  src: url('../assets/fonts/ABCPelikan-Regular-Trial.woff') format('woff');
-  font-weight: normal;
+  src: url('../assets/fonts/ABCPelikanTrial-Regular.otf') format('opentype');
+  font-weight: 400;
   font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABCPelikan';
+  src: url('../assets/fonts/ABCPelikanTrial-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABCPelikan';
+  src: url('../assets/fonts/ABCPelikanTrial-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+/* Dev comparison only: what the piece looks like if only Regular and Bold are
+   bought. The Regular file covers 400-500, so every 500 in the CSS draws
+   Regular, exactly as it would with no Medium cut installed. */
+@font-face {
+  font-family: 'ABCPelikan Two Weights';
+  src: url('../assets/fonts/ABCPelikanTrial-Regular.otf') format('opentype');
+  font-weight: 400 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABCPelikan Two Weights';
+  src: url('../assets/fonts/ABCPelikanTrial-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+/* Two weights, with a stand-in for Medium where it is missed most: the
+   anthrome and phylum keys. Regular with a 0.7px outline in its own colour —
+   measured on the key's category names, that lands on Medium's ink to within
+   half a percent, and an outline adds no advance width, so nothing reflows.
+   The browser's own synthesised bold was tried first (a Regular-only family
+   asked for 700) and gave about a quarter of that — barely visible on the
+   14px pills — and it is drawn by the OS text stack, so it would differ on
+   the exhibition display; the outline renders the same everywhere. */
+html:root:not([data-font-weights="3"]) .key-pill,
+html:root:not([data-font-weights="3"]) .key-cat-name,
+html:root:not([data-font-weights="3"]) .phylum-dot span {
+  -webkit-text-stroke: 0.7px currentColor;
 }
 
 @font-face {
@@ -70,10 +129,21 @@ html, body {
 
 body {
   margin: 0;
-  font-family: 'ABCPelikan', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--fg);
   overflow: hidden;
+}
+
+/* Form controls don't inherit the page font by default — the browser gives
+   them its own system face — so every <button> in the rails (the anthrome
+   key pills, "All", the control circles, the close button) was drawing in
+   the system font rather than Pelikan. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 /* Common UI elements. These live inside .stage, so they are positioned
@@ -219,6 +289,13 @@ body {
    TYPE SCALE — all sizes are design px, scaled by the stage transform.
    These are four of the piece's six type tiers (12 / 14 / 17 / 19 / 23 / 27);
    the rails use the same six, so nothing here should fall between them.
+
+   WEIGHTS — one rule across both sides and the splash:
+     700  headlines
+     500  what you touch, or what names a value in a key (pills, chips, country
+          names, "All", control labels, the SGB name, the genome count)
+     400  what you read, or what annotates (lead-ins, descriptions, captions,
+          uppercase panel labels like "Reconstructed genomes", chart axes)
    The floor is 17px, matching the .panel-content base. Body text sizes up
    from the floor.
      14px    micro — lineage chips ONLY (see below)
@@ -450,7 +527,7 @@ body {
 
 .panel-content .gm-label {
   font-size: 17px; /* floor */
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -465,7 +542,7 @@ body {
 
 .panel-content .gm-max {
   font-size: 17px; /* floor */
-  font-weight: 500;
+  font-weight: 400;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -567,7 +644,7 @@ body {
 .panel-content .sp-countries-title {
   flex: 0 0 100%;
   font-size: 17px; /* floor */
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -578,11 +655,12 @@ body {
   flex-wrap: wrap;
   align-items: flex-start; /* never stretch chips to the row height — that reads as circles */
   flex: 1 1 100%;
-  /* 6px, not 7: at 17px the widest of the catalog's 1,414 distinct country
-     lists (five primaries and six ISO codes) ran 5.5px past the 878px rail
-     at 7px and wrapped to a second row. At 6px every list is one row, so the
-     species panel is one height for every species. */
-  gap: 5px 6px;
+  /* 5px, not 7: every one of the catalog's 1,414 distinct country lists has
+     to fit one row of the 878px rail, so the species panel is one height for
+     every species (it has ~4px to spare; a second row would scroll). In
+     Pelikan Medium at 17px the widest two lists ran 4.3px and 0.9px over at
+     6px. At 5px the widest is 872px. Re-check if the chip type changes. */
+  gap: 5px 5px;
 }
 
 .panel-content .sp-country-chip {

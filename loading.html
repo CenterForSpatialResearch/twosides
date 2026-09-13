@@ -5,9 +5,25 @@
   <title>Loading…</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* ABC Pelikan in the three cuts the piece uses (see src/shared/styles.css):
+       titles at 700, the subheadline at 400. Medium is declared to match the
+       rails but never requested here, so it is never downloaded. */
     @font-face {
       font-family: "Pelikan";
-      src: url("./fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      src: url("./fonts/ABCPelikanTrial-Regular.otf") format("opentype");
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Medium.otf") format("opentype");
+      font-weight: 500;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Bold.otf") format("opentype");
+      font-weight: 700;
       font-display: swap;
     }
 
@@ -95,7 +111,7 @@
     .caption-svg text.subhead {
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      font-weight: 500;
+      font-weight: 400;
     }
     /* Dots always take their slot; only opacity changes so the LOADING text
        never shifts as the ellipsis animates. */

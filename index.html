@@ -5,9 +5,26 @@
   <title>Anthromes &amp; Biomes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* ABC Pelikan in the three cuts the piece uses (see src/shared/styles.css).
+       The splash itself sets its titles at 700 and every other line at 400;
+       Medium is declared so the family matches the rails, but nothing here
+       asks for it, so the browser never downloads it on this page. */
     @font-face {
       font-family: "Pelikan";
-      src: url("./fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      src: url("./fonts/ABCPelikanTrial-Regular.otf") format("opentype");
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Medium.otf") format("opentype");
+      font-weight: 500;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Bold.otf") format("opentype");
+      font-weight: 700;
       font-display: swap;
     }
 
@@ -158,25 +175,28 @@
       text-transform: uppercase;
       font-weight: 700;
     }
+    /* Weights follow the rails' rule (see the WEIGHTS note in
+       src/shared/styles.css): the titles are this screen's headlines, 700;
+       everything else here is read rather than touched, 400. */
     .splash--narrative .caption-svg text.line {
       letter-spacing: 0.02em;
-      font-weight: 500;
+      font-weight: 400;
     }
     /* The dichotomies: the same voice as the one-liners, a step smaller. */
     .splash--narrative .caption-svg text.sub {
       letter-spacing: 0.005em;
-      font-weight: 500;
+      font-weight: 400;
     }
     /* splash-3: the framing lines set in the titles' place, at the titles'
        size but in sentence case, in the one-liners' voice. */
     .splash--narrative .caption-svg text.sentence {
       letter-spacing: 0.01em;
-      font-weight: 500;
+      font-weight: 400;
     }
     /* "select to enter" under each title; follows the title's emphasis. */
     .splash--narrative .caption-svg text.enter-hint {
       letter-spacing: 0.12em;
-      font-weight: 500;
+      font-weight: 400;
     }
     /* The destination's subheadline, shown once a side has been chosen. Same
        treatment as loading.html's, so the commit state and the cross-link
@@ -184,7 +204,7 @@
     .splash--narrative .caption-svg text.subhead {
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      font-weight: 500;
+      font-weight: 400;
     }
 
     /* Both titles are always clickable, whichever face is turned forward —

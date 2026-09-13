@@ -648,7 +648,7 @@
 
   .band-label {
     font-size: 11.5px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.05em;
     fill: rgba(255, 255, 255, 0.66);
     text-transform: uppercase;
@@ -664,7 +664,7 @@
   /* Keep in step with TICK_FONT_PX, which sizes the overlap test above. */
   .axis-label {
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.04em;
     fill: rgba(255, 255, 255, 0.7);
     text-transform: uppercase;
@@ -679,7 +679,7 @@
 
   .year-marker-label {
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.04em;
     fill: #ffffff;
     text-transform: uppercase;

@@ -2482,7 +2482,7 @@
     text-align: center;
     line-height: 1.2;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.01em;
     font-variant-numeric: tabular-nums;
     opacity: 0.78;
@@ -2637,7 +2637,7 @@
   }
 
   .overlay-title {
-    font-weight: 500;
+    font-weight: 700;
     letter-spacing: 0.04em;
     font-size: 23px;
   }
@@ -2665,7 +2665,7 @@
 
   .info-citations-title {
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 400;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
