@@ -67,7 +67,11 @@
   // Filter rail state
   let openPanel = $state(null); // 'anthromes' | 'zooms'
 
-  const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
+  // The eight primary countries, in the biomes study's lifestyle split — a
+  // clean property of the country for these eight (see biomes/App.svelte).
+  // The picker groups by it, in this order.
+  const WESTERN_ISOS = ['SWE', 'GBR', 'USA', 'CHN'];
+  const NONWESTERN_ISOS = ['MDG', 'FJI', 'PER', 'TZA'];
   const SHORT_LABELS = {
     SWE: 'Sweden',
     GBR: 'UK',
@@ -79,7 +83,7 @@
     TZA: 'Tanzania'
   };
 
-  // Country-first primary filter (Phase 3). Parity with biomes side. In-memory
+  // Country-first primary filter. Parity with biomes side. In-memory
   // only: the two sides no longer hand a selection to one another, so there is
   // nothing to seed from the URL and nothing to keep in sync with it.
   let selectedCountryIso3 = $state(null);
@@ -171,6 +175,7 @@
   const detailScale = $derived(
     cellSeries ? 'cell' : selectedCountryIso3 ? 'country' : 'world'
   );
+
   const detailSourceKey = $derived(
     detailScale === 'cell'
       ? `cell:${cellSeries.id}`
@@ -194,22 +199,40 @@
 
   // Names that are plurals or descriptions rather than proper singular nouns
   // read wrong without a definite article: "of the Netherlands", not "of
-  // Netherlands". Any of the 174 Natural Earth names can reach this — a map
-  // click selects whatever country the cell belongs to, not just the eight in
-  // the picker — so this is the full set from countries-110m.topojson, spelled
-  // the abbreviated way that file spells them.
+  // Netherlands". Any of the 242 Natural Earth 50m names can reach this — a
+  // map click selects whatever country the cell belongs to, not just the eight
+  // in the picker — so this is the full set from countries-50m.topojson, the
+  // pinned set (see shared/mapProfile.js), spelled the abbreviated way that
+  // file spells them. Dev's copy lists only the 110m names.
   const ARTICLE_COUNTRIES = new Set([
+    'Ashmore and Cartier Is.',
     'Bahamas',
+    'Br. Indian Ocean Ter.',
+    'British Virgin Is.',
+    'Cayman Is.',
     'Central African Rep.',
+    'Comoros',
     'Congo',
+    'Cook Is.',
     'Dem. Rep. Congo',
     'Dominican Rep.',
+    'Faeroe Is.',
     'Falkland Is.',
     'Fr. S. Antarctic Lands',
     'Gambia',
+    'Heard I. and McDonald Is.',
+    'Indian Ocean Ter.',
+    'Isle of Man',
+    'Maldives',
+    'Marshall Is.',
+    'N. Mariana Is.',
     'Netherlands',
     'Philippines',
+    'Pitcairn Is.',
+    'Seychelles',
     'Solomon Is.',
+    'Turks and Caicos Is.',
+    'U.S. Virgin Is.',
     'United Arab Emirates',
     'United Kingdom',
     'United States of America'
@@ -225,97 +248,29 @@
   // "Details" — matching the biomes side, where the SGB name is the heading.
   // Three scales, three headings; the line underneath restates the span, and at
   // world scale says how to narrow it.
+  // Final copy: the heading is the side's subheadline (the same line the splash
+  // shows while this side loads) and the blurb names the scope. The cell scale
+  // keeps its old lines; it is unreachable, since a map click selects the
+  // country.
   const detailHeading = $derived(
     detailScale === 'cell'
       ? 'Anthrome composition of a cell'
-      : detailScale === 'country'
-        ? `Anthrome composition of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}`
-        : 'Anthrome composition of the World'
+      : 'MODELING 12,025 YEARS OF LAND USE'
   );
+  // World and country scale say what the panel IS — a timeline of somewhere —
+  // because the chart title that used to sit above the field said the same
+  // scope a second time and cost a row of its height.
   const detailBlurb = $derived(
     detailScale === 'cell'
-      ? "This cell's anthrome transitions over 12,025 years."
+      ? "This cell's anthrome transitions over 12,025 years:"
       : detailScale === 'country'
-        ? `${withArticle(countryLabel(selectedCountryIso3), true) ?? 'This country'}'s anthrome transitions over 12,025 years.`
-        : "The world's anthrome transitions over 12,025 years. Pick a country or cell to narrow it."
+        ? `Anthrome timeline of ${withArticle(countryLabel(selectedCountryIso3)) ?? 'this country'}:`
+        : 'Anthrome timeline of the World:'
   );
 
-  const detailTitle = $derived(
-    detailScale === 'cell'
-      ? 'Cell history'
-      : detailScale === 'country'
-        ? 'Anthrome timeline'
-        : 'World anthrome timeline'
-  );
-
-  // Every country in the study, for the scope pill. primary_countries.json only
-  // covers the eight in the picker, but an isolated cell can land in any of
-  // them — so the pill reads from the full index.
-  let countryIndex = $state(null);
-
-  // Sample and species totals across the whole study, so the world scale gets
-  // the same pill the country and cell scales get. Species is the UNION of each
-  // country's SGB list, not the sum: a species reported in five countries is
-  // one species.
-  const earthTotals = $derived.by(() => {
-    if (!countryIndex) return null;
-    let samples = 0;
-    const sgbs = new Set();
-    for (const entry of Object.values(countryIndex)) {
-      samples += entry.samples_total || 0;
-      for (const s of entry.sgbs || []) sgbs.add(s);
-    }
-    return { label: 'Earth', samples, species: sgbs.size };
-  });
-
-  // One pill shape for all three scales: { label, samples, species }.
-  const scopePill = $derived.by(() => {
-    if (detailScale === 'country' && selectedCountryIso3) {
-      // Same three cases as the cell branch below. This used to require
-      // selectedCountryMeta and otherwise fall through to earthTotals, which
-      // was invisible while only the eight sampled primaries could be picked —
-      // but now that any country is selectable it would print Earth's sample
-      // and species counts under that country's name, which is worse than
-      // printing nothing.
-      const label = countryLabel(selectedCountryIso3);
-      if (selectedCountryMeta) {
-        return {
-          label: selectedCountryMeta.label,
-          samples: selectedCountryMeta.samples_total,
-          species: selectedCountryMeta.sgbs.length
-        };
-      }
-      const entry = countryIndex?.[selectedCountryIso3];
-      if (entry) {
-        return {
-          label,
-          samples: entry.samples_total || 0,
-          species: (entry.sgbs || []).length
-        };
-      }
-      return { label, note: 'not sampled in this study' };
-    }
-    if (detailScale === 'cell') {
-      // The cell's present-day country. Most land is in countries the study
-      // never sampled, so there are three cases: sampled (counts), known but
-      // unsampled (name + why there are no counts), and no country at all
-      // (ocean, ice) which falls through to Earth.
-      const iso3 = detailMeta?.countryIso3;
-      if (iso3) {
-        const entry = countryIndex?.[iso3];
-        const label = detailMeta.countryName || iso3;
-        if (entry) {
-          return {
-            label,
-            samples: entry.samples_total || 0,
-            species: (entry.sgbs || []).length
-          };
-        }
-        return { label, note: 'not sampled in this study' };
-      }
-    }
-    return earthTotals;
-  });
+  // No title over the field at world or country scale — the line under the
+  // heading carries the scope.
+  const detailTitle = $derived(detailScale === 'cell' ? 'Cell history' : '');
 
   // Cell history chart state (lifted from MapCanvas via WaffleChart bindings)
   let showBarChart = $state(false);
@@ -361,12 +316,14 @@
     return `${Math.round(p)}%`;
   }
 
-  // "2025AD" → "2025", "10000BC" → "10000 BCE"
+  // "2025AD" → "2025", "10000BC" → "10,000 BCE". Thousands are grouped in the
+  // BCE era only: five-digit BCE dates are read as quantities and are written
+  // grouped ("10,000 BCE"), while a CE year is a name and never is ("2025").
   function formatYear(yearStr) {
     if (!yearStr) return '';
     const isBCE = /(BCE?|BC)$/.test(yearStr);
     const n = parseInt(yearStr.replace(/[^\d]/g, ''), 10);
-    return isBCE ? `${n} BCE` : `${n}`;
+    return isBCE ? `${n.toLocaleString()} BCE` : `${n}`;
   }
 
   // ── Anthrome filter: click to isolate one, drag across to select a range ──
@@ -531,10 +488,10 @@
     const panel = detailPanelEl;
     const open = detailContent;
     // Recompute when the panel's contents shift under the anchor: the chart
-    // appearing or resizing, the scope pill resolving, or the anchor row itself
+    // appearing or resizing, or the anchor row itself
     // mounting. Under Option 1 the anchor also moves when the year changes,
     // because the anthrome name can get longer or shorter.
-    barChartData; historyChartSize; detailAnchorEl; anthromeRuleEl; scopePill; detailMeta;
+    barChartData; historyChartSize; detailAnchorEl; anthromeRuleEl; detailMeta;
     untrack(() => {
       if (!panel || !start || !open) {
         connectorEnd = null;
@@ -596,14 +553,8 @@
       // when the country set changes.
       try {
         const base = import.meta.env.BASE_URL;
-        const [pcRes, ciRes] = await Promise.all([
-          fetch(`${base}data/primary_countries.json`),
-          // Also fetched by MapCanvas; the browser serves the second hit from
-          // cache, so this costs nothing beyond the parse.
-          fetch(`${base}data/country_index.json`)
-        ]);
+        const pcRes = await fetch(`${base}data/primary_countries.json`);
         if (pcRes.ok) primaryCountries = await pcRes.json();
-        if (ciRes.ok) countryIndex = await ciRes.json();
       } catch (e) {
         console.warn('Failed to load country picker data', e);
       }
@@ -667,7 +618,9 @@
 
   function zoomOut() {
     const prev = [...ZOOM_LEVELS].reverse().find(z => z < zoomLevel);
-    if (prev != null) zoomLevel = prev;
+    if (prev == null) return;
+    if (waffleChartRef?.zoomToScale) waffleChartRef.zoomToScale(prev);
+    else zoomLevel = prev;
   }
 
   function resetView() {
@@ -836,7 +789,7 @@
             <ArcLabel text="Info" side="left" />
           </div>
           <div class="ctl-slot">
-            <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel === ZOOM_LEVELS[0]} aria-disabled={zoomLevel === ZOOM_LEVELS[0]}>−</button>
+            <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel <= ZOOM_LEVELS[0]} aria-disabled={zoomLevel <= ZOOM_LEVELS[0]}>−</button>
             <ArcLabel text="Zoom Out" side="left" />
           </div>
           <div class="ctl-slot">
@@ -844,15 +797,17 @@
             <ArcLabel text="Reset" side="left" />
           </div>
           <div class="ctl-slot">
-            <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
+            <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
             <ArcLabel text="Zoom In" side="left" />
           </div>
         </div>
 
-        <!-- Country picker (parity with biomes side) -->
+        <!-- Country picker (parity with biomes side): the eight countries in
+             the two lifestyle groups the biomes study assigns, each led by its
+             description, so the same eight read the same way on both faces. -->
         <section class="fblock">
           <div class="fblock-headrow">
-            <h3 class="menu-title">Country</h3>
+            <h3 class="menu-oneliner">Global land use patterns resolve differently when viewed within national borders.</h3>
             <button
               class="mini-link"
               class:active={selectedCountryIso3 === null}
@@ -860,61 +815,63 @@
               aria-label="Clear country selection"
             >All</button>
           </div>
-          <p class="menu-desc">Select a country to see the composition of its anthromes over time.</p>
-          <div class="country-row">
-            {#each PRIMARY_ORDER as iso3 (iso3)}
-              {@const feature = countryFeatureByIso.get(iso3)}
-              <div class="country-cell">
-                <CountryCircle
-                  {iso3}
-                  label={SHORT_LABELS[iso3] ?? iso3}
-                  {feature}
-                  size={168}
-                  labelFontSize={20}
-                  ringStroke={3.4}
-                  ringStrokeSelected={5}
-                  selected={selectedCountryIso3 === iso3}
-                  dimmed={selectedCountryIso3 !== null && selectedCountryIso3 !== iso3}
-                  onclick={() => selectCountry(iso3)}
-                />
+
+          {#snippet lifestyleRow(title, blurb, isos)}
+            <div class="ls-row">
+              <div class="ls-row-head" aria-label={title}>
+                <span class="ls-row-desc">{blurb}</span>
               </div>
-            {/each}
-          </div>
+              <div class="country-row">
+                {#each isos as iso3 (iso3)}
+                  {@const feature = countryFeatureByIso.get(iso3)}
+                  <div class="country-cell">
+                    <CountryCircle
+                      {iso3}
+                      label={SHORT_LABELS[iso3] ?? iso3}
+                      {feature}
+                      size={150}
+                      labelFontSize={19}
+                      ringStroke={3.4}
+                      ringStrokeSelected={5}
+                      selected={selectedCountryIso3 === iso3}
+                      dimmed={selectedCountryIso3 !== null && selectedCountryIso3 !== iso3}
+                      onclick={() => selectCountry(iso3)}
+                    />
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/snippet}
+
+          {@render lifestyleRow(
+            'Westernized',
+            'Populations with more exposure to urbanization, industrialized food and medicine:',
+            WESTERN_ISOS
+          )}
+          {@render lifestyleRow(
+            'Non-Westernized',
+            'Populations with limited exposure to urbanization and industrialized systems:',
+            NONWESTERN_ISOS
+          )}
         </section>
 
         <!-- Middle: always-visible details menu item, where Views used to be -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <section class="detail-dock" aria-live="polite" bind:this={detailPanelEl} onclick={(e) => e.stopPropagation()}>
-          <h3 class="menu-title">{detailHeading}</h3>
-          <p class="menu-desc">{detailBlurb}</p>
+          <h3 class="menu-title detail-heading">{detailHeading}</h3>
+          <p class="rail-leadin">{detailBlurb}</p>
           <div class="detail-body">
-            <!-- Option 1: the panel is never empty. World, country and cell
-                 are three scales of one chart, so they share a single slot —
-                 which is also what lets the swap between them animate: the
-                 component instance survives, sees its sourceKey change, and
+            <!-- The panel is never empty. World, country and cell are three
+                 scales of one chart, so they share a single slot — which is
+                 also what lets the swap between them animate: the component
+                 instance survives, sees its sourceKey change, and
                  drains/refills in place. The header above and the cell's
                  tooltip text below update immediately; only the field
                  animates, exactly as the ring does. -->
-            <!-- The scope pill sits in the same place at all three scales:
-                 Earth for the world, the picked country, or an isolated
-                 cell's present-day country. Same shape, same position, so
-                 moving between scales reads as one continuous panel. -->
-            {#if scopePill}
-              <div class="detail-subhead">
-                <span class="country-badge">{scopePill.label}</span>
-                <span class="country-meta">
-                  {#if scopePill.note}{scopePill.note}
-                  {:else}{scopePill.samples.toLocaleString()} samples · {scopePill.species.toLocaleString()} species{/if}
-                </span>
-              </div>
-            {/if}
-
             {#if detailScale === 'cell'}
               <!-- Anthrome identity, then the "In <year>, X covers …"
-                   sentence that comes with it. The country key/values and the
-                   biomes cross-link that used to live in this HTML are gone —
-                   the pill above states the same facts. -->
+                   sentence that comes with it. -->
               {#if detailMeta?.label}
                 <div class="detail-subhead" bind:this={detailAnchorEl}>
                   {#if detailMeta?.color}
@@ -939,7 +896,9 @@
             {/if}
 
             <div class="history-chart-section history-chart-section--fill" bind:this={historyChartEl}>
-              <div class="history-chart-title">{detailTitle}</div>
+              {#if detailTitle}
+                <div class="history-chart-title">{detailTitle}</div>
+              {/if}
               <div class="pixel-chart-box" bind:this={pixelChartEl}>
                 <PixelTimeline
                   mode={detailScale === 'cell' ? 'ladder' : 'stack'}
@@ -967,32 +926,40 @@
         <!-- Bottom tier: always-visible anthrome filter key. Click to isolate one, drag across to select a range. -->
         <section class="anthrome-key">
           <div class="anthrome-key-head">
-            <span class="anthrome-key-title">Anthromes in {formatYear(selectedYear)}</span>
+            <!-- Headline says what an anthrome IS; the line under it says what
+                 the numbers in the pills are a share OF. The year moved out of
+                 the headline and into that line, where it belongs with the
+                 percentages it qualifies. Set as .menu-oneliner so this
+                 bottom-tier headline reads in the same voice as the biomes
+                 phylum key opposite it. -->
+            <span class="menu-oneliner anthrome-key-title">Anthromes are patterns of human habitation and land use.</span>
             <div class="anthrome-key-actions">
               <button class="mini-link" class:active={selectedAnthromes.length === orderedCodes.length} onclick={handleSelectAll}>All</button>
             </div>
           </div>
+          <p class="rail-leadin key-scope">Anthrome share in {formatYear(selectedYear)}:</p>
           <div class="key-legend">
             <div class="key-axis" aria-hidden="true">
               <span class="key-axis-label">more intensive anthromes</span>
             </div>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div class="key-swatches" onpointerdown={keyPointerDown}>
+              <!-- Two grid columns, not six stacked blocks: the category name
+                   sits beside its pills instead of on a line of its own, which
+                   is six lines of height the timeline above gets back. -->
               {#each LEGEND_CATEGORIES as category}
-                <div class="key-family">
-                  <div class="key-cat-name">{category.name}</div>
-                  <div class="key-pills">
-                    {#each category.codes as code}
-                      {@const pct = currentPercentages[String(code)] ?? 0}
-                      <button
-                        class="key-pill"
-                        class:dim={!selectedAnthromes.includes(code)}
-                        data-idx={displayedCodes.indexOf(code)}
-                        style="background:{colorMapping[code]}; color:{textColor(colorMapping[code])};"
-                        title="{labelMapping[code]} — {fmtPct(pct)}"
-                      >{labelMapping[code]} ({fmtPct(pct)})</button>
-                    {/each}
-                  </div>
+                <div class="key-cat-name">{category.name}</div>
+                <div class="key-pills">
+                  {#each category.codes as code}
+                    {@const pct = currentPercentages[String(code)] ?? 0}
+                    <button
+                      class="key-pill"
+                      class:dim={!selectedAnthromes.includes(code)}
+                      data-idx={displayedCodes.indexOf(code)}
+                      style="background:{colorMapping[code]}; color:{textColor(colorMapping[code])};"
+                      title="{labelMapping[code]} — {fmtPct(pct)}"
+                    >{labelMapping[code]} ({fmtPct(pct)})</button>
+                  {/each}
                 </div>
               {/each}
             </div>
@@ -1042,42 +1009,20 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
       <div class="overlay-head">
-        <div class="overlay-title">Anthromes Overview</div>
+        <div class="overlay-title">ANTHROMES</div>
         <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
       </div>
       <div class="detail-body">
         <div class="info-body">
-          <p><strong><u>More than 65% of terrestrial nature</u></strong> has been shaped, in very different ways, by people.</p>
-          <p><strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
-          <p>Visualized here is the <strong>Anthromes Dataset</strong>. It is a "hindcast," a model built from global population and land use data showing change over <u>12,025 years</u>.</p>
-          <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong></p>
-          <p><u>Preserving "cultured" and "wild" lands</u> is key to preserving biodiversity.</p>
-
-          <div class="legend-section">
-            <div class="legend-category-name">Legend</div>
-            <div class="legend-body">
-              <div class="legend-axis" aria-hidden="true">
-                <span class="legend-axis-label">more intensive anthromes</span>
-              </div>
-              <div class="info-swatches" aria-label="Anthrome color swatches">
-                {#each LEGEND_CATEGORIES as category}
-                  <div class="legend-category-name">{category.name}</div>
-                  {#each category.codes as code}
-                    <div class="swatch-pill">
-                      <span class="swatch-pill__color" style={`background: ${colorMapping[code]}`}></span>
-                      <span class="swatch-pill__label">{labelMapping[code]}</span>
-                    </div>
-                  {/each}
-                {/each}
-              </div>
-            </div>
-          </div>
+          <p><strong>More than 65% of terrestrial nature</strong> has been shaped, in very different ways, by people. <strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
+          <p>Visualized here is the <strong>Anthromes Dataset</strong> from the Anthroecology Lab. It is a “hindcast” model, projecting back in time from global population and land use data showing change over 12,025 years.</p>
+          <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong> Hence, preserving “cultured” and “wild” lands is key to preserving biodiversity.</p>
 
           <div class="info-citations">
             <div class="info-citations-title">Citations</div>
-            <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Diaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. "People have shaped most of terrestrial nature for at least 12,000 years." <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
-            <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
-            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+            <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. “People have shaped most of terrestrial nature for at least 12,000 years.” <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. https://doi.org/10.1073/pnas.2023483118</p>
+            <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. https://public.yoda.uu.nl/geo/UU01/F45D44.html</p>
+            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025.</p>
           </div>
         </div>
       </div>
@@ -1180,14 +1125,20 @@
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
-  /* Rail rhythm. Deliberately tighter than the biomes rail's: this side has
-     no vertical slack — the country picker, the details chart and the full
-     anthrome key all have to fit — so it keeps the original 23px while biomes
-     spends its leftover height on a looser rhythm. */
+  /* Rail rhythm: 28px of visible space above and below every divider, the same
+     as the biomes rail (whose country panel mirrors this one, so the details
+     titles under them — "MODELING 12,025 YEARS…" here, "5000 LINES…" there —
+     land at the same height). The chart below takes whatever is left.
+     The two values differ because what the eye measures is ink, not boxes:
+     a 27px headline carries ~6px of empty line box above its letters, and the
+     blocks above a divider end ~4px of box below their last ink. So
+     margin = 28 - 4 and padding = 28 - 6. The top divider sits under the
+     control circles, whose box ends on the ink; .control-circles pays
+     that 4px back as padding. */
   .filter-rail > * + * {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 23px;
-    padding-top: 23px;
+    margin-top: 24px;
+    padding-top: 22px;
   }
 
   .control-circles,
@@ -1204,6 +1155,7 @@
     gap: 0;
     align-items: center;
     justify-content: space-between;
+    padding-bottom: 4px;    /* see the rail rhythm note above */
   }
 
   /* Positioning context for ArcLabel, which paints centred on the button and
@@ -1222,7 +1174,7 @@
     background: var(--bg);
     border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
-    font-weight: 700;
+    font-weight: 500;
     font-size: 44px;
     cursor: pointer;
     display: grid;
@@ -1249,8 +1201,15 @@
   }
 
   /* ===== MoMA: bottom anthrome filter key (always visible) ===== */
+  /* `0 0 auto`, not `0 1 auto`: the key is sized to its content and the details
+     dock above it takes whatever is left, so there is nothing for shrinking to
+     buy — and shrinking is what put a scrollbar on it. The content fitted its
+     box to the pixel, so on any display where the stage scale is not exactly 1
+     the flex distribution rounded the box a fraction under the content and
+     .key-legend's overflow:auto showed a bar. The max-height still bounds it,
+     and the overflow is still there as the valve if the key ever hits it. */
   .anthrome-key {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1260,15 +1219,39 @@
 
   .anthrome-key-head {
     display: flex;
-    align-items: center;
+    /* Baseline, not centre: the headline wraps to two lines and `center`
+       floated "All" between them. Mirrors .fblock-headrow above. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
   }
 
+  /* Type comes from .menu-oneliner; this only claims the row's free width so
+     the headline wraps inside it and "All" stays pinned right. */
   .anthrome-key-title {
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Rail lead-in: the line under a section head that names what the block
+     under IT shows — the country panel's two row descriptions, the details
+     subhead, the key's share line. One treatment for all of them so a reader
+     learns it once: full white at 19px rather than muted body copy, because
+     these lines are part of the rail's structure and not commentary on it, and
+     each ends in a colon because each introduces what follows. Same values as
+     .ls-row-desc below, which is this same voice inside the country panel. */
+  .rail-leadin {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.32;
+    color: #fff;
+  }
+
+  /* The share line hugs the headline it qualifies rather than sitting midway
+     between it and the legend, so the three parts read as heading, caption,
+     key — not as three evenly spaced bands. */
+  .key-scope {
+    margin-top: -4px;
   }
 
   .anthrome-key-actions {
@@ -1285,7 +1268,7 @@
     border-bottom: 2.6px solid transparent;
     padding: 0 0 2.6px;
     font-size: 23px;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.2;
     cursor: pointer;
     opacity: 0.45;
@@ -1356,24 +1339,44 @@
     user-select: none;
   }
 
+  /* Eight rows of pills under six category heads, and the whole thing has to
+     fit the rail's bottom slot without a scrollbar — on the target display it
+     fitted to the pixel, so at any other scale the rounding tipped it into
+     scrolling. The gaps below are what pays for the headroom; the pills keep
+     their type size, since the key is read from across a room. */
+  /* One grid row per category: name on the left, its pills on the right.
+     The name column is a FIXED width, so all six names start on the same left
+     edge and the pill rows all start on the same one too — the column reads as
+     a single list of headings rather than six of different lengths. 116px is
+     the longest word in the set ("SETTLEMENTS", 110px) plus slack; "Dense
+     Settlements" is the one name that wraps, onto two lines, which is what the
+     min-height on the name below is sized for. */
   .key-swatches {
     flex: 1;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    /* 12px between categories against 4px between a category's own wrapped
+       rows (below): with the name beside the first row rather than above the
+       group, that ratio is what tells the eye a second row of pills belongs to
+       the name on its left and not to the one underneath. */
+    gap: 12px 14px;
     align-content: start;
   }
 
-  .key-family {
-    display: flex;
-    flex-direction: column;
-    gap: 3.8px;
-  }
-
   .key-cat-name {
+    /* Top of its row, not centred in it: a category whose pills wrap to two
+       rows should still have its name beside the FIRST row. min-height is one
+       pill row, so a name is centred on the pills it labels — and at
+       line-height 1.2 the two lines of "Dense Settlements" come to 33.6px,
+       inside that same row, so the wrap costs no height. */
+    align-self: start;
+    display: flex;
+    align-items: center;
+    min-height: 34px;
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 500;
+    line-height: 1.2;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
@@ -1382,7 +1385,7 @@
   .key-pills {
     display: flex;
     flex-wrap: wrap;
-    gap: 7.7px;
+    gap: 4px 6px;
     align-items: center;
   }
 
@@ -1390,12 +1393,12 @@
   .key-pill {
     display: inline-flex;
     align-items: center;
-    height: 38px;
-    padding: 0 14px;
+    height: 34px;
+    padding: 0 13px;
     border-radius: 10px;
     border: 1.3px solid rgba(0, 0, 0, 0.18);
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
     box-sizing: border-box;
@@ -1420,8 +1423,17 @@
     pointer-events: auto;
   }
 
-  /* Country picker: 4 columns × 2 rows. Cells are equal-width regardless of
-     label length so the grid stays uniform. Mirrors biomes side. */
+  /* Country picker: one row of 4 per lifestyle group. Cells are equal-width
+     regardless of label length so the grid stays uniform. Mirrors biomes side.
+     The circles, labels, head and headrow are all identical to that side; the
+     one thing this side does not carry is the "{n}% unknown" caption under
+     each globe, which is 20.8px of biomes' rows at 14px. The padding here and
+     the gap between the two groups below spend that height as air instead, so
+     the two country panels stay the same height and the details titles under
+     them ("MODELING 12,025 YEARS…" here, "5000 LINES…" there) stay level.
+     24.3 rather than a round number: it also absorbs the 3px more that the
+     biomes control row pays back under its arc labels (see the rail rhythm
+     note), which is what lands both titles on the same y. */
   .country-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -1430,7 +1442,7 @@
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 12px;
+    padding-top: 24.3px;
   }
 
   .country-cell {
@@ -1442,29 +1454,12 @@
 
   .fblock-headrow {
     display: flex;
-    align-items: center;
+    /* Baseline, so "All" sits on the first line of the wrapped one-liner
+       headline rather than floating between its two lines. Mirrors biomes. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
-    margin-bottom: 6px;
-  }
-
-  .country-badge {
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.10);
-    border: 1px solid rgba(255, 255, 255, 0.24);
-    color: #fff;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    font-size: 14px;
-  }
-
-  .country-meta {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-left: 8px;
+    margin-bottom: 8px;     /* mirrors the biomes rail */
   }
 
   /* Menu item title/description — shared look with the other rail sections */
@@ -1476,11 +1471,62 @@
     color: var(--fg);
   }
 
-  .menu-desc {
+  /* The details section's head ("MODELING 12,025 YEARS OF LAND USE") is set in
+     the section-headline voice, the same as .menu-oneliner below and as
+     "5000 LINES 5000 SPECIES" opposite it. Its own rule rather than that class,
+     because .menu-oneliner claims flex-grow and this sits in a column. */
+  .detail-heading {
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.28;
+    letter-spacing: 0.005em;
+  }
+
+  /* Section one-liner: the same voice and size as the biomes rail's
+     .fblock-oneliner, so the two faces' section heads read as one design. */
+  .menu-oneliner {
     margin: 0;
-    font-size: 16.6px;
-    line-height: 1.45;
-    color: var(--muted);
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.28;
+    letter-spacing: 0.005em;
+    color: var(--fg);
+  }
+
+  /* The country section's column rhythm: the same as the biomes .fblock, so
+     the two country panels are the same height and the details titles under
+     them land at the same y. */
+  .fblock {
+    display: flex;
+    flex-direction: column;
+    gap: 17px;
+    min-width: 0;
+  }
+
+  /* Lifestyle rows in the country picker — mirrors biomes' promoted row head:
+     the description IS the row head, full white, sized as a lead-in. */
+  .ls-row {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .ls-row + .ls-row {
+    margin-top: 36px;       /* biomes' 20px + its share of the caption line */
+  }
+
+  .ls-row-head {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .ls-row-desc {
+    font-size: 19px;
+    line-height: 1.32;
+    color: #fff;
   }
 
   /* Selected-cell subheading (swatch + anthrome name) inside the details body */
@@ -1489,7 +1535,7 @@
     align-items: center;
     gap: 10px;
     font-size: 19px;
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.02em;
     color: #fff;
   }
@@ -1571,7 +1617,7 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 1229px;
+    width: 960px;             /* a comfortable measure at 17px, ~75 chars */
     max-width: calc(100% - 123px);
     max-height: 84%;
     display: flex;
@@ -1617,7 +1663,7 @@
 
   .history-chart-title {
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 400;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--muted);
@@ -1632,7 +1678,7 @@
   }
 
   .overlay-title {
-    font-size: 20.5px;
+    font-size: 23px;
     font-weight: 700;
     letter-spacing: 0.04em;
   }
@@ -1646,7 +1692,7 @@
   }
 
   .panel-content {
-    font-size: 16.6px;
+    font-size: 17px;
     color: var(--muted);
     line-height: 1.5;
     display: flex;
@@ -1669,7 +1715,7 @@
   .info-body {
     display: grid;
     gap: 13px;
-    font-size: 15px;
+    font-size: 17px;
     line-height: 1.55;
     color: var(--muted);
   }
@@ -1682,120 +1728,9 @@
     padding-top: 7.7px;
   }
 
-  .legend-section {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .legend-body {
-    display: flex;
-    gap: 38px;
-    align-items: stretch;
-  }
-
-  /* Axis: vertical arrow + label spanning full legend height */
-  .legend-axis {
-    position: relative;
-    width: 20px;
-    flex-shrink: 0;
-  }
-
-  /* Line and arrowhead sit on the right edge of the axis column */
-  .legend-axis::before {
-    content: '';
-    position: absolute;
-    left: 26px;
-    top: 7.7px;
-    bottom: 0;
-    width: 1.3px;
-    background: rgba(255,255,255,0.3);
-  }
-
-  .legend-axis::after {
-    content: '';
-    position: absolute;
-    left: 26px;
-    top: 1.3px;
-    transform: translateX(-50%);
-    width: 0;
-    height: 0;
-    border-left: 3.8px solid transparent;
-    border-right: 3.8px solid transparent;
-    border-bottom: 6.4px solid rgba(255,255,255,0.3);
-  }
-
-  /* Text spans only the top half so its center sits near Urban */
-  .legend-axis-label {
-    position: absolute;
-    top: 15px;
-    bottom: 50%;
-    left: 6.4px;
-    right: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    font-size: 11.5px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgba(255,255,255,0.35);
-    white-space: nowrap;
-    pointer-events: none;
-    user-select: none;
-  }
-
-  .info-swatches {
-    flex: 1;
-    min-width: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(192px, 1fr));
-    gap: 5px 10px;
-  }
-
-  .legend-category-name {
-    grid-column: 1 / -1;
-    font-size: 13px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-top: 10px;
-  }
-
-  .legend-category-name:first-child {
-    margin-top: 0;
-  }
-
-  .swatch-pill {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 2.6px 0;
-    color: #e7e9f1;
-    font-size: 14px;
-    letter-spacing: 0.02em;
-    line-height: 1.2;
-  }
-
-  .swatch-pill__color {
-    width: 20px;
-    height: 20px;
-    border-radius: 6.4px;
-    border: 1.3px solid rgba(255, 255, 255, 0.25);
-    flex: 0 0 auto;
-  }
-
   .info-body strong {
     color: #fff;
     letter-spacing: 0.02em;
-  }
-
-  .info-body u {
-    text-decoration-thickness: 2.6px;
-    text-decoration-color: rgba(255, 255, 255, 0.35);
-    text-underline-offset: 3.8px;
   }
 
   .info-body em {
@@ -1809,8 +1744,8 @@
   }
 
   .info-citations-title {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 400;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
@@ -1818,7 +1753,7 @@
   }
 
   .info-citations p {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 10px;
@@ -1826,11 +1761,6 @@
 
   .info-citations p:last-child {
     margin-bottom: 0;
-  }
-
-  .info-citations a {
-    color: var(--accent, #7dd3fc);
-    text-decoration: none;
   }
 
   .chevron {
@@ -1844,7 +1774,7 @@
     display: grid;
     place-items: center;
     font-size: 17px;
-    font-weight: 800;
+    font-weight: 500;
   }
 
   .viz-area {

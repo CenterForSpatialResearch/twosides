@@ -94,7 +94,7 @@
   const resetPx = null;          // override anchor if set
   const zoomLevels = [1, 2, 7];
   const edgeMarginPx = 12;
-  const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
+  const geographyFilters = ['Westernized', 'Non-Westernized', 'Unknown'];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
@@ -161,16 +161,6 @@
   const FINISH_DELAY = 90;         // ms after the wheel stops before the heavy finish (full-DPR + labels)
   let lastCommitT = 0;
   let finishTimer = 0;
-
-  function closePanel() {
-    panelVisible = false;
-    panelContent = '';
-    connectorStart = null;
-    connectorEnd = null;
-    currentTooltipDatum = null;
-    tooltipPinned = false;
-    dispatch('detail-close');
-  }
 
   function showPanel(html, datum) {
     panelContent = html;
@@ -343,11 +333,13 @@
   export function zoomInControl() { zoomIn(); }
   export function zoomOutControl() { zoomOut(); }
   export function resetControl() {
-    // Full reset to page-load state: close the details panel and reset zoom +
-    // rotation, then repaint from the live filters. (Filters live in App.)
+    // Full reset to page-load state: reset zoom + rotation and repaint from the
+    // live filters (which live in App). The details panel is never empty — it
+    // re-resolves to whichever species the marker now points at.
     applyFiltersNow();
-    closePanel();
     resetView();
+    updateSelectionFromAngle();
+    commitSelectionToPanel();
   }
   export function rotateLeftControl() { rotateBy(-rotateStepDeg); }
   export function rotateRightControl() { rotateBy(rotateStepDeg); }
@@ -485,7 +477,8 @@
       .attr('text-anchor', d => d.x < Math.PI ? 'start' : 'end')
       .text(d => (d.data.name || '').split('__').pop().replace(/_/g, ' '));
 
-    // Bar axis (SVG overlay)
+    // Bar axis (SVG overlay). Ticks only: the 1 / 10 / 100 / 500 labels drew at
+    // ~3px on the stage, too small to read, so they are gone.
     const axisGroup = g.append('g').attr('class', 'bar-axis');
     axisGroup.append('line')
       .attr('x1', 0).attr('y1', barInner)
@@ -494,7 +487,6 @@
     [1, 10, 100, 500].filter(v => v <= maxRec).forEach(t => {
       const y = barInner + barScale(t);
       axisGroup.append('line').attr('x1', 0).attr('y1', y).attr('x2', 8).attr('y2', y);
-      axisGroup.append('text').attr('x', 10).attr('y', y).attr('dy', '.32em').text(t);
     });
 
     // Leaves sorted by angle → binary-search for the center-selected leaf
@@ -893,7 +885,10 @@
     dragSamples = [{ a: pointerAngleDeg(ev), t: performance.now() }];
     try { vizAreaEl.setPointerCapture?.(ev.pointerId); } catch {}
     window.addEventListener('pointermove', onSpinPointerMove);
-    window.addEventListener('pointerup', onSpinPointerUp, { once: true });
+    // pointercancel too: a touch the browser takes over mid-drag would
+    // otherwise leave the disk dragging with no finger on it.
+    window.addEventListener('pointerup', onSpinPointerUp);
+    window.addEventListener('pointercancel', onSpinPointerUp);
     requestDraw();
   }
 
@@ -911,8 +906,11 @@
   }
 
   function onSpinPointerUp() {
+    if (!dragging) return;
     dragging = false;
     window.removeEventListener('pointermove', onSpinPointerMove);
+    window.removeEventListener('pointerup', onSpinPointerUp);
+    window.removeEventListener('pointercancel', onSpinPointerUp);
     const n = dragSamples.length;
     if (n >= 2) {
       const first = dragSamples[0], last = dragSamples[n - 1];
@@ -941,7 +939,7 @@
     const meta = d?.data?.metadata || {};
     const rec = +meta["#_Reconstructed_genomes"] || 0;
     const status = (parseUSGB(meta) === 'Yes') ? 'Unknown' : '—';
-    const geo = (parseWestern(meta) === 'western') ? 'Western' : (parseWestern(meta) === 'nonwestern' ? 'Non-Western' : '—');
+    const geo = (parseWestern(meta) === 'western') ? 'Westernized' : (parseWestern(meta) === 'nonwestern' ? 'Non-Westernized' : '—');
     const leaf = !d.children;
     const color = colorMapping[phylum] || colorMapping.Other;
     const glyphStroke = color;
@@ -973,11 +971,8 @@
     return `<div class="summary">${summary}</div>`;
   }
 
-  // (Center-select drives selection now — per-mark tap handlers/hit layers were removed.)
-
-  function clearSelected() {
-    selectedLeafId = null;
-  }
+  // (Center-select drives selection now — per-mark tap handlers/hit layers were
+  // removed, and nothing clears the selection: a species is always selected.)
 
   // Filtering logic
   function leafMatchesFilters(leaf) {
@@ -1121,8 +1116,6 @@
     if (event.key === 'Escape') {
       tooltipPinned = false;
       tooltipVisible = false;
-      currentTooltipDatum = null;
-      clearSelected();
       scheduleFilters();
     }
   }

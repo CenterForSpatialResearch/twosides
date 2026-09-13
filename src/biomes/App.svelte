@@ -71,7 +71,7 @@
     TZA: 'Tanzania'
   };
 
-  // Country-first primary filter (Phase 2). ISO3 or null. In-memory only: the
+  // Country-first primary filter. ISO3 or null. In-memory only: the
   // two sides no longer hand a selection to one another, so there is nothing
   // to seed from the URL and nothing to keep in sync with it.
   let selectedCountryIso3 = $state(null);
@@ -321,7 +321,7 @@
       widespreadPct = Math.round((widespread / totalLeaves) * 100);
       concentratedPct = Math.round((concentrated / totalLeaves) * 100);
 
-      // Country-first picker data (Phase 2): the curated 8-country manifest and
+      // Country-first picker data: the curated 8-country manifest and
       // the admin boundary geometries used to draw each CountryCircle globe.
       try {
         const base = import.meta.env.BASE_URL;
@@ -411,8 +411,6 @@
     selectedStudyKey = null;
     selectedCountryIso3 = null;
     openPanel = null;
-    detailContent = null;
-    detailPoint = null;
     biomesChartRef?.resetControl?.();
   }
 
@@ -485,6 +483,87 @@
       selectedPhyla = [...selectedPhyla, phylum];
     }
   }
+
+  // Which set of samples the phylum shares are computed over. null = the whole
+  // catalog. The caption under the key and the percentages in the pills both
+  // read off this one value, so they can never name different denominators —
+  // a selected country with no resolvable SGBs falls back to the catalog on
+  // both at once rather than captioning a column of 0%.
+  const phylumScopeIso3 = $derived(
+    selectedCountryIso3 &&
+    primaryCountries?.[selectedCountryIso3]?.sgbs?.length &&
+    leafBySgbId.size
+      ? selectedCountryIso3
+      : null
+  );
+
+  // "in the UK", not "in USA": the short labels are written for the circles,
+  // where they stand alone, and two of them need an article to sit in a
+  // sentence. Mirrors withArticle() on the anthromes side.
+  const ARTICLE_LABELS = new Set(['UK', 'USA']);
+
+  const phylumScopeLabel = $derived.by(() => {
+    if (!phylumScopeIso3) return 'all samples';
+    const label = SHORT_LABELS[phylumScopeIso3] ?? primaryCountries?.[phylumScopeIso3]?.label ?? phylumScopeIso3;
+    return `samples found in ${ARTICLE_LABELS.has(label) ? 'the ' : ''}${label}`;
+  });
+
+  // Share of the scope's species that fall in each phylum, as a percentage.
+  // Species, not samples, is the unit throughout this side — the disk draws one
+  // line per SGB — so the share is "of the species reported here, this many are
+  // Firmicutes".
+  const phylumPctByName = $derived.by(() => {
+    const counts = {};
+    if (phylumScopeIso3) {
+      for (const sgb of primaryCountries[phylumScopeIso3].sgbs) {
+        const leaf = leafBySgbId.get(Number(sgb));
+        if (!leaf) continue;
+        const name = getPhylum(leaf);
+        counts[name] = (counts[name] || 0) + 1;
+      }
+    } else {
+      Object.assign(counts, phylumCountByName);
+    }
+    let total = 0;
+    for (const n of Object.values(counts)) total += n;
+    if (!total) return {};
+    const out = {};
+    for (const [name, n] of Object.entries(counts)) out[name] = (n / total) * 100;
+    return out;
+  });
+
+  // Same thresholds as the anthromes key, so a share reads the same on both
+  // sides of the coin: anything under a percent is "<1%" rather than "0%".
+  function fmtPct(p) {
+    if (!p || p <= 0) return '0%';
+    if (p < 1) return '<1%';
+    return `${Math.round(p)}%`;
+  }
+
+  // Pill key input: derived list of {name, pct, color, isOther?}. Any phylum
+  // that falls through to the palette's Other colour (drawn gray on the disk)
+  // collapses into a single Other pill carrying the summed share.
+  const OTHER_COLOR = colorMapping.Other;
+  const phylumPills = $derived.by(() => {
+    if (!allPhyla.length) return [];
+    const primary = [];
+    let otherCount = 0;
+    let otherPct = 0;
+    for (const name of allPhyla) {
+      const pct = phylumPctByName[name] || 0;
+      const color = colorMapping[name] || OTHER_COLOR;
+      if (color === OTHER_COLOR) {
+        otherCount++;
+        otherPct += pct;
+      } else {
+        primary.push({ name, pct, color });
+      }
+    }
+    if (otherCount) {
+      primary.push({ name: 'Other', pct: otherPct, color: OTHER_COLOR, isOther: true });
+    }
+    return primary;
+  });
 
   // Per-country prevalence stats — computed from the leaves whose SGB is in
   // the country's sgbs array. Uses the same thresholds as BiomesChart's
@@ -566,42 +645,6 @@
     return best;
   });
 
-  // ── Phylum pills: tap isolates one, drag across selects a contiguous range ──
-  // (mirrors the anthromes filter key; pointer-based so it works on touch)
-  let phDragging = $state(false);
-  let phAnchor = $state(null);
-
-  function phIdxFromPoint(e) {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const pill = el?.closest?.('.phylum-dot');
-    const idx = pill?.dataset?.idx;
-    return idx == null ? null : parseInt(idx, 10);
-  }
-  function selectPhylaRange(a, b) {
-    const s = Math.min(a, b), e = Math.max(a, b);
-    selectedPhyla = allPhyla.slice(s, e + 1);
-  }
-  function phPointerDown(e) {
-    const pill = e.target?.closest?.('.phylum-dot');
-    if (!pill || pill.dataset.idx == null) return;
-    e.preventDefault();
-    phDragging = true;
-    phAnchor = parseInt(pill.dataset.idx, 10);
-    selectPhylaRange(phAnchor, phAnchor);
-    window.addEventListener('pointermove', phPointerMove);
-    window.addEventListener('pointerup', phPointerUp, { once: true });
-  }
-  function phPointerMove(e) {
-    if (!phDragging || phAnchor == null) return;
-    const idx = phIdxFromPoint(e);
-    if (idx != null) selectPhylaRange(phAnchor, idx);
-  }
-  function phPointerUp() {
-    phDragging = false;
-    phAnchor = null;
-    window.removeEventListener('pointermove', phPointerMove);
-  }
-
   function toggleBodySite(site) {
     const next = new Set(selectedBodySites);
     next.has(site) ? next.delete(site) : next.add(site);
@@ -616,36 +659,22 @@
     selectedCountryIso3 = selectedCountryIso3 === iso3 ? null : iso3;
   }
 
-  // Handle click outside to close panel
+  // Handle click outside to close panel. Clicks inside the rail (the control
+  // circles, the filters, the details block) and inside the info modal never
+  // close anything, as on the anthromes side. The Info button toggles the
+  // modal in its own handler; this one used to null openPanel right after
+  // that toggle because the button sits in the rail, so the modal never showed.
   function handleWindowClick(e) {
     const target = e.target;
-    // Never close things when interacting inside the modals
-    if (target.closest('.detail-rail') || target.closest('.info-modal')) {
-      return;
-    }
-    // Rail interactions (filters/controls) keep the detail panel open
-    if (target.closest('.rail')) {
-      openPanel = null;
+    if (target.closest('.rail') || target.closest('.info-modal')) {
       return;
     }
     openPanel = null;
-    if (!target.closest('.viz-area')) {
-      detailContent = null;
-      detailPoint = null;
-    }
   }
 
   function handleZoomChange(event) {
     zoomIdx = event.detail?.index ?? 0;
   }
-
-  // Close detail when any panel opens
-  $effect(() => {
-    if (openPanel && detailContent) {
-      detailContent = null;
-      detailPoint = null;
-    }
-  });
 
   function handleDetail(event) {
     detailContent = event.detail?.content || null;
@@ -658,12 +687,9 @@
     event.stopPropagation();
   }
 
-  function handleDetailClose() {
-    detailContent = null;
-    detailPoint = null;
-    detailMeta = null;
-    detailPanelAnchor = null;
-  }
+  // 'detail-close' is only dispatched when the chart has nothing to show,
+  // which no longer happens in use; the panel keeps its last species.
+  function handleDetailClose() {}
 
   // Per-species stats grid — the four axes the paper reports on. Each axis
   // returns a categorical label + the raw count that classified it. The
@@ -757,15 +783,9 @@
     return { count, max, pct };
   });
 
-  // Resize handler
-  function handleResize() {
-    // no-op for now; reserved for responsive tweaks
-  }
-
   // Mount effects
   onMount(() => {
     window.addEventListener('click', handleWindowClick);
-    window.addEventListener('resize', handleResize);
     const setSize = () => {
       viewportW = window.innerWidth;
       viewportH = window.innerHeight;
@@ -775,7 +795,6 @@
 
     return () => {
       window.removeEventListener('click', handleWindowClick);
-      window.removeEventListener('resize', handleResize);
       window.removeEventListener('resize', setSize);
     };
   });
@@ -869,13 +888,14 @@
             bind:this={detailPanelEl}
             onclick={(e) => e.stopPropagation()}
           >
-            {#if !detailContent}
-              <!-- Nothing selected, so there is no rule for the leader to land
-                   on and nothing for the one-liner to displace. It heads the
-                   panel here, which is where it sits in the empty state. -->
-              <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
-              <p class="detail-hint">Spin the disk to inspect a species.</p>
-            {:else if detailMeta}
+            <!-- Section head, the side's subheadline: the same slot the
+                 anthromes details panel gives "MODELING 12,025 YEARS OF LAND
+                 USE". It sits inside the SGB title's measured lead-in, so the
+                 rule under the SGB name still lands at the marker's height. -->
+            <h3 class="fblock-title detail-heading">5000 LINES 5000 SPECIES</h3>
+            <!-- Never empty: the disk selects whichever species the marker
+                 points at, from first render on, and nothing clears it. -->
+            {#if detailMeta}
               <!-- .panel-content carries the shared panel typography (see
                    src/shared/styles.css); .detail-scroll supplies the
                    min-height:0 that lets it scroll inside the flex column
@@ -901,7 +921,7 @@
                      an SGB is. Above the title it would push the rule down out
                      of the marker's reach; the SGB block has to stay the first
                      thing in the panel for the leader to run straight. -->
-                <h3 class="fblock-oneliner detail-oneliner">An SGB approximates a microbial species through genomic similarity.</h3>
+                <h3 class="fblock-oneliner detail-oneliner">A species is defined through genomic similarity.</h3>
                 <div class="species-graphic">
                   {#if detailMeta.glyphPath}
                     <!-- viewBox is cropped to the glyph's actual extent:
@@ -972,10 +992,10 @@
                       {speciesStats.status.name}
                     </span>
                     <span class="sp-stat">
-                      {speciesStats.abundance.name}<span class="sp-stat-detail"> · {speciesStats.abundance.detail}</span>
+                      {speciesStats.abundance.name}<span class="sp-stat-detail">&nbsp;· {speciesStats.abundance.detail}</span>
                     </span>
                     <span class="sp-stat">
-                      {speciesStats.reach.name}<span class="sp-stat-detail"> · {speciesStats.reach.detail}</span>
+                      {speciesStats.reach.name}<span class="sp-stat-detail">&nbsp;· {speciesStats.reach.detail}</span>
                     </span>
                     <span class="sp-stat">
                       {speciesStats.population.name}
@@ -1009,16 +1029,14 @@
         <!-- Lifestyle: the eight countries split into the two categories the
              study itself assigns, each row ranked by the share of that
              country's species previously unknown to science. The row head
-             drops the "Western"/"Non-Western" titles and promotes each row's
-             description into that slot (see lifestyleRow below). -->
+             drops the "Westernized"/"Non-Westernized" titles and promotes each
+             row's description into that slot (see lifestyleRow below). -->
         <section class="fblock">
           <div class="fblock-headrow">
-            <!-- The category label and the instruction under it are both
-                 replaced by one sentence of exhibit copy, which names what the
-                 block is FOR rather than what it contains. The "All" mini-link
-                 still carries the affordance the instruction spelled out, so
-                 nothing is lost but the prose. -->
-            <h3 class="fblock-oneliner">Samples become cohorts; cohorts become a geography of microbial observation.</h3>
+            <!-- One sentence of exhibit copy names what the block is FOR rather
+                 than what it contains. The "All" mini-link carries the
+                 affordance an instruction would have spelled out. -->
+            <h3 class="fblock-oneliner">An extensive microbiome contains fragments of DNA from people in many countries.</h3>
             <button
               class="mini-link"
               class:active={selectedCountryIso3 === null}
@@ -1061,14 +1079,14 @@
           {/snippet}
 
           {@render lifestyleRow(
-            'Western',
-            'Populations living with industrialized food, medicine and urban land use.',
+            'Westernized',
+            'Populations with more exposure to urbanization, industrialized food and medicine:',
             westernRow
           )}
 
           {@render lifestyleRow(
-            'Non-Western',
-            'Populations with limited exposure to industrialized systems and urbanized land.',
+            'Non-Westernized',
+            'Populations with limited exposure to urbanization and industrialized systems:',
             nonWesternRow
           )}
 
@@ -1080,28 +1098,26 @@
         <section class="phylum-band">
           <div class="phylum-band-head">
             <span class="fblock-oneliner">Phyla group species into major microbial lineages.</span>
-            <div class="phylum-band-actions">
-              <button class="mini-link" class:active={selectedPhyla.length === 0} onclick={handleSelectAll}>All</button>
-            </div>
+            <!-- No "All" over the pill key: the pills are a legend, not a
+                 filter, so there is nothing to clear. -->
           </div>
-          <!-- Options 1-4 use the flat pill key (same vocabulary as the
-               anthromes legend) rather than the bubble pack: the disk is
-               already carrying the magenta/white lifestyle encoding, so the
-               phylum key stays a quiet filter instead of a second chart.
-               Tap to isolate, drag across to select a contiguous range. -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="phylum-key phylum-key--pills" onpointerdown={phPointerDown}>
-            {#each allPhyla as phylum, i (phylum)}
-              {@const color = colorMapping[phylum] || colorMapping.Other}
-              <button
+          <!-- A flat pill key (same vocabulary as the anthromes legend) rather
+               than a chart: the pills are a key only, not a filter, and cannot
+               be selected. Phyla the palette has no colour for (drawn gray on
+               the disk) collapse into one Other pill. -->
+          <!-- The caption belongs to the pills, not to the section: it names
+               the denominator the percentages in them are taken over. -->
+          <p class="rail-leadin phylum-scope">Phylum share in {phylumScopeLabel}:</p>
+          <div class="phylum-key phylum-key--pills">
+            {#each phylumPills as b (b.name)}
+              {@const label = b.name.replace(/_/g, ' ')}
+              <span
                 class="phylum-dot"
-                class:active={selectedPhyla.includes(phylum)}
-                class:dim={selectedPhyla.length > 0 && !selectedPhyla.includes(phylum)}
-                data-idx={i}
-                style="background:{color}; color:{pickTextColor(color)};"
+                style="background:{b.color}; color:{pickTextColor(b.color)};"
+                title="{label} — {fmtPct(b.pct)}"
               >
-                <span>{phylum.replace(/_/g, ' ')}</span>
-              </button>
+                <span>{label} ({fmtPct(b.pct)})</span>
+              </span>
             {/each}
           </div>
         </section>
@@ -1111,13 +1127,20 @@
     <!-- Leader line: chart selection marker → details panel -->
     {#if detailContent && leaderFrom && leaderTo}
       <svg class="leader-overlay" aria-hidden="true">
-        <!-- Option 7: details panel is at the top, so the leader runs
-             horizontally from the marker to the disk-canvas edge (rail left,
-             = title left − 61px rail padding), kinks up vertically, then turns
-             to end in line with the panel title. -->
-        <polyline
+        <!-- The details panel sits inline in the rail, so the leader is a
+             straight run from the marker to the rail edge. y comes from the
+             MARKER rather than from leaderTo: alignSgbToMarker() brings the rule
+             to the marker, so the run is horizontal by construction and still
+             reads straight during the frame before the lead-in has settled.
+             That only holds while the SGB block is the first thing in the
+             panel — the lead-in can push the rule down but never up, so
+             anything rendered above the title puts the rule out of reach of a
+             high marker. See the note on the one-liner's placement above. -->
+        <line
           class="leader-line"
-          points="{leaderFrom.x},{leaderFrom.y} {leaderTo.x - 61},{leaderFrom.y} {leaderTo.x - 61},{leaderTo.y} {leaderTo.x - 8},{leaderTo.y}"
+          x1={leaderFrom.x} y1={leaderFrom.y}
+          x2={leaderTo.x}
+          y2={leaderFrom.y}
         />
       </svg>
     {/if}
@@ -1128,19 +1151,19 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
         <div class="overlay-head">
-          <div class="overlay-title">Biomes Overview</div>
+          <div class="overlay-title">BIOMES</div>
           <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
         </div>
         <div class="info-body">
           <p><strong>5000 Lines 5000 Species</strong></p>
-          <p>This visualization shows an Evolution of the Extensive Human Microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
+          <p>This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
           <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
           <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
-          <p><strong>Western / Non Western:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
+          <p><strong>Westernized / Non-Westernized:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
           <div class="info-citations">
             <div class="info-citations-title">Citations</div>
-            <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. "Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle." <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
-            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+            <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. “Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle.” <em>Cell</em> 176(3): 649–662. https://doi.org/10.1016/j.cell.2019.01.001</p>
+            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025.</p>
           </div>
         </div>
       </div>
@@ -1212,17 +1235,24 @@
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
-  /* Rail rhythm. Looser than the anthromes rail's 23px: this side's blocks
-     leave a lot of the column empty, so the separators spend that height
-     rather than pooling it at the foot. The anthromes rail has no such slack
-     and stays tight — see the note there. */
+  /* Rail rhythm: 28px of visible space above and below every divider, the
+     same as the anthromes rail — see the note there for why margin and
+     padding differ (28 - 4 below a block's last ink, 28 - 6 above a
+     headline's letters). The arc labels on this side hang 3px below the
+     control circles, so .control-circles pays back 7px here where the
+     anthromes rail pays 4. */
   .rail > * + * {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 32px;
-    padding-top: 32px;
+    margin-top: 24px;
+    padding-top: 22px;
   }
 
-  /* Known/Unknown + Non/Western sit side by side in one rail row */
+  .control-circles,
+  .fblock,
+  .phylum-band {
+    flex: 0 0 auto;
+  }
+
   .detail-block {
     flex: 1 1 auto;
     min-height: 0;
@@ -1245,6 +1275,7 @@
     gap: 0;
     justify-content: space-between;
     align-items: center;
+    padding-bottom: 7px;    /* see the rail rhythm note above */
   }
 
   /* Positioning context for ArcLabel, which paints centred on the button and
@@ -1264,7 +1295,7 @@
     background: var(--bg);
     border: 3.8px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
-    font-weight: 700;
+    font-weight: 500;
     font-size: 44px;
     cursor: pointer;
     display: grid;
@@ -1298,6 +1329,14 @@
     min-width: 0;
   }
 
+  .fblock-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+
   /* Curatorial one-liner — replaces a category label with a full sentence from
      the exhibit copy. Sized above .fblock-title (larger tier) but lighter
      weight so it reads as a "phrase" rather than a heading label. Sits in the
@@ -1309,25 +1348,54 @@
     flex: 1 1 auto;
     min-width: 0;
     font-size: 27px;
-    font-weight: 500;
+    font-weight: 700;
     line-height: 1.28;
     letter-spacing: 0.005em;
     color: var(--fg);
   }
 
-  /* Sits under the SGB rule inside .panel-content, whose grid gap already
-     spaces it; the only correction it needs is to sit a little tighter to the
-     rule it glosses than to the block that follows. */
-  .detail-oneliner {
-    margin-top: -2px;
+  /* "5000 LINES 5000 SPECIES" is set in the section-headline voice, the same as
+     .fblock-oneliner above and as "MODELING 12,025 YEARS OF LAND USE" opposite
+     it. Its own rule rather than that class, because .fblock-oneliner claims
+     flex-grow and this sits in a column. */
+  .detail-heading {
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.28;
+    letter-spacing: 0.005em;
   }
 
-  /* Compact detail panel — tighter internal gaps + smaller section margins so
-     the one-liner header fits without pushing content off-rail. .panel-content
-     also carries `align-content: start`, which reclaims the slack that used to
-     pool under each heading; this trims what is left to pay for the header. */
+  /* Sits under the SGB rule inside .panel-content, whose grid gap already
+     spaces it; the only correction it needs is to sit a little tighter to the
+     rule it glosses than to the block that follows. Pulled up by most of that
+     gap, so widening the panel's rhythm below (see .detail-block
+     .panel-content) does not push the gloss off the name it glosses. */
+  .detail-oneliner {
+    margin-top: -22.75px;
+  }
+
+  /* Compact detail panel — `align-content: start` (see .panel-content) stacks
+     the blocks from the top rather than spreading them, so this sets the
+     rhythm between them outright. The gap was 7px when the rail had no room
+     to spare; the panel now runs to the foot of the rail with well over a
+     hundred px unused under the last block, and at that height the five
+     blocks read as one crowded mass. This is the air, spent between them
+     rather than pooled at the bottom. Nothing above the SGB rule is touched:
+     the leader lands on that rule, so the space all goes below it. */
+  /* 22px while the panel had over a hundred px unused beneath the last block.
+     The phylum key below now spends most of that — the percentages in its
+     pills carry it to six rows, and it has a caption — so the rhythm gave
+     back four px per gap and sat at 18.
+     27.75px since the rail dividers went to an even 28px: that handed this
+     panel 39px it had no use for, which pooled under the country chips and
+     left the phylum divider 67px below them against 28px everywhere else.
+     Spread over the panel's gaps instead, it puts that divider back on the
+     rhythm. Four gaps, not five, carry it: the one-liner's pull-up below grows
+     by the same amount so it stays 5px under the SGB rule. The panel is one
+     height for every species (see .sp-country-chips), so this is exact for
+     all of them, not only the one on screen at load. */
   .detail-block .panel-content {
-    gap: 7px;
+    gap: 27.75px;
   }
   .detail-block .species-graphic {
     gap: 10px;
@@ -1336,6 +1404,23 @@
   .detail-block .sp-statline,
   .detail-block .sp-countries {
     padding: 0;
+  }
+  /* The last row's bottom margin draws nothing but still counts toward the
+     panel's scroll height, and with the panel now fitted to within 4px it was
+     what tipped .detail-scroll into a scrollbar. */
+  .detail-block .sp-countries {
+    margin-bottom: 0;
+  }
+  /* Within a block, one step looser as well, so the added rhythm between
+     blocks doesn't make each block look tighter by comparison. */
+  .detail-block .genome-meter {
+    gap: 9px;
+  }
+  .detail-block .sp-statline {
+    gap: 10px 8px;
+  }
+  .detail-block .sp-countries {
+    gap: 10px 11px;
   }
 
   /* Known / Unknown + Non / Western: medium circular select buttons */
@@ -1359,12 +1444,19 @@
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 12px;
+    padding-top: 10px;
   }
 
+  /* A column, not a row: .ls-pct is a SIBLING of the circle, so while this was
+     `display:flex` with the default row direction the caption sat beside the
+     globe and ran into the next one along. Stacking it puts the caption under
+     the country's name, which is what its centred text and top margin were
+     written for. */
   .country-cell {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
     width: 100%;
     min-width: 0;
   }
@@ -1373,10 +1465,16 @@
      right — same visual weight as the phylum-band-head. */
   .fblock-headrow {
     display: flex;
-    align-items: center;
+    /* Baseline, not centre: the one-liner headline wraps to two lines and
+       `center` floated "All" between them, reading as misaligned against both
+       the first line and the top of the panel. On the baseline it sits on the
+       headline's first line, where the eye expects the block's top-right
+       corner to be. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
-    margin-bottom: 9px;
+    margin-bottom: 8px;     /* same as the anthromes rail — the two country
+                               panels mirror each other down to the titles */
   }
 
   /* Bacteria Species Details enrichment header */
@@ -1403,14 +1501,33 @@
 
   .phylum-band-head {
     display: flex;
-    align-items: center;
+    /* Baseline, mirroring .fblock-headrow: "All" sits on the headline's first
+       line whether or not the one-liner wraps. */
+    align-items: baseline;
     justify-content: space-between;
     gap: 15px;
   }
 
-  .phylum-band-actions {
-    display: flex;
-    gap: 15px;
+  /* Rail lead-in: the line under a section head that names what the block
+     under IT shows — the country panel's two row descriptions, the phylum
+     key's share line. One treatment for all of them so a reader learns it
+     once: full white at 19px rather than muted body copy, because these
+     lines are part of the rail's structure and not commentary on it, and each
+     ends in a colon because each introduces what follows. Same values as
+     .ls-row-head--promoted .ls-row-desc, which is this same voice inside the
+     country panel. Mirrors .rail-leadin on the anthromes rail. */
+  .rail-leadin {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.32;
+    color: #fff;
+  }
+
+  /* Hugs the headline it qualifies rather than sitting midway between it and
+     the pills — heading, caption, key, not three evenly spaced bands. Mirrors
+     .key-scope on the anthromes rail. */
+  .phylum-scope {
+    margin-top: -7px;
   }
 
   /* Matches the cohort Total/Per-capita toggle: text with an underline on the
@@ -1422,7 +1539,7 @@
     border-bottom: 2.6px solid transparent;
     padding: 0 0 2.6px;
     font-size: 23px;
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.2;
     cursor: pointer;
     opacity: 0.45;
@@ -1459,11 +1576,11 @@
   .ls-row {
     display: flex;
     flex-direction: column;
-    gap: 11px;
+    gap: 9px;
   }
 
   .ls-row + .ls-row {
-    margin-top: 22px;
+    margin-top: 20px;       /* breathing room between the two groups; mirrored */
   }
 
   .ls-row-head {
@@ -1482,7 +1599,7 @@
      full white, no dimming. Sized between a heading (21px) and .ls-row-desc
      (16px) so it reads as a lead-in rather than a heading. */
   .ls-row-head--promoted .ls-row-desc {
-    font-size: 18.5px;
+    font-size: 19px;
     line-height: 1.32;
     color: #fff;
     opacity: 1;
@@ -1496,18 +1613,18 @@
      row line up regardless of digit widths. */
   .ls-pct {
     display: block;
-    margin-top: 7px;
+    margin-top: 4px;
     text-align: center;
-    font-size: 15.5px;
-    font-weight: 600;
+    line-height: 1.2;
+    font-size: 14px;
+    font-weight: 400;
     letter-spacing: 0.01em;
     font-variant-numeric: tabular-nums;
     opacity: 0.78;
   }
 
-  /* Compact key pill; colour = phylum, tap to toggle. Matches the anthromes
-     key-pill: selection is shown by opacity alone (dimmed when not selected),
-     never a border/box-shadow ring. */
+  /* Compact key pill; colour = phylum. A legend entry, not a control: the
+     same shape as the anthromes key-pill but with no selected/dimmed state. */
   .phylum-dot {
     display: inline-flex;
     align-items: center;
@@ -1515,23 +1632,16 @@
     padding: 0 17px;
     border-radius: 11.5px;
     border: 1.3px solid rgba(0, 0, 0, 0.18);
-    cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
     user-select: none;
-    touch-action: none;
-    transition: opacity 0.15s ease;
   }
 
   .phylum-dot span {
-    font-size: 16.6px;
-    font-weight: 600;
+    font-size: 17px;
+    font-weight: 500;
     line-height: 1;
     letter-spacing: 0.01em;
-  }
-
-  .phylum-dot.dim {
-    opacity: 0.35;
   }
 
   /* ===== Leader line from the chart selection marker to the details panel =====
@@ -1562,30 +1672,22 @@
     overflow: auto;
   }
 
-  .detail-hint {
-    margin: 0;
-    font-size: 16.6px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--fg);
-    opacity: 0.85;
-  }
-
   /* Info stays a centered overlay on the design canvas (longer read).
      Percentages resolve against .stage, i.e. the 3000x2000 canvas. */
   .info-modal {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 973px;
-    max-width: calc(100% - 123px);
-    max-height: 82%;
-    overflow: auto;
     transform: translate(-50%, -50%);
+    width: 960px;             /* a comfortable measure at 17px, ~75 chars */
+    max-width: calc(100% - 123px);
+    max-height: 84%;
+    display: flex;
+    flex-direction: column;
     background: var(--bg);
     border: 3.8px solid rgba(255, 255, 255, 0.85);
     border-radius: 33px;
-    padding: 38px 44px;
+    padding: 33px 38px;
     box-shadow: var(--shadow);
     z-index: 20;
     pointer-events: auto;
@@ -1598,11 +1700,17 @@
     to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
   }
 
+  /* Same measure as the anthromes info-body; the body scrolls under a fixed
+     head when the text outgrows the box. */
   .info-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
     display: grid;
-    gap: 18px;
-    font-size: 22px;
-    line-height: 1.6;
+    align-content: start;
+    gap: 13px;
+    font-size: 17px;
+    line-height: 1.55;
     color: var(--muted);
   }
 
@@ -1627,18 +1735,18 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 15px;
-    margin-bottom: 23px;
+    gap: 10px;
+    margin-bottom: 13px;
   }
 
   .overlay-title {
     font-weight: 700;
     letter-spacing: 0.04em;
-    font-size: 33px;
+    font-size: 23px;
   }
 
   .panel-content {
-    font-size: 16.6px;
+    font-size: 17px;
     color: var(--muted);
     line-height: 1.5;
     display: grid;
@@ -1659,8 +1767,8 @@
   }
 
   .info-citations-title {
-    font-size: 13px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 400;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--muted);
@@ -1668,7 +1776,7 @@
   }
 
   .info-citations p {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 10px;
@@ -1676,15 +1784,6 @@
 
   .info-citations p:last-child {
     margin-bottom: 0;
-  }
-
-  .info-citations a {
-    color: var(--accent, #7dd3fc);
-    text-decoration: none;
-  }
-
-  .info-citations a:hover {
-    text-decoration: underline;
   }
 
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
@@ -1695,12 +1794,12 @@
     border: 2.6px solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     border-radius: 50%;
-    width: 61px;
-    height: 61px;
-    font-size: 28px;
+    width: 38px;
+    height: 38px;
+    font-size: 17px;
     display: grid;
     place-items: center;
-    font-weight: 800;
+    font-weight: 500;
     cursor: pointer;
     flex: none;
   }

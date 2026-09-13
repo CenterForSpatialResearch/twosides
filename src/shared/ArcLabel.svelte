@@ -95,7 +95,7 @@
 
   .arc-label text {
     fill: #fff;
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.03em;
   }
 </style>

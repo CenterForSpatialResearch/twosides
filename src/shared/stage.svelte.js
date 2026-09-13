@@ -28,6 +28,22 @@ function fit() {
   document.documentElement.style.setProperty('--stage-scale', scale);
 }
 
+/**
+ * Set the scale BEFORE the app mounts (call from main.js, ahead of mount()).
+ *
+ * The rail's arced captions and the nav coin are SVG text on a textPath, and
+ * the browser sizes that text with a factor taken from the ancestor transform
+ * at layout time. If the first layout happens at the CSS default of 1 and the
+ * transform only changes afterwards (which is what initStage() did from an
+ * effect), Chromium does not re-lay-out the SVG text until something else
+ * dirties it — typically the first hover — so on any display that is not
+ * exactly 3:2 the captions painted at the wrong size until the mouse moved.
+ * Fitting first means the first layout is already under the final transform.
+ */
+export function fitStage() {
+  fit();
+}
+
 /** Call from each app's onMount with its .stage node. Returns a teardown. */
 export function initStage(el) {
   stageEl = el;

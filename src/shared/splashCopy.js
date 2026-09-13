@@ -10,37 +10,42 @@ export const SIDE_COPY = {
     // Which title arc this side owns. The other arc carries LOADING.
     titlePos: 'left',
     subhead: '5000 LINES 5000 SPECIES',
-    insideTop: 'An extensive microbiome assembly contains fragments of DNA from many communities.',
-    insideBottom: '9,428 samples provide views into human-associated microbial life.',
     path: 'src/biomes/'
   },
   anthromes: {
     title: 'ANTHROMES',
     titlePos: 'right',
     subhead: 'MODELING 12,025 YEARS OF LAND USE',
-    insideTop: 'Anthromes classify ecosystems according to sustained human interactions with them.',
-    insideBottom: 'Population, settlement, agriculture, and land use distinguish one anthrome from another.',
     path: 'src/anthromes/'
   }
 };
 
 // BASE_FONT covers one-liners and subheadlines; the title tier is a meaningful
-// step up (1.55x); text inside the disk is one step down and is auto-fitted to
-// its arc, with this as the ceiling.
+// step up (1.8x); the splash's dichotomies sit one step down and are
+// auto-fitted to their arcs, with INSIDE_CAP as the floor of that ceiling; the
+// "select to enter" hint under each title is the smallest tier.
 export const BASE_FONT  = 34;
-export const TITLE_FONT = Math.round(BASE_FONT * 1.55); // 53
+export const TITLE_FONT = Math.round(BASE_FONT * 1.8);  // 61
 export const INSIDE_CAP = Math.floor(BASE_FONT * 0.72); // 24
+export const ENTER_FONT = Math.round(BASE_FONT * 0.6);  // 20
 
-// Radius of the in-disk definition arcs, in viewBox units. Wider than the
-// splash's own dichotomy arc (r=400) because the definitions are long enough
-// that the extra arc length is what keeps them above the 16px floor.
-export const ARC_INSIDE_R = 440;
-export const ARC_INSIDE   = Math.PI * ARC_INSIDE_R;
+// Title ring radius, in viewBox units (the disk's radius is 500), for the
+// final ui's splash (and the trials) and loading.html, so the cross-link
+// interstitial lands its titles where the splash's commit state left them. The
+// framing line across the top of the splash rides this ring; its ascenders
+// reach ~r+25, i.e. ~860 design px above centre: ~140px clear of the top edge
+// of the 2000px canvas. The older passes' splash anchors its titles to the
+// canvas instead (~1083).
+export const TITLE_RING_R = 930;
 
-// The dimmed state a title takes when the other side is the one being entered.
-// Same value the splash uses for the face that is turned away, so "not this
-// one" reads identically whether the disk is spinning or committing.
+// The dimmed state a title takes when the other side is the one being entered
+// (LOADING, on both this screen and loading.html).
 export const TITLE_DIM = 0.32;
+
+// The dim the splash gives the side whose face is turned away while the disk
+// spins — and its dichotomy and enter hint with it. Deeper than TITLE_DIM so
+// the side in rotation carries the screen.
+export const TITLE_AWAY = 0.2;
 
 /**
  * Fit `content` to an arc by binary search on font-size.

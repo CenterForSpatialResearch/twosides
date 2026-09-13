@@ -96,11 +96,9 @@
   // to avoid a race where the reset effect fires after handleCanvasClick isolates a cell.
   let panHasMoved = false;
 
-  // 1, not 0.5: below the fitted size the globe becomes a small ball adrift in
-  // a large disk, with only the ◎ button to recover from it. The map can never
-  // be smaller than the circle that frames it.
+  // Match the zoom buttons' range (ZOOM_LEVELS in App.svelte).
   const SCROLL_ZOOM_MIN = 1;
-  const SCROLL_ZOOM_MAX = 8;
+  const SCROLL_ZOOM_MAX = 7;
 
   // Cursor state — grab only inside inner circle
   let hoverInCircle = $state(false);
@@ -118,17 +116,63 @@
     };
   }
 
+  // Active pointers on the map, by pointerId, in screen px. One pointer pans;
+  // two pinch — the map scales about the fingers' midpoint and follows it.
+  // Touch only ever reaches here as pointer events (.chart-container sets
+  // touch-action: none), so the browser's own pinch never competes.
+  const pointers = new Map();
+  let pinchPrev = null;             // { mx, my, dist } of the last two-finger frame
+  let pinchedThisGesture = false;   // a click can follow the last finger up; see swallowPinchClick
+
+  function pinchFrame() {
+    const [a, b] = [...pointers.values()];
+    return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, dist: Math.hypot(b.x - a.x, b.y - a.y) };
+  }
+
+  // First real movement of a gesture. Under strictCountryFocus a pan or pinch
+  // is purely a view gesture: it moves the camera and changes no selection at
+  // all. The country keeps its highlight, an isolated cell keeps its panel,
+  // and the leader line simply follows the cell across the disk. The older
+  // arrangements treat it as "free-explore" and drop both.
+  function noteMovement() {
+    if (panHasMoved) return;
+    panHasMoved = true;
+    if (strictCountryFocus) return;
+    closePanel();
+    isolationReset++;
+    if (focusIso3) focusIso3 = null;
+  }
+
   // Keep the globe inside the disk. It is fitted to the disk at mapScale 1, so
-  // its radius is innerRadiusPx * mapScale and the pan may travel at most the
-  // difference between the two — at zoom 1 that is zero, which is correct: a
+  // its radius is innerRadiusPx * mapScale and the pan may travel the
+  // difference between the two, plus PAN_SLACK of the disk radius so the edge
+  // of the world can come a little way in. At zoom 1 the limit is zero: a
   // fitted globe has no slack to give. Clamped radially rather than per-axis so
   // a diagonal drag stops on the circle, not on a square inscribed around it.
-  //
-  // Prevention, not correction: nothing snaps back, the gesture simply stops.
-  // Only the gesture paths call this. applyFocusFraming()'s programmatic writes
-  // in MapCanvas frame a selected country and are clamped separately there.
-  function clampPan(x, y, scale = mapScale) {
-    const max = innerRadiusPx * Math.max(0, scale - 1);
+  const PAN_SLACK = 0.25;
+  function panLimit(scale) {
+    const z = Math.max(0, scale - 1);
+    return innerRadiusPx * (z + PAN_SLACK * Math.min(1, z));
+  }
+
+  // The radius a pan may reach at `toScale`, stepping from pan (fx, fy) at
+  // `fromScale`. applyFocusFraming() in MapCanvas frames a selected country
+  // without this limit, so an edge country (Australia) can leave the view past
+  // it. Rather than snapping that back on the next gesture, the overshoot is
+  // kept — a gesture can't push further out, but it isn't yanked in — and it
+  // shrinks as the user zooms out, gone by zoom 1. PAN_EASE > 1 makes it
+  // shrink faster than the scale does, so a small zoom-out near the default
+  // view recentres firmly while the same step deep in barely moves it.
+  const PAN_EASE = 1.5;
+  function panAllowance(fx, fy, fromScale, toScale) {
+    const excess = Math.max(0, Math.hypot(fx, fy) - panLimit(fromScale));
+    const shrink = toScale < fromScale && fromScale > 1
+      ? Math.pow(Math.max(0, toScale - 1) / (fromScale - 1), PAN_EASE)
+      : 1;
+    return panLimit(toScale) + excess * shrink;
+  }
+
+  function clampPan(x, y, max) {
     if (max <= 0) return { x: 0, y: 0 };
     const d = Math.hypot(x, y);
     if (d <= max) return { x, y };
@@ -136,44 +180,115 @@
     return { x: x * k, y: y * k };
   }
 
+  // Zoom about the disk centre to `scale`, clamping the pan. Used by the zoom
+  // buttons so stepping out also recentres.
+  export function zoomToScale(scale) {
+    if (!innerRadiusPx) { mapScale = scale; return; }
+    const f = scale / (mapScale || 1);
+    const max = panAllowance(mapPanX, mapPanY, mapScale, scale);
+    const next = clampPan(mapPanX * f, mapPanY * f, max);
+    mapPanX = next.x;
+    mapPanY = next.y;
+    mapScale = scale;
+  }
+
+  // Multiply the scale by `factor`, clamped to the wheel/pinch range, and
+  // return the factor that was actually applied.
+  function clampedZoomFactor(factor) {
+    const next = Math.min(SCROLL_ZOOM_MAX, Math.max(SCROLL_ZOOM_MIN, mapScale * factor));
+    return next / mapScale;
+  }
+
   function handlePanStart(event) {
-    if (panning || !chartContainer || !innerRadiusPx) return;
+    if (!chartContainer || !innerRadiusPx) return;
+    if (pointers.size >= 2) return;
     const rect = chartContainer.getBoundingClientRect();
     const { dx, dy, s } = offsetFromCenter(event, rect);
-    if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
-    panning = true;
-    panHasMoved = false;
-    panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY, s };
+    // The first finger has to land on the map; a second may land anywhere,
+    // since the pinch is about the gesture, not the spot.
+    if (pointers.size === 0 && dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     event.preventDefault();
-    window.addEventListener('pointermove', handlePanMove);
-    window.addEventListener('pointerup', handlePanEnd, { once: true });
+    if (pointers.size === 1) {
+      panning = true;
+      panHasMoved = false;
+      pinchedThisGesture = false;
+      panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY, s };
+      window.addEventListener('pointermove', handlePanMove);
+      window.addEventListener('pointerup', handlePanEnd);
+      window.addEventListener('pointercancel', handlePanEnd);
+    } else {
+      pinchPrev = pinchFrame();
+    }
   }
 
   function handlePanMove(event) {
-    if (!panHasMoved) {
-      panHasMoved = true;
-      // Under strictCountryFocus a pan is purely a view gesture: it moves the
-      // camera and changes no selection at all. The country keeps its
-      // highlight, an isolated cell keeps its panel, and the leader line
-      // simply follows the cell across the disk. The older arrangements treat
-      // a pan as "free-explore" and drop both.
-      if (strictCountryFocus) return;
-      closePanel();
-      isolationReset++;
-      if (focusIso3) focusIso3 = null;
+    const p = pointers.get(event.pointerId);
+    if (!p) return;
+    p.x = event.clientX;
+    p.y = event.clientY;
+
+    if (pointers.size >= 2) {
+      const cur = pinchFrame();
+      if (!pinchPrev || pinchPrev.dist < 1) { pinchPrev = cur; return; }
+      noteMovement();
+      pinchedThisGesture = true;
+      const rect = chartContainer.getBoundingClientRect();
+      const { dx, dy, s } = offsetFromCenter({ clientX: cur.mx, clientY: cur.my }, rect);
+      // Follow the midpoint, then zoom about it — the same maths as the wheel,
+      // with the fingers' spread standing in for the scroll delta.
+      const factor = clampedZoomFactor(cur.dist / pinchPrev.dist);
+      const px = mapPanX + (cur.mx - pinchPrev.mx) / s;
+      const py = mapPanY + (cur.my - pinchPrev.my) / s;
+      const newScale = mapScale * factor;
+      const max = panAllowance(mapPanX, mapPanY, mapScale, newScale);
+      const next = clampPan(dx + factor * (px - dx), dy + factor * (py - dy), max);
+      mapPanX = next.x;
+      mapPanY = next.y;
+      mapScale = newScale;
+      pinchPrev = cur;
+      return;
     }
+
+    noteMovement();
     const s = panStart.s || 1;
+    // Measured from where the drag began, so a drag that started past the
+    // limit can return to that spot but go no further.
     const next = clampPan(
       panStart.px + (event.clientX - panStart.x) / s,
-      panStart.py + (event.clientY - panStart.y) / s
+      panStart.py + (event.clientY - panStart.y) / s,
+      panAllowance(panStart.px, panStart.py, mapScale, mapScale)
     );
     mapPanX = next.x;
     mapPanY = next.y;
   }
 
-  function handlePanEnd() {
-    panning = false;
-    window.removeEventListener('pointermove', handlePanMove);
+  function handlePanEnd(event) {
+    if (!pointers.delete(event.pointerId)) return;
+    if (pointers.size === 1) {
+      // Back to one finger: re-seed the pan from where it is now, so the map
+      // doesn't jump to where that finger first touched.
+      const [p] = pointers.values();
+      panStart = { x: p.x, y: p.y, px: mapPanX, py: mapPanY, s: panStart.s };
+      pinchPrev = null;
+      return;
+    }
+    if (pointers.size === 0) {
+      panning = false;
+      pinchPrev = null;
+      window.removeEventListener('pointermove', handlePanMove);
+      window.removeEventListener('pointerup', handlePanEnd);
+      window.removeEventListener('pointercancel', handlePanEnd);
+    }
+  }
+
+  // The browser can synthesise a click when the last finger of a pinch lifts;
+  // it must not select a country. Capture phase, so MapCanvas never sees it.
+  function swallowPinchClick(event) {
+    if (!pinchedThisGesture) return;
+    pinchedThisGesture = false;
+    event.stopPropagation();
+    event.preventDefault();
   }
 
   function handleContainerMove(event) {
@@ -199,19 +314,17 @@
     if (event.deltaMode === 1) delta *= 16;   // lines → pixels approximation
     if (event.deltaMode === 2) delta *= 400;  // pages → pixels approximation
 
-    const oldScale = mapScale;
-    const factor = Math.pow(0.999, delta);
-    const newScale = Math.min(SCROLL_ZOOM_MAX, Math.max(SCROLL_ZOOM_MIN, oldScale * factor));
-    const clampedFactor = newScale / oldScale;
+    const clampedFactor = clampedZoomFactor(Math.pow(0.999, delta));
 
     // Zoom to cursor: adjust pan so the point under the pointer stays fixed.
     // dx/dy is the cursor offset from the container center, in design px.
     // Clamped against the NEW scale — zooming out shrinks the slack, so a pan
     // that was legal at the old scale can be out of bounds at this one.
+    const newScale = mapScale * clampedFactor;
     const next = clampPan(
       dx + clampedFactor * (mapPanX - dx),
       dy + clampedFactor * (mapPanY - dy),
-      newScale
+      panAllowance(mapPanX, mapPanY, mapScale, newScale)
     );
     mapPanX = next.x;
     mapPanY = next.y;
@@ -975,7 +1088,7 @@
   });
 </script>
 
-<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} onwheel={handleWheel} class:panning class:in-circle={hoverInCircle}>
+<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} onwheel={handleWheel} onclickcapture={swallowPinchClick} class:panning class:in-circle={hoverInCircle}>
   <MapCanvas
     width={containerWidth}
     height={containerHeight}
@@ -1086,18 +1199,20 @@
     stroke-opacity: 0.6;
   }
 
+  /* The ring's SVG is scaled down to ~0.287 on the stage, so these user-unit
+     sizes land on the type tiers as rendered: 49 -> 14px, 66 -> 19px. */
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 52px;
+    font-size: 49px;
     opacity: 0.95;
-    font-weight: 800;
+    font-weight: 400;
     letter-spacing: 0.08em;
     pointer-events: all;
   }
 
   :global(.year-axis text.selected) {
     fill: var(--accent);
-    font-size: 65px;
+    font-size: 66px;
   }
 
   :global(.year-bracket) {

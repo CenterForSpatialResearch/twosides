@@ -154,7 +154,7 @@
   function formatEraLabel(label) {
     if (!label) return '';
     const v = yearValue(label);
-    if (v < 0) return `${Math.abs(v)} BC`;
+    if (v < 0) return `${Math.abs(v)} BCE`;
     if (v === 0) return '0';
     return `${v}`;
   }

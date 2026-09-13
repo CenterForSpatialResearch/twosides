@@ -5,9 +5,26 @@
   <title>Anthromes &amp; Biomes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* ABC Pelikan in the three cuts the piece uses (see src/shared/styles.css).
+       The splash itself sets its titles at 700 and every other line at 400;
+       Medium is declared so the family matches the rails, but nothing here
+       asks for it, so the browser never downloads it on this page. */
     @font-face {
       font-family: "Pelikan";
-      src: url("./fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      src: url("./fonts/ABCPelikanTrial-Regular.otf") format("opentype");
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Medium.otf") format("opentype");
+      font-weight: 500;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Bold.otf") format("opentype");
+      font-weight: 700;
       font-display: swap;
     }
 
@@ -145,21 +162,6 @@
       pointer-events: none;
     }
 
-    .splash--narrative .face-svg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 2;
-      pointer-events: none;
-      overflow: visible;
-    }
-    .splash--narrative .face-svg text {
-      fill: var(--fg);
-      font-weight: 500;
-      letter-spacing: 0.005em;
-    }
-
     .splash--narrative .caption-svg text {
       fill: var(--fg);
       will-change: opacity;
@@ -169,9 +171,28 @@
       text-transform: uppercase;
       font-weight: 700;
     }
+    /* Weights follow the rails' rule (see the WEIGHTS note in
+       src/shared/styles.css): the titles are this screen's headlines, 700;
+       everything else here is read rather than touched, 400. */
     .splash--narrative .caption-svg text.line {
       letter-spacing: 0.02em;
-      font-weight: 500;
+      font-weight: 400;
+    }
+    /* The dichotomies: the same voice as the one-liners, a step smaller. */
+    .splash--narrative .caption-svg text.sub {
+      letter-spacing: 0.005em;
+      font-weight: 400;
+    }
+    /* splash-3: the framing lines set in the titles' place, at the titles'
+       size but in sentence case, in the one-liners' voice. */
+    .splash--narrative .caption-svg text.sentence {
+      letter-spacing: 0.01em;
+      font-weight: 400;
+    }
+    /* "select to enter" under each title; follows the title's emphasis. */
+    .splash--narrative .caption-svg text.enter-hint {
+      letter-spacing: 0.12em;
+      font-weight: 400;
     }
     /* The destination's subheadline, shown once a side has been chosen. Same
        treatment as loading.html's, so the commit state and the cross-link
@@ -179,7 +200,7 @@
     .splash--narrative .caption-svg text.subhead {
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 400;
     }
 
     /* Both titles are always clickable, whichever face is turned forward —
@@ -193,7 +214,7 @@
     .splash--narrative .title-hit {
       fill: none;
       stroke: transparent;
-      stroke-width: 130;
+      stroke-width: 200;   /* covers the title and the enter hint inside it */
       pointer-events: stroke;
       cursor: pointer;
     }
@@ -235,10 +256,11 @@
                   d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
 
             <!--
-              ONE-LINERS: outside the disk, alternating between TOP and BOTTOM
-              semicircles at r=590 (just past the disk edge, inside the title
-              ring). The 180° span meets each title at its endpoint (9 or 3), so
-              the one-liner reads as a continuation of the framing hierarchy.
+              ONE-LINERS: outside the disk, rotation 1 on the TOP semicircle
+              and rotation 2 on the BOTTOM, at r=760 — the middle of the three
+              rings (dichotomies at 615, titles ~1083). The 180° span meets
+              each title at its endpoint (9 or 3), so the one-liner reads as a
+              continuation of the framing hierarchy.
                 TOP arc: L→R across the top; ascenders point OUTWARD (up, away
                   from the disk). Upright letters at the 12 o'clock midpoint.
                 BOTTOM arc: L→R across the bottom (the path traverses 9→6→3,
@@ -246,13 +268,44 @@
                   letters are upright at the 6 o'clock midpoint.
             -->
             <path id="arc-line-top"
-                  d="M -590 0 A 590 590 0 0 1 590 0" />
+                  d="M -760 0 A 760 760 0 0 1 760 0" />
             <path id="arc-line-bottom"
-                  d="M -590 0 A 590 590 0 0 0 590 0" />
+                  d="M -760 0 A 760 760 0 0 0 760 0" />
+
+            <!--
+              DICHOTOMIES: the innermost ring, just past the disk edge at
+              r=615, one per side on the same quarter-turn arcs the titles
+              use — biomes through 9 o'clock, anthromes through 3 — so each
+              half-sentence sits beside the title it belongs to.
+            -->
+            <path id="arc-sub-left"
+                  d="M -434.87 434.87 A 615 615 0 0 1 -434.87 -434.87" />
+            <path id="arc-sub-right"
+                  d="M 434.87 -434.87 A 615 615 0 0 1 434.87 434.87" />
+
+            <!--
+              ENTER HINTS: "select to enter" just inside each title, on its own
+              arc a little closer to the disk. Set from the title radius at
+              mount time, like the title arcs.
+            -->
+            <path id="arc-enter-left"
+                  d="M -424.26 424.26 A 600 600 0 0 1 -424.26 -424.26" />
+            <path id="arc-enter-right"
+                  d="M 424.26 -424.26 A 600 600 0 0 1 424.26 424.26" />
+
+            <!-- splash-1/2/3: see the text elements of the same names below. -->
+            <path id="arc-frame-top"    d="" />
+            <path id="arc-frame-bottom" d="" />
+            <path id="arc-sent-left"    d="" />
+            <path id="arc-sent-right"   d="" />
           </defs>
 
           <text id="label-biomes"    class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle">BIOMES</textPath></text>
           <text id="label-anthromes" class="title"><textPath href="#arc-title-right" startOffset="50%" text-anchor="middle">ANTHROMES</textPath></text>
+          <text id="enter-biomes"    class="enter-hint"><textPath href="#arc-enter-left"  startOffset="50%" text-anchor="middle">select to enter</textPath></text>
+          <text id="enter-anthromes" class="enter-hint"><textPath href="#arc-enter-right" startOffset="50%" text-anchor="middle">select to enter</textPath></text>
+          <text id="sub-biomes"      class="sub"><textPath href="#arc-sub-left"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sub-anthromes"   class="sub"><textPath href="#arc-sub-right" startOffset="50%" text-anchor="middle"></textPath></text>
 
           <!-- Click targets for the titles. Same d= as the arcs above, kept in
                step by updateTitleArcs(); drawn after the text so they sit on
@@ -264,44 +317,31 @@
           <path id="hit-anthromes" class="title-hit"
                 d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
 
+          <!-- splash-1/2/3 only (empty otherwise). The framing lines on the
+               title ring above and below the disk (splash-1/2), and the same
+               two lines set on half-turn arcs in the titles' place
+               (splash-3). All four arcs are set from the ring radius in
+               updateTitleArcs(). -->
+          <text id="frame-top"     class="line"><textPath href="#arc-frame-top"     startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="frame-bottom"  class="line"><textPath href="#arc-frame-bottom"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sent-biomes"    class="sentence"><textPath href="#arc-sent-left"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sent-anthromes" class="sentence"><textPath href="#arc-sent-right" startOffset="50%" text-anchor="middle"></textPath></text>
+
           <text id="line-top"    class="line"><textPath href="#arc-line-top"    startOffset="50%" text-anchor="middle"></textPath></text>
           <text id="line-bottom" class="line"><textPath href="#arc-line-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
         </svg>
 
         <div class="coin-wrap">
           <div class="coin" id="coin">
+            <!-- The faces carry only the photographs: every line of copy sits
+                 on the caption ring outside the disk. -->
             <div class="face face--biomes">
               <img src="splash/biomes.webp" alt="Biomes visualization" />
               <div class="face-dim"></div>
-              <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
-                <defs>
-                  <!-- Biomes dichotomy: TOP arc inside the face, letters outward. -->
-                  <path id="face-arc-biomes" d="M -400 0 A 400 400 0 0 1 400 0" />
-                  <!-- Definition arcs, used only once this side has been chosen.
-                       r=440 and the same sweeps as loading.html, so the two
-                       lines land exactly where the interstitial puts them. -->
-                  <path id="def-arc-top-biomes" d="M -440 0 A 440 440 0 0 1 440 0" />
-                  <path id="def-arc-bot-biomes" d="M -440 0 A 440 440 0 0 0 440 0" />
-                </defs>
-                <text id="biomes-text"><textPath href="#face-arc-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
-                <text id="def-top-biomes" opacity="0"><textPath href="#def-arc-top-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
-                <text id="def-bot-biomes" opacity="0"><textPath href="#def-arc-bot-biomes" startOffset="50%" text-anchor="middle"></textPath></text>
-              </svg>
             </div>
             <div class="face face--anthromes">
               <img src="splash/anthromes.webp" alt="Anthromes visualization" />
               <div class="face-dim"></div>
-              <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
-                <defs>
-                  <!-- Anthromes dichotomy: BOTTOM arc inside the face, letters inward. -->
-                  <path id="face-arc-anthromes" d="M -400 0 A 400 400 0 0 0 400 0" />
-                  <path id="def-arc-top-anthromes" d="M -440 0 A 440 440 0 0 1 440 0" />
-                  <path id="def-arc-bot-anthromes" d="M -440 0 A 440 440 0 0 0 440 0" />
-                </defs>
-                <text id="anthromes-text"><textPath href="#face-arc-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
-                <text id="def-top-anthromes" opacity="0"><textPath href="#def-arc-top-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
-                <text id="def-bot-anthromes" opacity="0"><textPath href="#def-arc-bot-anthromes" startOffset="50%" text-anchor="middle"></textPath></text>
-              </svg>
             </div>
           </div>
         </div>

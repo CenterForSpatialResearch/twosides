@@ -1188,7 +1188,7 @@
       <div class="kv">
         ${countryISO3 ? `<div class="k">Present Day Country</div><div>${meta.countryName}</div>` : ''}
         ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
-        ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
+        ${crosswalk ? `<div class="k">Percent of "Westernized" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
       </div>`;
 
     const html = `
@@ -1574,7 +1574,7 @@
     }
   });
 
-  // Country picker (Phase 3): selecting a country strokes its boundary.
+  // Country picker: selecting a country strokes its boundary.
   // NOTE: we no longer reset pan/scale here on clear — that decision belongs
   // to the parent App, which distinguishes "picker deselect" (reset view)
   // from "pan-cleared" (keep the panned view).

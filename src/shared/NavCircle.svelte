@@ -81,10 +81,11 @@
     stroke: none;
   }
 
-  /* In SVG user units (viewBox is 120 wide), not px — scales with the svg box. */
+  /* In SVG user units (viewBox is 120 wide), not px — scales with the svg box.
+     14.73 renders at 27px on the stage, the headline tier. */
   .nav-circle__text {
-    font-size: 15px;
-    font-weight: 800;
+    font-size: 14.73px;
+    font-weight: 500;
     letter-spacing: 0.02em;
     fill: rgba(255, 255, 255, 0.65);
     pointer-events: none;
@@ -120,9 +121,9 @@
     color: rgba(255, 255, 255, 0.9);
     display: grid;
     place-items: center;
-    font-size: 28px;
+    font-size: 27px;
     line-height: 1;
-    font-weight: 800;
+    font-weight: 500;
     text-decoration: none;
     pointer-events: auto;
   }

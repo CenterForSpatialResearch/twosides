@@ -1,10 +1,15 @@
-// The 8/21 narrative splash (UI option 1).
+// The narrative splash. It runs the final ui's stepped sequence — see VARIANTS
+// below. On dev the same module also carries the splash trials (splash-1/2/3)
+// and the older per-rotation sequence; only 'final' is kept here, and the step
+// machinery that the trials used (frame, sentences) is left in place, inert.
 //
 // Two states.
 //
 // IDLE: the coin turns continuously; each 20s rotation swaps in a new framing
-// line on an arc outside the disk and a new half-sentence on each face, so the
-// two sides complete a thought the reader only gets by watching the disk turn.
+// line above or below the disk and a new half-sentence beside each title, so
+// the two sides complete a thought the reader only gets by watching the disk
+// turn. Each side's half-sentence follows its title's emphasis: bright while
+// that face is forward, dim while it is turned away.
 // Content swaps happen at the rotation boundary, while the fade envelope holds
 // the text at zero opacity, so the change is never seen mid-word.
 //
@@ -18,30 +23,47 @@
 // returns here.
 import { DESIGN_W } from '../shared/pageStage.js';
 import {
-  SIDE_COPY, BASE_FONT, TITLE_FONT, ARC_INSIDE,
-  TITLE_DIM, fitToArc, buildLoadingLabel
+  SIDE_COPY, BASE_FONT, TITLE_FONT, ENTER_FONT, TITLE_RING_R,
+  TITLE_DIM, TITLE_AWAY, fitToArc, buildLoadingLabel
 } from '../shared/splashCopy.js';
 
-// Four framing one-liners, alternating top/bottom placement each rotation.
-// Line 4 leaves its "microbial and planetary" tail to the in-disk dichotomy.
+// Two framing one-liners, the first above the disk and the second below. Each
+// is completed by the dichotomy at the same index: the sides name themselves
+// ("Biomes begin…", "Anthromes begin…") so the pair reads as one sentence
+// whichever face is forward.
 const OUTER_LINES = [
   { pos: 'top',    text: "Two classifications describe life at radically different scales." },
-  { pos: 'bottom', text: "Both transform continuous worlds into categories that can be counted." },
-  { pos: 'top',    text: "Both are global datasets assembled from many local observations." },
-  { pos: 'bottom', text: "The disk moves between two scales of human life and relations",
-    dichotomyOverride: { biomes: "microbial", anthromes: "planetary" } }
+  { pos: 'bottom', text: "Both transform continuous worlds into categories that can be counted." }
 ];
 
 const DICHOTOMIES = [
-  { biomes:    "One begins inside the human body.",
-    anthromes: "The other begins with the inhabited Earth." },
-  { biomes:    "One organizes microbial genomes.",
-    anthromes: "The other organizes human-altered landscapes." }
+  { biomes:    "Biomes begin inside the human body.",
+    anthromes: "Anthromes begin with the inhabited Earth." },
+  { biomes:    "Biomes organize microbial genomes.",
+    anthromes: "Anthromes organize human-altered landscapes." }
 ];
 
-const ARC_FACE = Math.PI * 400;  // in-disk dichotomy arc, r=400 viewBox units
+// Where the copy sits, in viewBox units (the disk's radius is 500). Three
+// concentric rings outside the disk: the dichotomies just past its edge on the
+// left and right, the framing lines above and below (r=760, in index.html),
+// and the titles furthest out with a "select to enter" hint just inside them
+// (both set from the canvas in updateTitleArcs).
+const ARC_SUB_R = 615;
+const ARC_SUB   = (Math.PI / 2) * ARC_SUB_R;  // each dichotomy gets a quarter turn
+const ENTER_GAP = 58;                         // hint radius = title radius − this
 const PERIOD   = 20000;
 const FADE_MS  = 4000;
+
+// Where the turn begins. Not 0 — at 0 the biomes face is already square to the
+// screen, so the emphasis is at its peak on the first frame and has nowhere to
+// go but down: the screen opens on biomes and hands over to anthromes within
+// five seconds, before the reader has finished the framing line. A quarter turn
+// earlier the disk starts edge on with the biomes face just coming round, so
+// biomes brightens into its half of the turn and holds it for the full half.
+// This is also the rotation boundary — content swaps land here, a full 360
+// later — so a new framing line and a new pair of dichotomies always arrive as
+// the biomes face comes into view.
+const START_ANGLE = -90;
 
 // Commit transition. The disk comes to rest on the side that was chosen, square
 // to the screen: biomes at 0 degrees, anthromes at 180. Those are also the only
@@ -71,13 +93,67 @@ const MIN_TOTAL_MS = 5000;
 const SWAP_OUT_FRAC = 0.35;
 const SWAP_IN_FRAC  = 0.40;
 
+// --- Stepped sequences (final ui, and trials splash-1/2/3) -------------------
+//
+// Alternatives to the sequence above, run on the same disk and timing. Each is
+// a list of steps measured in degrees of turn; a step's copy swaps in at its
+// start and fades on its own envelope, and the list loops. Every boundary is a
+// multiple of 180 from START_ANGLE, so every swap lands with the disk edge on.
+//
+//   frame: which framing line (OUTER_LINES, by pos) sits on the title ring
+//   frames: both framing lines, each keyed to the degree into the step at which
+//          it fades in; they hold together and fade out with the step
+//   flat:  both titles (and their enter hints) hold full white for the step
+//          instead of following the face — see flatness()
+//   dich:  which DICHOTOMIES pair sits on the inner ring beside the titles
+//   sentences: the two framing lines stand in the titles' place, biomes' line
+//          on the left and anthromes' on the right, and the titles fade out
+//          for the step and come back at the next boundary
+//
+// In the trials the framing lines leave r=760 for the titles' own ring, which
+// has to come in from the canvas-anchored radius (1083) for a line across the
+// top of the disk to clear the canvas edge.
+const VARIANTS = {
+  // splash-1, refined: the top line opens the turn and the bottom one joins it
+  // halfway, so the sentence pair builds rather than replacing itself; both
+  // titles hold full white while it does. Then a turn of "…organize…" with the
+  // usual emphasis. Two turns.
+  final: [
+    { deg: 360, frames: { top: 0, bottom: 180 }, flat: true },
+    { deg: 360, dich: 1 }
+  ]
+};
+// Title ring radius for the stepped sequences (see TITLE_RING_R).
+const RING_R = TITLE_RING_R;
+// The bottom line reads upright, so its letters hang INWARD from the baseline
+// where the titles' and the top line's stand outward from it. Pushing its
+// baseline out by a cap height puts its letters in the same band as theirs.
+// splash-1/2's framing lines, a step up from the final ui's BASE_FONT now that
+// they sit on the outer ring rather than between the dichotomies and titles.
+const FRAME_FONT = 42;
+const BOTTOM_LIFT = Math.round(FRAME_FONT * 0.7);
+// The trials' dichotomy cap: BASE_FONT, so the dichotomies and the
+// subheadline that replaces them on commit share one size. Still fitted to
+// the quarter turn, so a long pair would shrink rather than run off its arc.
+const TRIAL_SUB_CAP = BASE_FONT;
+// A framing line that shares a step with the other one fades on a half turn's
+// envelope, as it did when each line had a half-turn step of its own.
+const FRAME_FADE_MS = FADE_MS / 2;
+// How long the titles take to leave or regain a flat step's full white, spent
+// inside the neighbouring step. Leaving: the flat turn ends edge on with the
+// biomes face coming round, so biomes is rising to full emphasis as the ramp
+// lets go of it and only anthromes visibly dims. Returning: the mirror image.
+// Squared, so it holds near white early and neither title dips on the way.
+const FLAT_RAMP_MS = 2000;
+
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 const smoothstep = (t) => t * t * (3 - 2 * t);
 
-export function mountNarrative(root) {
+export function mountNarrative(root, { variant = 'final' } = {}) {
   const $ = (sel) => root.querySelector(sel);
+  const steps = VARIANTS[variant] ?? null;
 
   const coin           = $('#coin');
   const labelBiomes    = $('#label-biomes');
@@ -88,11 +164,19 @@ export function mountNarrative(root) {
   const lineTopPath    = lineTop.querySelector('textPath');
   const lineBottom     = $('#line-bottom');
   const lineBottomPath = lineBottom.querySelector('textPath');
-  const biomesText     = $('#biomes-text');
-  const biomesPath     = biomesText.querySelector('textPath');
-  const anthromesText  = $('#anthromes-text');
-  const anthromesPath  = anthromesText.querySelector('textPath');
+  const subBiomes      = $('#sub-biomes');
+  const subBiomesP     = subBiomes.querySelector('textPath');
+  const subAnthromes   = $('#sub-anthromes');
+  const subAnthromesP  = subAnthromes.querySelector('textPath');
+  const enterBiomes    = $('#enter-biomes');
+  const enterAnthromes = $('#enter-anthromes');
   const enter          = $('#enter');
+  const frameTop       = $('#frame-top');
+  const frameTopP      = frameTop.querySelector('textPath');
+  const frameBottom    = $('#frame-bottom');
+  const frameBottomP   = frameBottom.querySelector('textPath');
+  const sentBiomes     = $('#sent-biomes');
+  const sentAnthromes  = $('#sent-anthromes');
   // The two photographs and the scrims over them. They fade out on commit; what
   // is left is the plain bordered dark disk that loading.html shows, which is
   // also what frees the run-out from having to land on a particular face.
@@ -101,21 +185,12 @@ export function mountNarrative(root) {
     ...root.querySelectorAll('.face-dim')
   ];
 
-  // Per-face definition lines, empty until a side is chosen.
-  const defs = {
-    biomes: {
-      top: $('#def-top-biomes'), bot: $('#def-bot-biomes'),
-      topP: $('#def-top-biomes').querySelector('textPath'),
-      botP: $('#def-bot-biomes').querySelector('textPath')
-    },
-    anthromes: {
-      top: $('#def-top-anthromes'), bot: $('#def-bot-anthromes'),
-      topP: $('#def-top-anthromes').querySelector('textPath'),
-      botP: $('#def-bot-anthromes').querySelector('textPath')
-    }
-  };
   const titles = { biomes: labelBiomes, anthromes: labelAnthromes };
   const titlePaths = { biomes: labelBiomesP, anthromes: labelAnthromesP };
+  const subs  = { biomes: subBiomes, anthromes: subAnthromes };
+  const hints = { biomes: enterBiomes, anthromes: enterAnthromes };
+  const sents = { biomes: sentBiomes, anthromes: sentAnthromes };
+  const SIDES = ['biomes', 'anthromes'];
 
   // Position the title arcs so their midpoint (9 o'clock for BIOMES, 3 o'clock
   // for ANTHROMES) sits halfway between the disk edge and the canvas edge.
@@ -132,7 +207,7 @@ export function mountNarrative(root) {
     //   r_viewbox = anchor_px * 1000 / diskWidth
     //             = (vw/2 + diskWidth/2) / 2 * 1000 / diskWidth
     //             = 250 * (vw/diskWidth + 1)
-    const r = Math.round(250 * (DESIGN_W / diskWidth + 1));
+    const r = steps ? RING_R : Math.round(250 * (DESIGN_W / diskWidth + 1));
     const off = (r * Math.SQRT1_2).toFixed(2);
     // BIOMES: 7:30 -> 10:30 via 9 (sweep=1, short arc).
     const dLeft  = `M -${off} ${off} A ${r} ${r} 0 0 1 -${off} -${off}`;
@@ -143,23 +218,41 @@ export function mountNarrative(root) {
     // The click bands ride the same arcs.
     $('#hit-biomes').setAttribute('d', dLeft);
     $('#hit-anthromes').setAttribute('d', dRight);
+    // "select to enter" on a slightly smaller ring, under each title.
+    const re = r - ENTER_GAP;
+    const offE = (re * Math.SQRT1_2).toFixed(2);
+    $('#arc-enter-left').setAttribute('d',  `M -${offE} ${offE} A ${re} ${re} 0 0 1 -${offE} -${offE}`);
+    $('#arc-enter-right').setAttribute('d', `M ${offE} -${offE} A ${re} ${re} 0 0 1 ${offE} ${offE}`);
+
+    if (!steps) return;
+    // Framing lines on the same ring: across the top 9 -> 12 -> 3, ascenders
+    // out; across the bottom 9 -> 6 -> 3, upright, lifted (see BOTTOM_LIFT).
+    const rb = r + BOTTOM_LIFT;
+    $('#arc-frame-top').setAttribute('d',    `M -${r} 0 A ${r} ${r} 0 0 1 ${r} 0`);
+    $('#arc-frame-bottom').setAttribute('d', `M -${rb} 0 A ${rb} ${rb} 0 0 0 ${rb} 0`);
+    // splash-3's sentences: the titles' arcs widened to a half turn, since a
+    // sentence at title size runs well past a quarter. 6 -> 9 -> 12 and
+    // 12 -> 3 -> 6.
+    $('#arc-sent-left').setAttribute('d',  `M 0 ${r} A ${r} ${r} 0 0 1 0 -${r}`);
+    $('#arc-sent-right').setAttribute('d', `M 0 -${r} A ${r} ${r} 0 0 1 0 ${r}`);
   }
 
   function sizeOuterText() {
     lineTop.setAttribute('font-size', BASE_FONT);
     lineBottom.setAttribute('font-size', BASE_FONT);
+    frameTop.setAttribute('font-size', FRAME_FONT);
+    frameBottom.setAttribute('font-size', FRAME_FONT);
     labelBiomes.setAttribute('font-size', TITLE_FONT);
     labelAnthromes.setAttribute('font-size', TITLE_FONT);
+    enterBiomes.setAttribute('font-size', ENTER_FONT);
+    enterAnthromes.setAttribute('font-size', ENTER_FONT);
   }
 
-  // In-disk dichotomy — capped smaller than the one-liner tier so the hierarchy
-  // reads titles > one-liners > dichotomies. Override cases (single words like
-  // "microbial") get more headroom since they don't need to fit long text.
-  function fitInDisk(textEl, textPath, content, isOverride) {
-    const cap = isOverride
-      ? Math.max(24, Math.floor(BASE_FONT * 1.0))   // single-word payoff
-      : Math.max(20, Math.floor(BASE_FONT * 0.72)); // multi-word, one step down
-    fitToArc(textEl, textPath, content, ARC_FACE, { min: 18, max: cap, slack: 0.9 });
+  // Dichotomy — capped a step under the one-liner tier so the hierarchy reads
+  // titles > one-liners > dichotomies, and fitted to its quarter turn.
+  function fitSub(textEl, textPath, content) {
+    const cap = steps ? TRIAL_SUB_CAP : Math.round(BASE_FONT * 0.85);
+    fitToArc(textEl, textPath, content, ARC_SUB, { min: 18, max: cap, slack: 0.9 });
   }
 
   function setLines(rotCount) {
@@ -172,10 +265,81 @@ export function mountNarrative(root) {
     if (line.pos === 'top') lineTopPath.textContent = line.text;
     else                    lineBottomPath.textContent = line.text;
 
-    const dich = line.dichotomyOverride || DICHOTOMIES[((rotCount % m) + m) % m];
-    const isOverride = !!line.dichotomyOverride;
-    fitInDisk(biomesText,    biomesPath,    dich.biomes,    isOverride);
-    fitInDisk(anthromesText, anthromesPath, dich.anthromes, isOverride);
+    const dich = DICHOTOMIES[((rotCount % m) + m) % m];
+    fitSub(subBiomes,    subBiomesP,    dich.biomes);
+    fitSub(subAnthromes, subAnthromesP, dich.anthromes);
+  }
+
+  // Trial sequences. Everything a step does not use is left blank, so the
+  // frame loop can set every opacity unconditionally.
+  function applyStep(step) {
+    frameTopP.textContent = '';
+    frameBottomP.textContent = '';
+    const framePaths = { top: frameTopP, bottom: frameBottomP };
+    for (const pos of step.frames ? Object.keys(step.frames) : step.frame ? [step.frame] : []) {
+      framePaths[pos].textContent = OUTER_LINES.find((l) => l.pos === pos).text;
+    }
+
+    for (const k of SIDES) sents[k].querySelector('textPath').textContent = '';
+    if (step.sentences) {
+      // Same arc length both sides, so fit both and share the smaller size;
+      // at title size both already fit, so in practice this is TITLE_FONT.
+      const arc = Math.PI * RING_R;
+      const a = fitToArc(sentBiomes, sentBiomes.querySelector('textPath'), OUTER_LINES[0].text, arc, { min: 24, max: TITLE_FONT, slack: 0.92 });
+      const b = fitToArc(sentAnthromes, sentAnthromes.querySelector('textPath'), OUTER_LINES[1].text, arc, { min: 24, max: TITLE_FONT, slack: 0.92 });
+      sentBiomes.setAttribute('font-size', Math.min(a, b));
+      sentAnthromes.setAttribute('font-size', Math.min(a, b));
+    }
+
+    subBiomesP.textContent = '';
+    subAnthromesP.textContent = '';
+    if (step.dich != null) {
+      const dich = DICHOTOMIES[step.dich];
+      fitSub(subBiomes,    subBiomesP,    dich.biomes);
+      fitSub(subAnthromes, subAnthromesP, dich.anthromes);
+    }
+  }
+
+  const stepMs = steps ? steps.map((st) => (st.deg / 360) * PERIOD) : [];
+  const cycleMs = stepMs.reduce((a, b) => a + b, 0);
+  let stepSeen = -1;
+
+  // Which step `t` falls in, how far into it, and that step's fade envelope.
+  // Half-turn steps get a proportionally shorter fade, so they hold full
+  // opacity for the same share of their time as a full turn does.
+  function locateStep(t) {
+    const cycle = Math.floor(t / cycleMs);
+    let local = t - cycle * cycleMs;
+    let i = 0;
+    while (i < stepMs.length - 1 && local >= stepMs[i]) { local -= stepMs[i]; i++; }
+    const len = stepMs[i];
+    const fadeMs = FADE_MS * (len / PERIOD);
+    let raw;
+    if (local < fadeMs)            raw = local / fadeMs;
+    else if (local > len - fadeMs) raw = (len - local) / fadeMs;
+    else                           raw = 1;
+    // The index keeps counting across cycles so a one-step list still swaps.
+    return { key: cycle * stepMs.length + i, i, local, len, step: steps[i], fade: smoothstep(clamp01(raw)) };
+  }
+
+  // A `frames` line's own envelope: in from its entry degree, out with the
+  // step's end, on FRAME_FADE_MS either way.
+  function frameFade({ step, local, len }, pos) {
+    const entryMs = (step.frames[pos] / 360) * PERIOD;
+    if (local < entryMs) return 0;
+    const raw = Math.min((local - entryMs) / FRAME_FADE_MS, (len - local) / FRAME_FADE_MS);
+    return smoothstep(clamp01(raw));
+  }
+
+  // How far the titles are pulled from their emphasis toward full white: 1 for
+  // a flat step, ramping to and from 0 at the edges of a step next to one.
+  function flatness({ i, local, len }) {
+    if (steps[i].flat) return 1;
+    const n = steps.length;
+    let w = 0;
+    if (steps[(i - 1 + n) % n].flat) w = Math.max(w, 1 - clamp01(local / FLAT_RAMP_MS) ** 2);
+    if (steps[(i + 1) % n].flat)     w = Math.max(w, 1 - clamp01((len - local) / FLAT_RAMP_MS) ** 2);
+    return w;
   }
 
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -198,6 +362,10 @@ export function mountNarrative(root) {
   let dotTimer = 0;
   let navTimer = 0;
   let titleFrom = { biomes: 1, anthromes: 1 };
+  let subFrom   = { biomes: 1, anthromes: 1 };
+  let hintFrom  = { biomes: 1, anthromes: 1 };
+  let sentFrom  = { biomes: 0, anthromes: 0 };
+  let frameFrom = { top: 0, bottom: 0 };
 
   function commit(which) {
     if (mode !== 'idle') return;
@@ -226,10 +394,12 @@ export function mountNarrative(root) {
     swapOutMs = spinMs * SWAP_OUT_FRAC;
     swapInMs  = spinMs * SWAP_IN_FRAC;
 
-    titleFrom = {
-      biomes: parseFloat(labelBiomes.style.opacity || '1'),
-      anthromes: parseFloat(labelAnthromes.style.opacity || '1')
-    };
+    const opacityOf = (el) => parseFloat(el.style.opacity || '1');
+    titleFrom = { biomes: opacityOf(labelBiomes), anthromes: opacityOf(labelAnthromes) };
+    subFrom   = { biomes: opacityOf(subBiomes),   anthromes: opacityOf(subAnthromes) };
+    hintFrom  = { biomes: opacityOf(enterBiomes), anthromes: opacityOf(enterAnthromes) };
+    sentFrom  = { biomes: opacityOf(sentBiomes),  anthromes: opacityOf(sentAnthromes) };
+    frameFrom = { top: opacityOf(frameTop),       bottom: opacityOf(frameBottom) };
 
     commitT0 = performance.now();
     if (reduce) {
@@ -266,25 +436,10 @@ export function mountNarrative(root) {
     lineBottom.setAttribute('class', 'subhead');
     lineBottom.setAttribute('font-size', BASE_FONT);
 
-    // The dichotomies gave the two sides a half-sentence each; from here only
-    // the chosen side speaks.
-    biomesPath.textContent = '';
-    anthromesPath.textContent = '';
-
-    // Both faces carry the same two lines. With the photographs gone there is no
-    // longer a biomes face and an anthromes face, just a disk, so whichever one
-    // is forward as it turns and where it stops reads the same. Sized once and
-    // applied to both, so the type does not change as the disk comes round.
-    const a = defs.biomes, b = defs.anthromes;
-    // Match both lines to the smaller of the two so the hierarchy reads
-    // uniformly rather than one definition outranking the other.
-    const size = Math.min(
-      fitToArc(a.top, a.topP, d.insideTop, ARC_INSIDE),
-      fitToArc(a.bot, a.botP, d.insideBottom, ARC_INSIDE)
-    );
-    fitToArc(b.top, b.topP, d.insideTop, ARC_INSIDE);
-    fitToArc(b.bot, b.botP, d.insideBottom, ARC_INSIDE);
-    for (const el of [a.top, a.bot, b.top, b.bot]) el.setAttribute('font-size', size);
+    // The dichotomies gave the two sides a half-sentence each; from here the
+    // title and subheadline carry the entering screen on their own.
+    subBiomesP.textContent = '';
+    subAnthromesP.textContent = '';
   }
 
   function paintCommit(ct) {
@@ -301,8 +456,15 @@ export function mountNarrative(root) {
     // the cross-link interstitial shows.
     for (const el of faceArt) el.style.opacity = swapped ? 0 : out;
 
-    // Chosen title eases up to full white and stays there.
-    titles[side].style.opacity = lerp(titleFrom[side], 1, smoothstep(clamp01(ct / (swapOutMs + swapInMs))));
+    // Chosen title eases up to full white and stays there. If splash-3 had a
+    // sentence in its place, the title waits for the sentence to clear rather
+    // than printing over it. The sentence elements carry an opacity in every
+    // sequence (or none, which reads as 1), so only one with text counts —
+    // testing opacity alone blanked the chosen title on every commit.
+    const sentWasUp = SIDES.some((k) => sentFrom[k] > 0.01 && sents[k].textContent);
+    titles[side].style.opacity = sentWasUp
+      ? (swapped ? inn : 0)
+      : lerp(titleFrom[side], 1, smoothstep(clamp01(ct / (swapOutMs + swapInMs))));
     // The other fades out, becomes LOADING at the swap, and comes back at the
     // same dim the splash gives a face that is turned away.
     titles[other].style.opacity = swapped ? TITLE_DIM * inn : titleFrom[other] * out;
@@ -311,14 +473,15 @@ export function mountNarrative(root) {
     lineTop.style.opacity    = swapped ? 0 : out;
     lineBottom.style.opacity = swapped ? inn : out;
 
-    // Dichotomies out, definitions in — on both faces, since either may be the
-    // one showing as the disk turns and comes to rest.
-    biomesText.style.opacity    = swapped ? 0 : out;
-    anthromesText.style.opacity = swapped ? 0 : out;
-    for (const f of [defs.biomes, defs.anthromes]) {
-      f.top.style.opacity = swapped ? inn : 0;
-      f.bot.style.opacity = swapped ? inn : 0;
+    // Dichotomies and enter hints out with the framing copy, each from
+    // wherever the spin had left it; nothing comes back in their place.
+    for (const k of SIDES) {
+      subs[k].style.opacity  = swapped ? 0 : subFrom[k] * out;
+      hints[k].style.opacity = swapped ? 0 : hintFrom[k] * out;
+      sents[k].style.opacity = swapped ? 0 : sentFrom[k] * out;
     }
+    frameTop.style.opacity    = swapped ? 0 : frameFrom.top * out;
+    frameBottom.style.opacity = swapped ? 0 : frameFrom.bottom * out;
   }
 
   function render(now) {
@@ -334,23 +497,63 @@ export function mountNarrative(root) {
     }
 
     const t = now - startT;
-    currentAngle = (t / PERIOD) * 360;
+    currentAngle = START_ANGLE + (t / PERIOD) * 360;
     coin.style.transform = `rotateY(${currentAngle}deg)`;
 
-    const rotNum = Math.floor(t / PERIOD);
-    if (rotNum !== rotationsSeen) {
-      rotationsSeen = rotNum;
-      setLines(rotNum);
+    const located = steps ? locateStep(t) : null;
+    if (located) {
+      if (located.key !== stepSeen) {
+        stepSeen = located.key;
+        applyStep(located.step);
+      }
+    } else {
+      const rotNum = Math.floor(t / PERIOD);
+      if (rotNum !== rotationsSeen) {
+        rotationsSeen = rotNum;
+        setLines(rotNum);
+      }
     }
 
     const c = Math.cos(currentAngle * Math.PI / 180);
     currentFace = c >= 0 ? 'biomes' : 'anthromes';
 
     // Titles stay readable throughout; the one whose face is showing pops to
-    // full white, the other dims to low-emphasis.
+    // full white, the other dims to low-emphasis. The enter hint under each
+    // title follows it exactly.
     const sharpen = (x) => Math.min(1, Math.max(0, x) * 1.8);
-    labelBiomes.style.opacity    = TITLE_DIM + (1 - TITLE_DIM) * sharpen(c);
-    labelAnthromes.style.opacity = TITLE_DIM + (1 - TITLE_DIM) * sharpen(-c);
+    const emphasis = {
+      biomes:    TITLE_AWAY + (1 - TITLE_AWAY) * sharpen(c),
+      anthromes: TITLE_AWAY + (1 - TITLE_AWAY) * sharpen(-c)
+    };
+    for (const k of SIDES) {
+      titles[k].style.opacity = emphasis[k];
+      hints[k].style.opacity  = emphasis[k];
+    }
+
+    if (located) {
+      // Stepped sequences: every piece of copy the step uses rides the step's
+      // envelope; the side-bound pieces also take their side's emphasis, as the
+      // dichotomies always have. A flat step lifts the titles and hints to full
+      // white. splash-3's titles give way to the sentences for their step and
+      // return on the envelope of the next.
+      const { step, fade } = located;
+      frameTop.style.opacity    = step.frames ? frameFade(located, 'top')    : fade;
+      frameBottom.style.opacity = step.frames ? frameFade(located, 'bottom') : fade;
+      const w = flatness(located);
+      for (const k of SIDES) {
+        if (w > 0) {
+          titles[k].style.opacity = lerp(emphasis[k], 1, w);
+          hints[k].style.opacity  = lerp(emphasis[k], 1, w);
+        }
+        subs[k].style.opacity = emphasis[k] * fade;
+        sents[k].style.opacity = emphasis[k] * fade;
+        if (variant === 'splash-3') titles[k].style.opacity = step.sentences ? 0 : emphasis[k] * fade;
+      }
+      lineTop.style.opacity = 0;
+      lineBottom.style.opacity = 0;
+      rafId = requestAnimationFrame(render);
+      return;
+    }
 
     // Per-rotation fade envelope. The content swap above happens at the
     // rotation boundary while this is 0, so the transition is invisible.
@@ -361,33 +564,67 @@ export function mountNarrative(root) {
     else                               raw = 1;
     const fade = smoothstep(raw);
 
-    // One-liners live outside the disk, so they don't need the edge-on hide;
-    // the in-disk dichotomies get it free from backface-visibility.
-    lineTop.style.opacity       = fade;
-    lineBottom.style.opacity    = fade;
-    biomesText.style.opacity    = fade;
-    anthromesText.style.opacity = fade;
+    // The framing line and both dichotomies share the envelope; each
+    // dichotomy is also scaled by its own side's emphasis, so it brightens and
+    // dims with the title beside it.
+    lineTop.style.opacity    = fade;
+    lineBottom.style.opacity = fade;
+    for (const k of SIDES) subs[k].style.opacity = emphasis[k] * fade;
 
     rafId = requestAnimationFrame(render);
   }
 
   updateTitleArcs();
   sizeOuterText();
-  setLines(0);
+  if (steps) {
+    // The trials never use the r=760 lines until commit; blank them so the
+    // final ui's first line doesn't sit under the first step.
+    lineTopPath.textContent = '';
+    lineBottomPath.textContent = '';
+    for (const el of [frameTop, frameBottom, sentBiomes, sentAnthromes]) el.style.opacity = 0;
+  } else {
+    setLines(0);
+  }
 
-  if (reduce) {
+  if (reduce && steps) {
+    // No turn to pace a sequence by: hold the one step that shows the titles
+    // alongside a pair of dichotomies, with both framing lines up for all but
+    // splash-3.
+    applyStep(steps[steps.length - 1]);
+    if (variant !== 'splash-3') {
+      frameTopP.textContent = OUTER_LINES[0].text;
+      frameBottomP.textContent = OUTER_LINES[1].text;
+      frameTop.style.opacity = 1;
+      frameBottom.style.opacity = 1;
+    }
     coin.style.transform = 'rotateY(0deg)';
     labelBiomes.style.opacity = 1;
-    labelAnthromes.style.opacity = TITLE_DIM;
+    labelAnthromes.style.opacity = TITLE_AWAY;
+    enterBiomes.style.opacity = 1;
+    enterAnthromes.style.opacity = TITLE_AWAY;
+    subBiomes.style.opacity = 1;
+    subAnthromes.style.opacity = TITLE_AWAY;
+    rafId = requestAnimationFrame(render);
+  } else if (reduce) {
+    coin.style.transform = 'rotateY(0deg)';
+    labelBiomes.style.opacity = 1;
+    labelAnthromes.style.opacity = TITLE_AWAY;
+    enterBiomes.style.opacity = 1;
+    enterAnthromes.style.opacity = TITLE_AWAY;
     lineTop.style.opacity = 1;
     lineBottom.style.opacity = 1;
-    biomesText.style.opacity = 1;
-    anthromesText.style.opacity = 1;
+    subBiomes.style.opacity = 1;
+    subAnthromes.style.opacity = TITLE_AWAY;
     currentFace = 'biomes';
     currentAngle = 0;
     // Still needs a frame loop: it is what drives the commit transition.
     rafId = requestAnimationFrame(render);
   } else {
+    // Place the disk at the start angle before the first frame, or the markup's
+    // rotateY(0) would flash one frame of the biomes face square to the screen
+    // before the turn picks it up edge on.
+    currentAngle = START_ANGLE;
+    coin.style.transform = `rotateY(${START_ANGLE}deg)`;
     rafId = requestAnimationFrame(render);
   }
 

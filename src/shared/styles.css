@@ -12,6 +12,11 @@
   --design-h: 2000;
   /* Set from JS on load + resize; CSS can't divide length/length to a factor. */
   --stage-scale: 1;
+
+  /* The piece's one typeface, in two weights — Regular and Bold, with an
+     outline standing in for Medium on the keys (see the @font-face blocks
+     below). */
+  --font-sans: 'ABCPelikan Two Weights', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
 }
 
 /* ===== Fixed-canvas scaling =====
@@ -23,6 +28,9 @@
   position: fixed;
   inset: 0;
   overflow: hidden;
+  /* No double-tap page zoom anywhere on the piece; the two charts go further
+     and take the whole gesture (touch-action: none) for their own pan/pinch. */
+  touch-action: manipulation;
   background: var(--bg);
 }
 
@@ -38,19 +46,36 @@
   transform-origin: center center;
 }
 
-/* ABCPelikan font declarations */
+/* ABC Pelikan, two weights: 400 body and 500 everything else share the Regular
+   cut (the file covers 400-500, so every 500 draws Regular), 700 headlines.
+   Dinamo trial files for now; swap in the licensed web files (woff2) when they
+   land. */
 @font-face {
-  font-family: 'ABCPelikan';
-  src: url('../assets/fonts/ABCPelikan-Regular-Trial.woff') format('woff');
-  font-weight: normal;
+  font-family: 'ABCPelikan Two Weights';
+  src: url('../assets/fonts/ABCPelikanTrial-Regular.otf') format('opentype');
+  font-weight: 400 500;
   font-style: normal;
 }
 
 @font-face {
-  font-family: 'ABCPelikanCondensed';
-  src: url('../assets/fonts/ABCPelikanCondensed-Regular-Trial.woff') format('woff');
-  font-weight: normal;
+  font-family: 'ABCPelikan Two Weights';
+  src: url('../assets/fonts/ABCPelikanTrial-Bold.otf') format('opentype');
+  font-weight: 700;
   font-style: normal;
+}
+
+/* Two weights, with a stand-in for Medium where it is missed most: the
+   anthrome and phylum keys. Regular with a 0.7px outline in its own colour —
+   measured on the key's category names, that lands on Medium's ink to within
+   half a percent, and an outline adds no advance width, so nothing reflows.
+   The browser's own synthesised bold was tried first (a Regular-only family
+   asked for 700) and gave about a quarter of that — barely visible on the
+   14px pills — and it is drawn by the OS text stack, so it would differ on
+   the exhibition display; the outline renders the same everywhere. */
+html:root .key-pill,
+html:root .key-cat-name,
+html:root .phylum-dot span {
+  -webkit-text-stroke: 0.7px currentColor;
 }
 
 /* Base styles */
@@ -66,10 +91,21 @@ html, body {
 
 body {
   margin: 0;
-  font-family: 'ABCPelikan', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg);
   color: var(--fg);
   overflow: hidden;
+}
+
+/* Form controls don't inherit the page font by default — the browser gives
+   them its own system face — so every <button> in the rails (the anthrome
+   key pills, "All", the control circles, the close button) was drawing in
+   the system font rather than Pelikan. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 /* Common UI elements. These live inside .stage, so they are positioned
@@ -213,16 +249,25 @@ body {
    Both are styled here so the two detail panels stay in lockstep.
 
    TYPE SCALE — all sizes are design px, scaled by the stage transform.
-   The floor is 16.6px, matching .fblock-desc (the "Select a country to lens…"
-   copy) and the .panel-content base. Body text sizes up from the floor.
-     12px    micro — lineage chips ONLY (see below)
-     16.6px  floor — chips, uppercase micro-labels, CTA, stat pills
-     18.5px  step  — numeric values
+   These are four of the piece's six type tiers (12 / 14 / 17 / 19 / 23 / 27);
+   the rails use the same six, so nothing here should fall between them.
+
+   WEIGHTS — one rule across both sides and the splash:
+     700  headlines
+     500  what you touch, or what names a value in a key (pills, chips, country
+          names, "All", control labels, the SGB name, the genome count)
+     400  what you read, or what annotates (lead-ins, descriptions, captions,
+          uppercase panel labels like "Reconstructed genomes", chart axes)
+   The floor is 17px, matching the .panel-content base. Body text sizes up
+   from the floor.
+     14px    micro — lineage chips ONLY (see below)
+     17px    floor — chips, uppercase micro-labels, CTA, stat pills
+     19px    step  — numeric values
      23px    title — panel headline (.title / .species-sgb)
    The single sanctioned exception to the floor is the taxonomic lineage row:
    it is reference detail meant to sit visually beneath everything else, so it
-   is set at 12px. Do not borrow that size for anything else — for all other
-   panel content, smaller than 16.6px is a bug.
+   is set at 14px. Do not borrow that size for anything else — for all other
+   panel content, smaller than 17px is a bug.
 
    LAYOUT STABILITY — the panel re-renders continuously while the disk spins,
    so blocks whose height depends on the selected species' text length read as
@@ -231,19 +276,19 @@ body {
    for exactly this reason. */
 .panel-content .title {
   font-size: 23px;
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: 0.04em;
   color: #fff;
 }
 
 .panel-content .subtitle {
-  font-size: 16.6px;
+  font-size: 17px;
   color: #cfd3e0;
   letter-spacing: 0.02em;
 }
 
 .panel-content .summary {
-  font-size: 16.6px;
+  font-size: 17px;
   color: #e7e9f1;
 }
 
@@ -256,7 +301,7 @@ body {
 }
 
 .panel-content .kv .k {
-  font-size: 16.6px; /* floor */
+  font-size: 17px; /* floor */
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #9ba3c0;
@@ -264,8 +309,8 @@ body {
 
 .panel-content .kv .v {
   color: #f6f7fb;
-  font-weight: 600;
-  font-size: 16.6px;
+  font-weight: 500;
+  font-size: 17px;
 }
 
 .panel-content .swatch {
@@ -288,7 +333,7 @@ body {
   background: rgba(255, 255, 255, 0.08);
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   color: #fff;
-  font-size: 16.6px; /* floor */
+  font-size: 17px; /* floor */
   letter-spacing: 0.03em;
 }
 
@@ -302,7 +347,7 @@ body {
    Glyph and text sit on one baseline; chips wrap. */
 .panel-content .species-graphic {
   display: flex;
-  gap: 18px; /* clears the 2x glyph without crowding the lineage chips */
+  gap: 18px; /* clears the glyph without crowding the lineage chips */
   align-items: center;
   margin: 6px 0 11px;
 }
@@ -335,12 +380,16 @@ body {
   margin-top: -4px;
 }
 
-/* 2x the original 64px. The SVG's viewBox is cropped to the path's extent
-   (see biomes/App.svelte) so the box is the glyph — there is no dead margin
-   baked into the artwork, and this width is the real optical size. */
+/* The SVG's viewBox is cropped to the path's extent (see biomes/App.svelte) so
+   the box IS the glyph — there is no dead margin baked into the artwork, and
+   this width is the real optical size. Grown from 128px (itself 2x the
+   original 64px) to spend some of the rail's spare height on the one graphic
+   in the panel; the margins around .species-graphic are untouched, so the
+   block gets taller without changing its spacing to the rule above it or the
+   genome meter below. */
 .panel-content .species-glyph {
-  width: 128px;
-  height: 128px;
+  width: 148px;
+  height: 148px;
   flex: 0 0 auto;
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.14));
 }
@@ -356,37 +405,50 @@ body {
 /* The panel headline — same size/weight as .title, which it replaced. */
 .panel-content .species-sgb {
   font-size: 23px; /* title */
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: 0.02em;
   color: #fff;
   line-height: 1.05;
 }
 
-/* Lineage depth varies by species, so this row lands on one line for some and
-   two for others — another source of the rail jumping during a spin. Reserve
-   two rows' worth of height unconditionally and top-align, so a short lineage
-   leaves empty space rather than collapsing the block.
-   Row height = 12px * 1.4 line-height + 4px padding + 2.6px border = 23.4px. */
+/* Lineage depth varies by species, so this row lands on two lines for some and
+   three for others — another source of the rail jumping during a spin. Reserve
+   three rows' worth of height unconditionally and top-align, so a short lineage
+   leaves empty space rather than collapsing the block, and cap it at the same
+   three rows so a long one cannot grow it either: the height of this row is a
+   constant, whatever species the marker lands on.
+   Four rows is the measured worst case, not a guess: laid out at this width
+   (705px) every one of the 4,931 lineages in the catalog wraps to 2 rows
+   (4,391 of them), 3 (396) or 4 (144) — so at four rows nothing is ever
+   clipped and nothing ever moves.
+   Row height = 14px * 1.4 line-height + 4px padding + 2.6px border = 26.2px.
+   Four rows + three row-gaps = 113.8px, which is inside the 148px glyph beside
+   it, so the whole reserve costs the panel nothing. */
 .panel-content .lineage-chips {
   display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
+  /* Centred inside that fixed height, not top-aligned: the reserve is taller
+     than most lineages need, and centring puts a two-row lineage on the
+     glyph's own centre line so the leftover height reads as the row's
+     breathing space rather than as a gap under the chips. */
+  align-content: center;
   align-items: flex-start;
   gap: 3px 5px;
-  min-height: calc(2 * 23.4px + 3px); /* two rows + one row-gap */
+  height: calc(4 * 26.2px + 3 * 3px);
+  overflow: hidden;
 }
 
 /* Deliberately the smallest type in the piece — the lineage is reference
-   detail, subordinate to everything else in the card. Sized well below the
-   16.6px floor on purpose; see the type-scale note above. */
+   detail, subordinate to everything else in the card. Sized below the 17px
+   floor on purpose; see the type-scale note above. */
 .panel-content .lineage-chip {
   padding: 2px 7px;
   border-radius: 999px;
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
-  font-size: 12px; /* micro */
-  font-weight: 700;
+  font-size: 14px; /* micro */
+  font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
   line-height: 1.4;
@@ -405,7 +467,7 @@ body {
 
 .panel-content .lineage-sep {
   color: var(--muted);
-  font-size: 12px; /* micro — matches .lineage-chip */
+  font-size: 14px; /* micro — matches .lineage-chip */
   opacity: 0.6;
   padding: 0 1px;
 }
@@ -426,23 +488,23 @@ body {
 }
 
 .panel-content .gm-label {
-  font-size: 16.6px; /* floor */
-  font-weight: 800;
+  font-size: 17px; /* floor */
+  font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .panel-content .gm-count {
-  font-size: 18.5px; /* step */
-  font-weight: 800;
+  font-size: 19px; /* step */
+  font-weight: 500;
   color: #fff;
   letter-spacing: 0.02em;
 }
 
 .panel-content .gm-max {
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
+  font-size: 17px; /* floor */
+  font-weight: 400;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -497,15 +559,15 @@ body {
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   letter-spacing: 0.02em;
   line-height: 1.3;
   white-space: nowrap;
 }
 
 .panel-content .sp-stat--hero {
-  font-size: 18.5px; /* step */
+  font-size: 19px; /* step */
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.35);
   color: #fff;
@@ -517,7 +579,7 @@ body {
 }
 
 .panel-content .sp-stat-detail {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--muted);
 }
 
@@ -543,8 +605,8 @@ body {
    pulled the chips to the row height and rounded them into circles. */
 .panel-content .sp-countries-title {
   flex: 0 0 100%;
-  font-size: 16.6px; /* floor */
-  font-weight: 800;
+  font-size: 17px; /* floor */
+  font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -555,7 +617,12 @@ body {
   flex-wrap: wrap;
   align-items: flex-start; /* never stretch chips to the row height — that reads as circles */
   flex: 1 1 100%;
-  gap: 5px 7px;
+  /* 5px, not 7: every one of the catalog's 1,414 distinct country lists has
+     to fit one row of the 878px rail, so the species panel is one height for
+     every species (it has ~4px to spare; a second row would scroll). In
+     Pelikan Medium at 17px the widest two lists ran 4.3px and 0.9px over at
+     6px. At 5px the widest is 872px. Re-check if the chip type changes. */
+  gap: 5px 5px;
 }
 
 .panel-content .sp-country-chip {
@@ -564,8 +631,8 @@ body {
   border: 1.3px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.04);
   color: var(--fg);
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
+  font-size: 17px; /* floor */
+  font-weight: 500;
   letter-spacing: 0.03em;
   font-family: inherit;
   line-height: 1.3;
@@ -584,34 +651,4 @@ body {
   color: var(--muted);
   opacity: 0.75;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-}
-
-/* NOTE: .species-badges/.species-badge have no markup referencing them as of
-   the feat/cohorts merge — the stat line replaced them. Kept (rescaled to the
-   floor) because they're part of this panel's vocabulary; delete if the badge
-   row isn't coming back. */
-.panel-content .species-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 11px;
-  margin: 6px 0 12px;
-}
-
-.panel-content .species-badge {
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1.3px solid rgba(255, 255, 255, 0.18);
-  color: var(--fg);
-  font-size: 16.6px; /* floor */
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: none;
-  white-space: nowrap;
-}
-
-.panel-content .species-badge.accent {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.55);
-  color: #fff;
 }

@@ -5,9 +5,25 @@
   <title>Loading…</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* ABC Pelikan in the three cuts the piece uses (see src/shared/styles.css):
+       titles at 700, the subheadline at 400. Medium is declared to match the
+       rails but never requested here, so it is never downloaded. */
     @font-face {
       font-family: "Pelikan";
-      src: url("./fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      src: url("./fonts/ABCPelikanTrial-Regular.otf") format("opentype");
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Medium.otf") format("opentype");
+      font-weight: 500;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikanTrial-Bold.otf") format("opentype");
+      font-weight: 700;
       font-display: swap;
     }
 
@@ -75,21 +91,6 @@
       overflow: hidden;
     }
 
-    .face-svg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 2;
-      pointer-events: none;
-      overflow: visible;
-    }
-    .face-svg text {
-      fill: var(--fg);
-      font-weight: 500;
-      letter-spacing: 0.005em;
-    }
-
     .caption-svg {
       position: absolute;
       inset: 0;
@@ -110,7 +111,7 @@
     .caption-svg text.subhead {
       letter-spacing: 0.15em;
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 400;
     }
     /* Dots always take their slot; only opacity changes so the LOADING text
        never shifts as the ellipsis animates. */
@@ -124,15 +125,15 @@
     <div class="disk-area">
       <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
         <defs>
-          <!-- Title arcs (adaptive — same as home: halfway between disk edge
-               and viewport edge). Both use sweep=1 for the short arc. -->
+          <!-- Title arcs on the splash's title ring (TITLE_RING_R, set at
+               boot). Both use sweep=1 for the short arc. -->
           <path id="arc-title-left"  d="" />
           <path id="arc-title-right" d="" />
 
-          <!-- Subheadline: bottom outer semicircle at r=590 (same slot as
+          <!-- Subheadline: bottom outer semicircle at r=760 (same slot as
                home's bottom one-liner). Ascenders point inward, upright at
                the 6 o'clock midpoint reading L→R. -->
-          <path id="arc-subhead" d="M -590 0 A 590 590 0 0 0 590 0" />
+          <path id="arc-subhead" d="M -760 0 A 760 760 0 0 0 760 0" />
         </defs>
 
         <text id="label-left"  class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle"></textPath></text>
@@ -140,19 +141,9 @@
         <text id="subheadline" class="subhead"><textPath href="#arc-subhead"    startOffset="50%" text-anchor="middle"></textPath></text>
       </svg>
 
-      <div class="disk-ring">
-        <svg class="face-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
-          <defs>
-            <!-- Inside-disk arcs at r=440: TOP (sweep=1, letters outward) and
-                 BOTTOM (sweep=0, letters inward). r=440 gives enough arc
-                 length for the long anthromes definition to fit at font 22+. -->
-            <path id="arc-inside-top"    d="M -440 0 A 440 440 0 0 1 440 0" />
-            <path id="arc-inside-bottom" d="M -440 0 A 440 440 0 0 0 440 0" />
-          </defs>
-          <text id="inside-top"><textPath href="#arc-inside-top"    startOffset="50%" text-anchor="middle"></textPath></text>
-          <text id="inside-bot"><textPath href="#arc-inside-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
-        </svg>
-      </div>
+      <!-- The disk is blank while a side loads: the title and subheadline
+           outside it carry the screen. -->
+      <div class="disk-ring"></div>
     </div>
   </div>
   </div>
@@ -165,8 +156,7 @@
     // this screen covers it with the destination's own framing.
     import { initPageStage } from './src/shared/pageStage.js';
     import {
-      SIDE_COPY, BASE_FONT, TITLE_FONT, ARC_INSIDE,
-      fitToArc, buildLoadingLabel
+      SIDE_COPY, BASE_FONT, TITLE_FONT, TITLE_DIM, TITLE_RING_R, buildLoadingLabel
     } from './src/shared/splashCopy.js';
 
     initPageStage();
@@ -191,29 +181,24 @@
     const labelRightP = labelRight.querySelector('textPath');
     const subhead     = document.getElementById('subheadline');
     const subheadP    = subhead.querySelector('textPath');
-    const insideTop   = document.getElementById('inside-top');
-    const insideTopP  = insideTop.querySelector('textPath');
-    const insideBot   = document.getElementById('inside-bot');
-    const insideBotP  = insideBot.querySelector('textPath');
 
     // --- Content placement --------------------------------------------------
     const titleP = d.titlePos === 'left' ? labelLeftP  : labelRightP;
     const loadP  = d.titlePos === 'left' ? labelRightP : labelLeftP;
+    const loadEl = d.titlePos === 'left' ? labelRight  : labelLeft;
     titleP.textContent = d.title;
     subheadP.textContent = d.subhead;
     const tickDots = buildLoadingLabel(loadP);
+    // LOADING sits at the same dim the splash's commit state gives it, so the
+    // cross-link interstitial and the splash read as one screen. It used to
+    // stay full white here.
+    loadEl.style.opacity = TITLE_DIM;
 
-    // --- Adaptive title arc (same formula as the splash) --------------------
-    // Anchored to the fixed design canvas, not the window: the page is authored
-    // 1:1 against DESIGN_W and scaled by one transform, so this is a constant
-    // and is measured once rather than on every resize.
-    const DESIGN_W = 3000;
-
+    // --- Title arcs ------------------------------------------------------------
+    // The final ui splash's title ring, so a title lands where the splash's
+    // commit state leaves it.
     function updateTitleArcs() {
-      // Layout width, so the .stage transform doesn't enter into it.
-      const diskWidth = document.querySelector('.disk-area').offsetWidth;
-      if (!diskWidth) return;
-      const r = Math.round(250 * (DESIGN_W / diskWidth + 1));
+      const r = TITLE_RING_R;
       const off = (r * Math.SQRT1_2).toFixed(2);
       document.getElementById('arc-title-left').setAttribute('d',
         `M -${off} ${off} A ${r} ${r} 0 0 1 -${off} -${off}`);
@@ -226,13 +211,6 @@
       labelLeft.setAttribute('font-size',  TITLE_FONT);
       labelRight.setAttribute('font-size', TITLE_FONT);
       subhead.setAttribute('font-size',    BASE_FONT);
-      // Match both inside lines to the smaller of the two so the hierarchy
-      // reads uniformly rather than one definition outranking the other.
-      const fTop = fitToArc(insideTop, insideTopP, d.insideTop, ARC_INSIDE);
-      const fBot = fitToArc(insideBot, insideBotP, d.insideBottom, ARC_INSIDE);
-      const insideFont = Math.min(fTop, fBot);
-      insideTop.setAttribute('font-size', insideFont);
-      insideBot.setAttribute('font-size', insideFont);
     }
 
     // --- Preload hook + fixed wait ------------------------------------------
