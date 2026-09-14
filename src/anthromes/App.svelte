@@ -220,22 +220,40 @@
 
   // Names that are plurals or descriptions rather than proper singular nouns
   // read wrong without a definite article: "of the Netherlands", not "of
-  // Netherlands". Any of the 174 Natural Earth names can reach this — a map
-  // click selects whatever country the cell belongs to, not just the eight in
-  // the picker — so this is the full set from countries-110m.topojson, spelled
-  // the abbreviated way that file spells them.
+  // Netherlands". Any of the 242 Natural Earth 50m names can reach this — a
+  // map click selects whatever country the cell belongs to, not just the eight
+  // in the picker — so this is the full set from countries-50m.topojson, the
+  // default set (see shared/countrySet.svelte.js), spelled the abbreviated way
+  // that file spells them.
   const ARTICLE_COUNTRIES = new Set([
+    'Ashmore and Cartier Is.',
     'Bahamas',
+    'Br. Indian Ocean Ter.',
+    'British Virgin Is.',
+    'Cayman Is.',
     'Central African Rep.',
+    'Comoros',
     'Congo',
+    'Cook Is.',
     'Dem. Rep. Congo',
     'Dominican Rep.',
+    'Faeroe Is.',
     'Falkland Is.',
     'Fr. S. Antarctic Lands',
     'Gambia',
+    'Heard I. and McDonald Is.',
+    'Indian Ocean Ter.',
+    'Isle of Man',
+    'Maldives',
+    'Marshall Is.',
+    'N. Mariana Is.',
     'Netherlands',
     'Philippines',
+    'Pitcairn Is.',
+    'Seychelles',
     'Solomon Is.',
+    'Turks and Caicos Is.',
+    'U.S. Virgin Is.',
     'United Arab Emirates',
     'United Kingdom',
     'United States of America'

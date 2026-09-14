@@ -54,12 +54,12 @@
 }
 
 /* ABC Pelikan, three weights: 400 body, 500 everything else, 700 headlines.
-   Each weight is its own cut, so nothing is synthesised — before these, only
-   Regular was loaded and 600-800 were the browser's faux bold of it. Dinamo
-   trial files for now; swap in the licensed web files (woff2) when they land. */
+   Each weight is its own cut, so nothing is synthesised. Regular and Bold are
+   the licensed web files; Medium was not bought, so the three-weight family
+   still draws it from the Dinamo trial file. */
 @font-face {
   font-family: 'ABCPelikan';
-  src: url('../assets/fonts/ABCPelikanTrial-Regular.otf') format('opentype');
+  src: url('../assets/fonts/ABCPelikan-Regular.woff2') format('woff2');
   font-weight: 400;
   font-style: normal;
 }
@@ -73,24 +73,23 @@
 
 @font-face {
   font-family: 'ABCPelikan';
-  src: url('../assets/fonts/ABCPelikanTrial-Bold.otf') format('opentype');
+  src: url('../assets/fonts/ABCPelikan-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
 }
 
-/* Dev comparison only: what the piece looks like if only Regular and Bold are
-   bought. The Regular file covers 400-500, so every 500 in the CSS draws
+/* The default: Regular and Bold only, the two cuts that are licensed. The Regular file covers 400-500, so every 500 in the CSS draws
    Regular, exactly as it would with no Medium cut installed. */
 @font-face {
   font-family: 'ABCPelikan Two Weights';
-  src: url('../assets/fonts/ABCPelikanTrial-Regular.otf') format('opentype');
+  src: url('../assets/fonts/ABCPelikan-Regular.woff2') format('woff2');
   font-weight: 400 500;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'ABCPelikan Two Weights';
-  src: url('../assets/fonts/ABCPelikanTrial-Bold.otf') format('opentype');
+  src: url('../assets/fonts/ABCPelikan-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
 }
@@ -107,13 +106,6 @@ html:root:not([data-font-weights="3"]) .key-pill,
 html:root:not([data-font-weights="3"]) .key-cat-name,
 html:root:not([data-font-weights="3"]) .phylum-dot span {
   -webkit-text-stroke: 0.7px currentColor;
-}
-
-@font-face {
-  font-family: 'ABCPelikanCondensed';
-  src: url('../assets/fonts/ABCPelikanCondensed-Regular-Trial.woff') format('woff');
-  font-weight: normal;
-  font-style: normal;
 }
 
 /* Base styles */

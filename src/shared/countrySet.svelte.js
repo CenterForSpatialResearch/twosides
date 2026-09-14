@@ -25,10 +25,10 @@
 // and 5_smooth_boundaries.py (the overlay geometry). Both ship.
 export const COUNTRY_SETS = ['110m', '50m'];
 
-// The map's long-standing default, kept as the default here so the committed
-// build renders exactly as it did before this became switchable. Also the
-// fallback whenever a profile has no country-sets.json.
-export const DEFAULT_COUNTRY_SET = '110m';
+// 50m, the set the exhibition build pins (see shared/mapProfile.js on moma):
+// it has every dependency, so the Caribbean draws and selects. A profile with
+// no country-sets.json still falls back to the baked 110m set in gridSource.
+export const DEFAULT_COUNTRY_SET = '50m';
 
 // Enough to label the DevHud before country-sets.json has loaded. The
 // authoritative table size and bit width come from that file at runtime —
