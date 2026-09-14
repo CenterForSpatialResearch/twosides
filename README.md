@@ -2,7 +2,7 @@
 
 Production release for the interactive portion of *Two Sides of the Same Coin*, a double-sided visualization featuring a dataset on each side — anthromes and biomes. It was built for *Full Disclosure: The Edge of Information Design* at the Museum of Modern Art, opening September 27, 2026.
 
-This production build (twosides-moma-v1.0.0) can be run locally using the instructions below. The most up-to-date build is also served at **[twosides.earth/moma](https://twosides.earth/moma)**.
+This production build (twosides-moma-v1.0.1) can be run locally using the instructions below. The most up-to-date build is also served at **[twosides.earth/moma](https://twosides.earth/moma)**.
 
 ## Serving a production build locally
 
@@ -15,7 +15,7 @@ Easiest: double-click `start-windows.bat` or `start-macos.command` inside the un
 Open PowerShell, navigate to the unzipped folder, and start a server with Python:
 
 ```powershell
-cd C:\Users\you\Downloads\twosides-moma-v1.0.0   # adjust to your actual path
+cd C:\Users\you\Downloads\twosides-moma-v1.0.1   # adjust to your actual path
 python -m http.server 8000
 ```
 
@@ -30,7 +30,7 @@ Then open `http://localhost:8000` in a browser.
 ### macOS / Linux
 
 ```bash
-cd twosides-moma-v1.0.0 # adjust to your actual path
+cd twosides-moma-v1.0.1 # adjust to your actual path
 python3 -m http.server 8000
 ```
 
