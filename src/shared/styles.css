@@ -48,18 +48,17 @@
 
 /* ABC Pelikan, two weights: 400 body and 500 everything else share the Regular
    cut (the file covers 400-500, so every 500 draws Regular), 700 headlines.
-   Dinamo trial files for now; swap in the licensed web files (woff2) when they
-   land. */
+   Licensed web files (woff2). */
 @font-face {
   font-family: 'ABCPelikan Two Weights';
-  src: url('../assets/fonts/ABCPelikanTrial-Regular.otf') format('opentype');
+  src: url('../assets/fonts/ABCPelikan-Regular.woff2') format('woff2');
   font-weight: 400 500;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'ABCPelikan Two Weights';
-  src: url('../assets/fonts/ABCPelikanTrial-Bold.otf') format('opentype');
+  src: url('../assets/fonts/ABCPelikan-Bold.woff2') format('woff2');
   font-weight: 700;
   font-style: normal;
 }
