@@ -10,6 +10,13 @@ name: Deploy site (combined)
 # from the default branch, so a push to `dev` fires the ping in
 # .github/workflows/trigger-deploy.yml (on `dev`) and this file does the work.
 # Branch app code is never merged into main — each ref is checked out fresh.
+#
+# LFS: the repo is cloned ONCE without LFS, and the branches are git worktrees
+# of that clone, so they share a single .git/lfs store. That store is kept in
+# the Actions cache, keyed on the set of LFS objects the published branches
+# point at. A deploy therefore downloads only the objects that are new since
+# the last run (usually none) instead of every branch's full set every time —
+# LFS bandwidth is metered per download, and Actions downloads count.
 
 on:
   push:
@@ -36,14 +43,51 @@ jobs:
         with:
           node-version: 20
 
-      # ---- main -> dist/ (root) ----
-      - name: Checkout main
+      # ---- one clone, LFS pointers only ----
+      - name: Checkout main (LFS deferred)
         uses: actions/checkout@v4
         with:
           ref: main
-          lfs: true
+          lfs: false
           path: src-main
 
+      - name: Fetch dev + moma refs
+        working-directory: src-main
+        run: |
+          git fetch --depth=1 origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/dev:refs/remotes/origin/dev \
+            +refs/heads/moma:refs/remotes/origin/moma
+
+      # ---- shared LFS store, cached across runs ----
+      - name: Hash the LFS objects the published branches need
+        id: lfs
+        working-directory: src-main
+        run: |
+          for ref in origin/main origin/dev origin/moma; do
+            git lfs ls-files -l "$ref" | cut -d' ' -f1
+          done | sort -u > ../lfs-oids.txt
+          echo "hash=$(sha256sum ../lfs-oids.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # Exact hit: nothing to download. Otherwise restore the newest older
+      # store and let `git lfs fetch` top up just the missing objects.
+      - name: Restore LFS store
+        uses: actions/cache@v4
+        with:
+          path: src-main/.git/lfs
+          key: lfs-${{ steps.lfs.outputs.hash }}
+          restore-keys: lfs-
+
+      - name: Fetch missing LFS objects and add branch worktrees
+        working-directory: src-main
+        run: |
+          git lfs install --local
+          git lfs fetch origin origin/main origin/dev origin/moma
+          git lfs checkout
+          git worktree add --detach ../src-dev origin/dev
+          git worktree add --detach ../src-moma origin/moma
+
+      # ---- main -> dist/ (root) ----
       - name: Build main (root base)
         working-directory: src-main
         run: |
@@ -56,13 +100,6 @@ jobs:
           cp -R src-main/dist/. dist/
 
       # ---- dev -> dist/dev/ ----
-      - name: Checkout dev
-        uses: actions/checkout@v4
-        with:
-          ref: dev
-          lfs: true
-          path: src-dev
-
       - name: Build dev (/dev/ base)
         working-directory: src-dev
         run: |
@@ -74,34 +111,7 @@ jobs:
           mkdir -p dist/dev
           cp -R src-dev/dist/. dist/dev/
 
-      # ---- feat/cohorts -> dist/feat-cohorts/ ----         
-      - name: Checkout feat/cohorts
-        uses: actions/checkout@v4                                                                                                 
-        with:
-          ref: feat/cohorts                                                                                                       
-          lfs: true                                          
-          path: src-feat-cohorts
-
-      - name: Build feat/cohorts (/feat-cohorts/ base)                                                                            
-        working-directory: src-feat-cohorts
-        run: |                                                                                                                    
-          npm ci                                             
-          BASE_PATH=/feat-cohorts/ npm run build
-                                                                                                                                    
-      - name: Stage feat/cohorts at dist/feat-cohorts/
-        run: |                                                                                                                    
-          mkdir -p dist/feat-cohorts                         
-          cp -R src-feat-cohorts/dist/. dist/feat-cohorts/
-
-
       # ---- moma -> dist/moma/ ----
-      - name: Checkout moma
-        uses: actions/checkout@v4
-        with:
-          ref: moma
-          lfs: true
-          path: src-moma
-
       - name: Build moma (/moma/ base)
         working-directory: src-moma
         run: |
