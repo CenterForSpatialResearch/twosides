@@ -36,14 +36,11 @@
     colorMapping,
     pickTextColor,
     getPhylum,
-    prettyName,
     lineage,
-    safe,
     sgbLabel,
     locationsFromMeta,
     parseUSGB,
     parseWestern,
-    isWesternYes,
     isWesternNo
   } from './dataAdapter.js';
 

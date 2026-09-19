@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build one resolution profile end to end: GeoTIFF -> GeoJSON -> TopoJSON.
 #
-# Unlike run_batch.sh, TopoJSON lands in temp/topojson/<profile>/ instead of
-# public/topojson/, so nothing here is staged for production or Git LFS.
+# TopoJSON lands in temp/topojson/<profile>/ rather than public/topojson/, so
+# nothing here is staged for production or Git LFS.
 #
 # Usage:
 #   ./run_temp_profile.sh 50km 0.45
@@ -185,7 +185,7 @@ if [ "$KEEP_GEOJSON" = "0" ]; then
   rm -rf "$GEOJSON_DIR"
 else
   echo "ℹ Intermediate GeoJSON kept at $GEOJSON_DIR"
-  echo "  (step 3, 3_generate_cell_history.py, reads this folder — delete it manually"
+  echo "  (verify_grid.py --against=geojson reads this folder — delete it manually"
   echo "   or re-run with KEEP_GEOJSON=0 when you're done with it)"
 fi
 

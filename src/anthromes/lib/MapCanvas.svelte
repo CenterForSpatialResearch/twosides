@@ -4,12 +4,11 @@
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
   import {
-    loadGrid, featuresForYear, historyForCell, meshForGrid, featureAt, featureIndex,
+    loadGrid, featuresForYear, meshForGrid, featureAt, featureIndex,
     runsForYear, runBounds
   } from './gridSource.js';
-  import { USE_PIXEL_BOUNDARIES } from './constants.js';
   import { MAP_PROFILE, COUNTRY_SET, boundaryUrl } from '../../shared/mapProfile.js';
-  import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
+  import { formatYearLabel } from './dataAdapter.js';
   import { screenToDesign } from '../../shared/stage.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
@@ -333,9 +332,6 @@
     focusIso3 = $bindable(null),
     // See WaffleChart: Option 1 makes the picked country the primary state.
     strictCountryFocus = false,
-    // Option 1 renders the cell's country facts as a pill in the rail, so the
-    // detail HTML omits its key/value block and biomes cross-link.
-    compactCellDetail = false,
     // Where the isolated cell currently sits, in DESIGN px, or null. Tracked
     // continuously so the leader line follows the cell through pans and zooms
     // instead of staying pinned to wherever the click happened to land.
@@ -351,14 +347,9 @@
   let boundariesMesh = $state(null);
   let boundariesGeo = $state(null);
   let boundariesLoading = $state(false);
-  let cellHistory = $state(null);
-  let cellHistoryLoading = $state(false);
-  // Decoded grid blobs for the current profile, or null if this profile is still
-  // served as per-year TopoJSON. Holding both paths is what lets the two be
-  // compared on screen during the migration.
+  // Decoded grid blobs for the current profile, or null until they resolve.
   let gridData = $state(null);
-  let countryData = $state(null);
-  let countryDataLoading = $state(false);
+  let countryNamesLoaded = false;
   let iso3ToName = $state(new Map());
   const cache = new Map();
   const inFlight = new Map();
@@ -562,37 +553,16 @@
     loading = true;
     const fetchPromise = (async () => {
       performance.mark('topo-load-start');
-      const base = import.meta.env.BASE_URL;
 
       try {
         mapReady = false;
 
-        // Grid profiles fetch their blobs once, then every year is assembled
-        // locally — no per-year request. Profiles without a grid manifest fall
-        // through to the original per-year TopoJSON path.
-        let geo, mesh;
+        // The grid's blobs are fetched once, then every year is assembled
+        // locally — no per-year request.
         const grid = await tryLoadGrid(profile);
-        if (grid) {
-          geo = featuresForYear(grid, targetYear);
-          mesh = meshForGrid(grid);
-        } else {
-          const url = `${base}topojson/${profile}/${targetYear}.topojson`;
-          const res = await fetch(url, { cache: 'no-cache' });
-          if (!res.ok) {
-            throw new Error(`Failed to load ${url} (${res.status})`);
-          }
-
-          const text = await res.text();
-          const topo = JSON.parse(text);
-
-          const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
-          if (!objKey || !topo.objects[objKey]) {
-            throw new Error(`TopoJSON missing objects at ${url}`);
-          }
-
-          geo = topojson.feature(topo, topo.objects[objKey]);
-          mesh = topojson.mesh(topo, topo.objects[objKey]);
-        }
+        if (!grid) throw new Error(`No grid data for profile ${profile}`);
+        const geo = featuresForYear(grid, targetYear);
+        const mesh = meshForGrid(grid);
 
         cache.set(key, { geo, mesh });
         currentGeo = geo;
@@ -632,10 +602,7 @@
     boundariesLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
-      // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
-      const url = USE_PIXEL_BOUNDARIES
-        ? `${base}topojson/admin-boundaries/${profile}/countries.topojson`
-        : boundaryUrl(base, set);
+      const url = boundaryUrl(base, set);
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
       if (!res.ok) {
@@ -668,12 +635,8 @@
     }
   }
 
-  // Resolve a profile's grid blobs, remembering the result so a profile without
-  // a manifest doesn't re-request it on every year change.
-  // Every grid profile ships its whole series as blobs, so none of them needs
-  // the legacy per-profile cell-history JSON or the per-year TopoJSON fetch.
-  // MAP_PROFILE is one of these, so both legacy paths are inert here.
-  const GRID_PROFILES = new Set(['100km', '75km', '70km', '60km', '50km']);
+  // Resolve a profile's grid blobs, remembering a failure so a missing profile
+  // isn't re-requested on every year change.
   // Keyed by profile AND set. Only one pair is ever requested here, but the key
   // keeps a failed set from blacklisting the profile itself.
   const gridMissing = new Set();
@@ -685,80 +648,34 @@
       gridData = grid;
       return grid;
     } catch (err) {
+      console.error('MapCanvas: Failed to load grid', err);
       gridMissing.add(key);
       if (gridData?.manifest?.profile === p) gridData = null;
       return null;
     }
   }
 
-  // Grid profiles read history straight out of the codes blob — a strided read
-  // over data already in memory, so there is nothing to fetch. The separate
-  // cell-history JSON exists only for profiles still on the TopoJSON path; it is
-  // the same data transposed, which is why it reaches 166MB at 33km.
-  async function loadCellHistory() {
-    if (gridData || cellHistory || cellHistoryLoading) return;
-    // Grid profiles read history straight out of codes.bin, and only 100km ever
-    // had a cell-history JSON. Asking for one at 60km got the dev server's HTML
-    // fallback and a JSON parse error on every call. The gridData check above
-    // misses the window before the grid resolves, so gate on the profile too.
-    if (GRID_PROFILES.has(profile)) return;
-    cellHistoryLoading = true;
-    try {
-      const base = import.meta.env.BASE_URL;
-      const url = `${base}data/cell-history-${profile}.json`;
-      const isDev = import.meta.env.DEV;
-      const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
-      if (!res.ok) {
-        throw new Error(`Failed to load cell history (${res.status})`);
-      }
-      cellHistory = await res.json();
-    } catch (err) {
-      console.error('MapCanvas: Failed to load cell history', err);
-    } finally {
-      cellHistoryLoading = false;
-    }
-  }
-
-  function getCellHistory(cellId) {
-    if (gridData) return historyForCell(gridData, cellId);
-    return cellHistory ? cellHistory[cellId] : null;
-  }
-
-  // Which cell is under a lng/lat. On a grid this is arithmetic — two divisions
-  // and a map lookup — instead of scanning every feature with d3.geoContains,
-  // which ran a spherical point-in-polygon test per cell on every pointer move.
-  // Profiles still on TopoJSON keep the scan.
+  // Which cell is under a lng/lat. On the grid this is arithmetic — two
+  // divisions and a map lookup.
   function findCellAt(lnglat) {
-    if (!currentGeo) return null;
-    if (gridData) return featureAt(currentGeo, gridData, lnglat[0], lnglat[1]);
-    return currentGeo.features.find(f => d3.geoContains(f, lnglat)) || null;
+    if (!currentGeo || !gridData) return null;
+    return featureAt(currentGeo, gridData, lnglat[0], lnglat[1]);
   }
 
-  async function loadCountryData() {
-    if (countryData || countryDataLoading) return;
-    countryDataLoading = true;
+  async function loadCountryNames() {
+    if (countryNamesLoaded) return;
+    countryNamesLoaded = true;
     try {
       const base = import.meta.env.BASE_URL;
       const isDev = import.meta.env.DEV;
-
-      const [countryRes, namesRes] = await Promise.all([
-        fetch(`${base}data/country_index.json`, { cache: isDev ? 'no-store' : 'force-cache' }),
-        fetch(`${base}data/iso3_names.json`,    { cache: isDev ? 'no-store' : 'force-cache' }),
-      ]);
-
-      if (!countryRes.ok) throw new Error(`Failed to load country data (${countryRes.status})`);
-      countryData = new Map(Object.entries(await countryRes.json()));
-
-      if (namesRes.ok) {
-        // Merged, not assigned: the boundary backfill in loadBoundaries() may
-        // already have run, and these two resolve in either order. This file's
-        // names take precedence — they are the study's preferred short forms.
-        iso3ToName = new Map([...iso3ToName, ...Object.entries(await namesRes.json())]);
-      }
+      const res = await fetch(`${base}data/iso3_names.json`, { cache: isDev ? 'no-store' : 'force-cache' });
+      if (!res.ok) throw new Error(`Failed to load country names (${res.status})`);
+      // Merged, not assigned: the boundary backfill in loadBoundaries() may
+      // already have run, and these two resolve in either order. This file's
+      // names take precedence — they are the study's preferred short forms.
+      iso3ToName = new Map([...iso3ToName, ...Object.entries(await res.json())]);
     } catch (err) {
-      console.error('MapCanvas: Failed to load country data', err);
-    } finally {
-      countryDataLoading = false;
+      console.error('MapCanvas: Failed to load country names', err);
     }
   }
 
@@ -1137,12 +1054,9 @@
 
   /**
    * The rail's copy for one map feature at the current year: a head (swatch +
-   * name), the "In <year>, <anthrome> covers ..." sentence, and — for the older
-   * arrangements — a key/value block plus the cross-link to biomes.
-   *
-   * Option 1 drops that block (compactCellDetail): App renders the same country
-   * facts as a pill above the head, in the format the country and world scales
-   * already use, so all three read identically.
+   * name) and the "In <year>, <anthrome> covers ..." sentence. App renders the
+   * country facts as a pill above the head, in the format the country and world
+   * scales already use, so all three read identically.
    *
    * Split out of handlePointerMove because the isolated cell has to be restated
    * whenever the YEAR changes — its anthrome is a function of the year, so
@@ -1162,15 +1076,6 @@
     const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
     const yearLabel = formatYearLabel(year) || '';
     const countryISO3 = feature.properties?.c || null;
-    const crosswalk = countryData?.get(countryISO3);
-
-    let westPercent = 0;
-    if (crosswalk) {
-      const westYes = crosswalk.westernized_counts?.Yes || 0;
-      const westNo = crosswalk.westernized_counts?.No || 0;
-      const westTotal = westYes + westNo;
-      westPercent = westTotal > 0 ? ((westYes / westTotal) * 100).toFixed(1) : 0;
-    }
 
     const meta = {
       color,
@@ -1180,16 +1085,9 @@
       // Present-day country of this cell, for App's scope pill.
       countryIso3: countryISO3,
       countryName: countryISO3
-        ? iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3
+        ? iso3ToName.get(countryISO3) || countryISO3
         : null
     };
-
-    const kvBlock = compactCellDetail || !(countryISO3 || crosswalk) ? '' : `
-      <div class="kv">
-        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${meta.countryName}</div>` : ''}
-        ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
-        ${crosswalk ? `<div class="k">Percent of "Westernized" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
-      </div>`;
 
     const html = `
       <div class="tip-head">
@@ -1198,14 +1096,12 @@
           <div class="title">${label}</div>
           <div class="subtitle">Year ${yearLabel}${
             // The country IS the click target, so name it before the click
-            // rather than only after. compactCellDetail hides the kv block
-            // that would otherwise carry it.
+            // rather than only after.
             meta.countryName ? ` &middot; ${meta.countryName}` : ''
           }</div>
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
-      ${kvBlock}
     `;
 
     return { html, meta };
@@ -1218,171 +1114,6 @@
       hoveredFeature = null;
       drawOverlay();
     }
-  }
-
-  // Process cell history into chronological periods with grouped consecutive years
-  function processHistoryData(history) {
-    // Convert to array and sort chronologically (BCE to CE/AD)
-    const sortedYears = sortYears(Object.keys(history || {}));
-    const entries = sortedYears.map(yearStr => [yearStr, history[yearStr]]);
-
-    if (entries.length === 0) return [];
-
-    const toSignedYear = (yearStr) => {
-      const { year, isBCE } = parseYearString(yearStr);
-      return isBCE ? -year : year;
-    };
-
-    const signedYears = sortedYears.map(toSignedYear);
-    const yearSteps = signedYears.map((value, idx) => {
-      if (idx < signedYears.length - 1) {
-        return signedYears[idx + 1] - value;
-      }
-      if (signedYears.length > 1) {
-        return value - signedYears[idx - 1];
-      }
-      return 1;
-    });
-    const positiveSteps = yearSteps.filter(step => step > 0);
-    const minStep = positiveSteps.length ? Math.min(...positiveSteps) : 1;
-
-    // Group consecutive years with same anthrome
-    const periods = [];
-    let currentPeriod = null;
-
-    for (const [yearStr, anthrome] of entries) {
-      const signedYear = toSignedYear(yearStr);
-      if (!currentPeriod || currentPeriod.anthrome !== anthrome) {
-        // Start new period
-        if (currentPeriod) {
-          periods.push(currentPeriod);
-        }
-        currentPeriod = {
-          startYear: signedYear,
-          endYear: signedYear,
-          startYearRaw: yearStr,
-          endYearRaw: yearStr,
-          anthrome,
-          color: legend[anthrome]?.color || '#ffffff',
-          label: legend[anthrome]?.label || 'Unknown'
-        };
-      } else {
-        // Extend current period
-        currentPeriod.endYear = signedYear;
-        currentPeriod.endYearRaw = yearStr;
-      }
-    }
-
-    // Add final period
-    if (currentPeriod) {
-      periods.push(currentPeriod);
-    }
-
-    // Calculate proportions based on actual TIME DURATION
-    periods.forEach(period => {
-      let duration = period.endYear - period.startYear;
-      if (duration <= 0) duration = minStep;
-      period.duration = duration;
-    });
-
-    const totalDuration = periods.reduce((sum, period) => sum + period.duration, 0);
-
-    // Add height percentage and year range to each period
-    periods.forEach(period => {
-      period.heightPercent = totalDuration > 0 ? (period.duration / totalDuration) * 100 : 0;
-      period.startYearLabel = formatYearLabel(period.startYearRaw);
-      period.endYearLabel = formatYearLabel(period.endYearRaw);
-    });
-
-    // Compute label positions with minimum spacing (labels are absolute-positioned)
-    const labelHeightPx = 30;
-    const labelHeightPercent = timelineHeightPx > 0
-      ? (labelHeightPx / timelineHeightPx) * 100
-      : 6;
-    const labelPaddingPercent = Math.max(2, labelHeightPercent / 2);
-    const minGapPercent = Math.max(3, labelHeightPercent + 1);
-    const desiredPositions = [];
-    let acc = 0;
-    periods.forEach(period => {
-      desiredPositions.push(acc + period.heightPercent / 2);
-      acc += period.heightPercent;
-    });
-    periods.forEach((period, idx) => {
-      period.segmentCenterPercent = desiredPositions[idx];
-    });
-
-    const minPos = labelPaddingPercent;
-    const maxPos = 100 - labelPaddingPercent;
-    const available = Math.max(0, maxPos - minPos);
-    const maxGap = available / Math.max(1, periods.length - 1);
-    const effectiveMinGap = Math.min(minGapPercent, maxGap || minGapPercent);
-
-    let positions = desiredPositions.slice();
-    const enforceForward = () => {
-      for (let i = 1; i < positions.length; i += 1) {
-        const minPosForIndex = positions[i - 1] + effectiveMinGap;
-        if (positions[i] < minPosForIndex) {
-          positions[i] = minPosForIndex;
-        }
-      }
-    };
-    const enforceBackward = () => {
-      for (let i = positions.length - 2; i >= 0; i -= 1) {
-        const maxPosForIndex = positions[i + 1] - effectiveMinGap;
-        if (positions[i] > maxPosForIndex) {
-          positions[i] = maxPosForIndex;
-        }
-      }
-    };
-
-    // Iteratively enforce bounds and spacing without shifting all labels uniformly.
-    for (let iter = 0; iter < 3; iter += 1) {
-      if (positions.length === 0) break;
-
-      if (positions[0] < minPos) {
-        positions[0] = minPos;
-      }
-      enforceForward();
-
-      const lastIdx = positions.length - 1;
-      if (positions[lastIdx] > maxPos) {
-        positions[lastIdx] = maxPos;
-      }
-      enforceBackward();
-    }
-
-    if (positions.length > 0) {
-      enforceForward();
-      const lastIdx = positions.length - 1;
-      if (positions[lastIdx] > maxPos) {
-        positions[lastIdx] = maxPos;
-        enforceBackward();
-      }
-      if (positions[0] < minPos) {
-        positions[0] = minPos;
-        enforceForward();
-      }
-    }
-
-    const leaderMinGapPercent = Math.max(0.75, labelHeightPercent * 0.2);
-    positions.forEach((pos, idx) => {
-      const period = periods[idx];
-      period.labelTopPercent = pos;
-      // Leader line connects segment center to label position
-      if (pos < period.segmentCenterPercent) {
-        // Label above segment: line extends from label down to segment
-        period.leaderTopPercent = pos;
-        period.leaderHeightPercent = period.segmentCenterPercent - pos;
-      } else {
-        // Label below segment: line extends from segment down to label
-        period.leaderTopPercent = period.segmentCenterPercent;
-        period.leaderHeightPercent = pos - period.segmentCenterPercent;
-      }
-      period.leaderVisible = period.leaderHeightPercent > leaderMinGapPercent;
-    });
-    // TODO: Further label/leader refinements needed to reduce overlaps in dense segments.
-
-    return periods;
   }
 
   // Single function that clears all isolation state — tooltip, chart, and cell highlight.
@@ -1511,6 +1242,7 @@
 
   onMount(() => {
     resizeCanvas();
+    loadCountryNames();
 
     // Add global click listener for clearing cross-highlight
     window.addEventListener('click', handleGlobalClick);
@@ -1732,29 +1464,18 @@
     }
   });
 
-  // Load cell history on mount (needed for historical bar chart). No-ops for
-  // grid profiles, which serve history from the codes blob already in memory.
-  $effect(() => {
-    if (!gridData && !cellHistory && !cellHistoryLoading) {
-      loadCellHistory();
-    }
-  });
-
   // Switching resolution invalidates everything keyed to the old grid: cell ids
   // are per-profile, so an isolated cell would point at a different patch of
-  // land, and the cell history file has to be refetched for the new grid.
-  let loadedHistoryProfile = null;
+  // land.
+  let loadedProfile = null;
   $effect(() => {
     const p = profile;
     untrack(() => {
-      if (loadedHistoryProfile === null) { loadedHistoryProfile = p; return; }
-      if (loadedHistoryProfile === p) return;
-      loadedHistoryProfile = p;
+      if (loadedProfile === null) { loadedProfile = p; return; }
+      if (loadedProfile === p) return;
+      loadedProfile = p;
       clearAll();
-      cellHistory = null;
-      cellHistoryLoading = false;
       gridData = null;
-      loadCellHistory();
     });
   });
 
@@ -1787,17 +1508,6 @@
       untrack(() => clearAll());
     }
   });
-
-  // Load country crosswalk data on mount
-  $effect(() => {
-    if (!countryData && !countryDataLoading) {
-      loadCountryData();
-    }
-  });
-
-  // timelineHeightPx kept as constant 0 since vertical bar chart is removed;
-  // processHistoryData still uses it with a safe fallback when 0.
-  const timelineHeightPx = 0;
 
 </script>
 

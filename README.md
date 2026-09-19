@@ -110,7 +110,6 @@ twosides/
 │   ├── data/                  # Biomes JSON data
 │   └── fonts/
 ├── processing/                # Data pipeline (see processing/README.md)
-├── utilities/                 # Build and release tooling
 └── vite.config.js             # Multi-page build config
 ```
 

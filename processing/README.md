@@ -52,7 +52,7 @@ Use this rather than `npm run dev` for anything performance-sensitive — an ins
 - `processing/2_generate_topojson.js`: convert to topojson features (and combine shared boundaries). Option to simplify.
 - Output: TopoJSON per year for rendering at `public/topojson/`. Contents of this folder are tracked using Git LFS. Changes will not be tracked, but still, **only push data that will be used in production.**
 
-Still required for the admin-boundary layers (see the addendum). Steps 3–7 also still read `processing/geojson/`.
+Still required for the admin-boundary layers (see the addendum), and as the reference `verify_grid.py` diffs the grid output against. The scripts that consumed its per-year output (cell history, change years, zoom candidates, grid-snapped boundaries, country timeseries) have been removed along with the pages they fed; they are in git history.
 
 ### Why the grid format replaced TopoJSON
 
@@ -148,7 +148,9 @@ Four files in `temp/grid/<profile>/`:
 | `codes.bin` | `nLand * nYears` bytes, **year-major**: year *k* at `[k*nLand, (k+1)*nLand)`, land cells in ascending cellId order. One anthrome code per byte; `0` = nodata. |
 | `countries.bin` | `nLand` bytes, index into `manifest.countryTable`. |
 
-`cellId = row * ncols + col`, matching `compute_cell_id()` in `1_extract_geojson.py`, so `anthrome-change-years-*.json` and the `zooms-*.json` files stay valid.
+`countries.bin` and `manifest.countryTable` are the baked 110m attribution. They stay in `temp/` as the `--verify` baseline (see [Country sets](#country-sets)): `promote_grid.sh` does not copy `countries.bin` and strips `countryTable` and `files.countries` from the shipped manifest, because the app only reads the sets named in `country-sets.json`.
+
+`cellId = row * ncols + col`, matching `compute_cell_id()` in `1_extract_geojson.py`.
 
 Anthrome codes run 11–70 and never use 0, which is what makes 0 safe as the nodata sentinel; the script asserts this against the legend.
 
@@ -191,9 +193,9 @@ Customization Flags (GeoJSON extract):
   - Resampling uses **mode** (majority) so each coarser cell takes the anthrome value that occurs most within its footprint. When multiple fine cells map into a coarse cell, the most frequent anthrome wins; ties fall back to the source order.
 - `--simplify`: topology-preserving simplification tolerance in degrees after dissolve. Can leave gaps between features, only use with dissolve.
 - `--sieve-size`: drops raster components smaller than N pixels before polygonization. At `--target-res=0.5`, a single pixel is ~3,000 km² at the equator; `--sieve-size=8` would drop clusters smaller than ~24,000 km² (removes tiny islands/slivers).
-- `--skip-dissolve`: keeps per-cell polygons (no merge by anthrome). **Required** if you intend to generate cell history (Step 3) — dissolved features lose the individual cell IDs needed for the history lookup.
+- `--skip-dissolve`: keeps per-cell polygons (no merge by anthrome). **Required** for `verify_grid.py --against=geojson`, which compares cell by cell — dissolved features lose the individual cell IDs.
 - `--profile`: output folder name under `processing/geojson/` (also used in Topo step).
-- `--boundaries`: path to Natural Earth shapefile for country lookup. When provided, adds `cellId` (deterministic grid position ID) and `country` (ISO3 code) to each feature. Required for historical visualization and country-based crosswalk.
+- `--boundaries`: path to Natural Earth shapefile for country lookup. When provided, adds `cellId` (deterministic grid position ID) and `country` (ISO3 code) to each feature.
 
 ### Step 2: Generate TopoJSON
 ```bash
@@ -209,79 +211,6 @@ Customization Flags (TopoJSON generate):
 - `--input` / `--output`: choose source GeoJSON folder and destination TopoJSON folder (typically mirrors the profile name).
 - `--simplification`: topology simplification threshold applied after quantization. Recommend not using this, usually causes winding in polygons.
 - `--quantization`: snaps coordinates to an evenly spaced grid; grid step = 360° / quantization. Examples: `1e5` → 0.0036° (~400 m at the equator); `1e6` → 0.00036° (~40 m). Larger values shrink files but coarsen precision; smaller retains precision with larger files.
-
-### Step 3: Generate Cell History
-```bash
-cd processing/
-
-# 100km (used by main map viz at runtime)
-python3 3_generate_cell_history.py --input=geojson/100km --output=../public/data/cell-history-100km.json
-
-# 33km (used only by processing scripts, stored in utilities/ and not committed)
-python3 3_generate_cell_history.py --input=geojson/33km --output=utilities/cell-history-33km.json
-```
-
-Generates a JSON lookup file mapping each cell to its anthrome values across all displayed years (74 years from 10000BC to 2025AD). This powers the historical bar chart visualization when a user clicks on a cell.
-
-**Requirements**: GeoJSON files must have been generated with `--boundaries` flag to include `cellId` property.
-
-**Output format**:
-```json
-{
-  "12345": { "10000BC": 62, "9000BC": 62, ..., "2025AD": 12 },
-  "12346": { "10000BC": 54, ..., "2025AD": 23 }
-}
-```
-
-### Step 4: Generate Change Years (33km only)
-```bash
-cd processing/
-python3 6_generate_change_years.py \
-  --cell-history=utilities/cell-history-33km.json \
-  --output=../public/data/anthrome-change-years-33km.json
-```
-
-For each cell, determines the year when it became its current (2025AD) anthrome value by walking backwards through historical data. Used to display change year labels on the zoom circles in the anthrome change test page.
-
-### Step 5: Generate Zoom Candidates
-```bash
-cd processing/
-
-# Recommended: 15x15 grid, 100 min cells, 12 cores, 2° sampling (fast, land-only, ~2-3 min)
-python3 7_generate_zoom_candidates.py --cell-history=utilities/cell-history-33km.json --topojson=../public/topojson/33km/2025AD.topojson --output-dir=../public/data --top-n=20 --grid-size=15 --min-cells=100 --processes=12 --grid-step=2.0
-
-# Higher accuracy: 1° sampling grid (slower but more thorough, ~8-10 min)
-python3 7_generate_zoom_candidates.py --cell-history=utilities/cell-history-33km.json --topojson=../public/topojson/33km/2025AD.topojson --output-dir=../public/data --top-n=20 --grid-size=15 --min-cells=100 --processes=12 --grid-step=1.0
-```
-
-Automatically generates optimal zoom locations for the anthrome change test page by analyzing anthrome shifts across the globe. Uses a grid-based approach with K-means clustering for geographic diversity to ensure globally distributed sites.
-
-**Output Files** (in `public/data/`):
-- `zooms-intensive-since-1900.json` — Top N locations with largest intensive shifts since 1900
-- `zooms-cultured-since-1900.json` — Top N locations with largest cultured shifts since 1900
-- `zooms-intensive-since-2000.json` — Top N locations with largest intensive shifts since 2000
-- `zooms-cultured-since-2000.json` — Top N locations with largest cultured shifts since 2000
-
-**Parameters**:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `--cell-history` | Required | Path to cell history JSON (`utilities/cell-history-33km.json`) |
-| `--topojson` | Required | Path to TopoJSON for cell positions (`33km/2025AD.topojson`) |
-| `--output-dir` | Required | Output directory for JSON files |
-| `--top-n` | 10 | Number of top locations per category |
-| `--grid-size` | 15 | Size of analysis grid (15 = 15×15 = 225 cells, ~495km × 495km) |
-| `--resolution` | 33.0 | Cell resolution in kilometers |
-| `--min-cells` | 100 | Minimum land cells required in grid (filters ocean points) |
-| `--processes` | Auto | Number of parallel processes (default: CPU count) |
-| `--grid-step` | 2.0 | Sample grid spacing in degrees (2° ≈ 16,200 points, 1° ≈ 64,800) |
-
-**How It Works**:
-1. Scans the globe at regular grid intervals (default every 2°)
-2. At each point, extracts a 15×15 grid of cells and skips any point with fewer than 100 land cells
-3. Calculates average anthrome shift (`startAnthrome - endAnthrome`) across all land cells
-4. Clusters all valid results into N geographic clusters using K-means, takes the best site per cluster
-5. Reverse geocodes each result to a human-readable place name via Nominatim (requires `geopy`)
 
 ## Example Profiles
 
@@ -304,7 +233,7 @@ Run commands from `processing/`. Each profile writes to its own directories so y
 
 ### Scratch Profiles (output to `temp/`)
 
-**For map data, use `./run_grid_profiles.sh` instead** — it is faster, produces ~100x smaller output, and needs no GeoJSON intermediate. This runner remains for generating the `processing/geojson/` folder that steps 3–7 read, and for producing TopoJSON to verify grid output against.
+**For map data, use `./run_grid_profiles.sh` instead** — it is faster, produces ~100x smaller output, and needs no GeoJSON intermediate. This runner remains for producing the GeoJSON and TopoJSON that `verify_grid.py` checks grid output against.
 
 It chains Step 1 and Step 2, always with `--skip-dissolve` so cells stay individually addressable.
 
@@ -319,7 +248,7 @@ cd processing/
 ./run_temp_profile.sh 60km 0.54
 ```
 
-TopoJSON lands in `temp/topojson/<profile>/`; intermediate GeoJSON stays in `processing/geojson/<profile>/` (Step 3 needs it).
+TopoJSON lands in `temp/topojson/<profile>/`; intermediate GeoJSON stays in `processing/geojson/<profile>/` (`verify_grid.py --against=geojson` reads it).
 
 ⚠️ Step 1 skips extraction when the GeoJSON folder is already populated. If that folder holds output from an older run with different settings, the result is silently wrong — pass `FORCE=1`.
 
@@ -343,9 +272,9 @@ Grid pipeline:
 
 ## Addendum: Admin Boundaries
 
-Two boundary types are available. The app switches between them via `USE_PIXEL_BOUNDARIES` in [src/anthromes/lib/constants.js](../src/anthromes/lib/constants.js). **Currently `USE_PIXEL_BOUNDARIES = false`**, so only the smooth boundaries are used in production — `countries-110m.topojson` or `countries-50m.topojson`, whichever country set is selected (see [Country sets](#country-sets)).
+The app draws smooth Natural Earth boundaries — `countries-50m.topojson`, the set pinned as `COUNTRY_SET` in [src/shared/mapProfile.js](../src/shared/mapProfile.js) (see [Country sets](#country-sets)). The grid-snapped ("pixel") boundary variant and its generator, `4_boundaries_geojson.py`, have been removed.
 
-### Smooth Boundaries (currently active)
+### Smooth Boundaries
 
 Natural Earth vector boundaries, preserved as smooth curves. Generated by `5_smooth_boundaries.py`, which takes a `--set` naming one of the boundary sets in `country_sets.py`:
 
@@ -382,30 +311,13 @@ Two further sets stay defined in `country_sets.py` but are not built by default 
 ```bash
 cd processing/
 python3 2c_generate_country_sets.py                                  # every profile, 50m
-python3 2c_generate_country_sets.py --sets=110m --no-orphan-rescue --verify
+python3 2c_generate_country_sets.py --grid-dir=../temp/grid --sets=110m --no-orphan-rescue --verify
 ```
 
 `2c` reads each profile's `manifest.json` and `mask.bin` and never opens a GeoTIFF, so it takes seconds rather than the two full passes over 76 GeoTIFFs that `2b` costs. It writes `countries-50m.bin` and `country-sets.json` per profile (~250 KB and ~2 KB each in total).
 
-`110m` is never written as a sidecar: `countries.bin` and `manifest.countryTable` already *are* the 110m set, and gridSource.js reads them directly for that key, so a copy could only drift. Passing `--sets=110m` runs the burn purely so `--verify` can confirm this script reproduces `countries.bin` byte for byte on every profile — it writes nothing.
+`110m` is never written as a sidecar: in `temp/grid/`, `countries.bin` and `manifest.countryTable` already *are* the 110m set. Passing `--sets=110m` runs the burn purely so `--verify` can confirm this script reproduces `countries.bin` byte for byte on every profile — it writes nothing. That baseline is not shipped (`promote_grid.sh` strips it), so `--verify` is run against `temp/grid` and skips itself on a promoted profile. gridSource.js has no 110m fallback: a set missing from `country-sets.json` is a load error.
 
 **Orphan rescue.** `rasterize()` only claims a cell whose *centre* a polygon covers, and at 70km a cell is 0.63° — wider than Barbados, Dominica or Grenada. Anything that comes out with no cells gets a second `all_touched=True` pass written only into still-unassigned cells, which is what makes those countries selectable at all rather than merely drawn. Without it, 50m attributes 177 countries at 70km instead of 204.
 
 **Keep the two halves together.** The overlay geometry and the grid's country codes come from the same shapefile and are joined on that id, so they have to be regenerated and swapped as a pair — mixing them leaves every dependency unresolvable. That is why `country_sets.py` owns the shapefile/id-field choice for both scripts.
-
-### Grid-Snapped Boundaries (inactive)
-
-Grid-snapped country boundaries that align with anthrome cell boundaries. Generated by rasterizing Natural Earth vector boundaries to the same grid resolution as the anthromes data, then re-vectorizing. Creates "stair-step" boundaries at the grid resolution — intentional for alignment with anthrome cells.
-
-```bash
-cd processing/
-# 33km
-python3 4_boundaries_geojson.py --profile=33km --target-res=0.30
-node 2_generate_topojson.js --input=geojson/admin-boundaries/33km --output=../public/topojson/admin-boundaries/33km --quantization=1e4
-
-# 100km
-python3 4_boundaries_geojson.py --profile=100km --target-res=0.90
-node 2_generate_topojson.js --input=geojson/admin-boundaries/100km --output=../public/topojson/admin-boundaries/100km --quantization=1e4
-```
-
-To activate, set `USE_PIXEL_BOUNDARIES = true` in `src/anthromes/lib/constants.js`.

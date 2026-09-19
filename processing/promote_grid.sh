@@ -49,7 +49,18 @@ for profile in "$@"; do
   done
 
   mkdir -p "$dst"
-  cp "$src"/manifest.json "$src"/mask.bin "$src"/codes.bin "$src"/countries.bin "$dst"/
+  cp "$src"/mask.bin "$src"/codes.bin "$dst"/
+  # The baked 110m attribution (countries.bin + manifest.countryTable) stays in
+  # temp/ as the --verify baseline. The app only reads the sets listed in
+  # country-sets.json (2c_generate_country_sets.py), so it is not shipped and
+  # the shipped manifest must not point at it.
+  python3 - "$src/manifest.json" "$dst/manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m.pop('countryTable', None)
+m.get('files', {}).pop('countries', None)
+open(sys.argv[2], 'w').write(json.dumps(m))
+PY
   size=$(du -sk "$dst" | cut -f1)
   total=$((total + size))
   echo "✅ $profile -> public/grid/$profile ($(du -sh "$dst" | cut -f1))"

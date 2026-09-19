@@ -156,10 +156,7 @@
   let concentratedPct = $state(0);
 
   // Panel state
-  let infoOpen = $state(false);
-
-  // Circular filter state
-  let openPanel = $state(null); // 'phylum' | 'geo' | 'status' | 'study' | null
+  let openPanel = $state(null); // 'info' | null
   let filterRailEl = $state(null);
   let biomesChartRef = $state(null);
   let detailContent = $state(null);
@@ -1203,8 +1200,6 @@
   /* MoMA circle-size tiers, in design px on the 3000x2000 canvas */
   .rail {
     --tier-top: 118px;     /* biggest: controls */
-    --tier-mid: 150px;     /* medium: filter/select */
-    --tier-key: 118px;     /* smallest: phylum key */
     grid-column: 2;
     padding: 51px 61px;
     box-sizing: border-box;
@@ -1414,7 +1409,7 @@
      gap is the larger between-pair space, row gap the small within-pair space.
      Grid keeps the second row of buttons aligned across columns even when the
      first-row captions differ in height. */
-  /* Prevalence circles match the standard --tier-mid select buttons — same size
+  /* Prevalence circles match the standard 150px select buttons — same size
      as Known/Unknown; there's enough vertical room now for full-size circles. */
 
   /* Country picker: 4 columns × 2 rows. Cells are equal-width regardless of

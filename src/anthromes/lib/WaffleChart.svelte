@@ -50,9 +50,6 @@
     // bubble, Reset). The older arrangements treat it as a side note and let a
     // pan or an outside click drop it, so they leave this off.
     strictCountryFocus = false,
-    // Option 1 renders the cell's country facts as a rail pill, so MapCanvas
-    // omits them from the detail HTML.
-    compactCellDetail = false,
     // The isolated cell's live position in design px — the leader's start.
     isolatedPoint = $bindable(null),
     // Map tile resolution — pinned; see shared/mapProfile.js.
@@ -1123,7 +1120,6 @@
     isolationReset={isolationReset}
     bind:focusIso3
     {strictCountryFocus}
-    {compactCellDetail}
     bind:isolatedPoint
   />
 

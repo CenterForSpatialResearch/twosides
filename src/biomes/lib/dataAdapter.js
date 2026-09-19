@@ -188,25 +188,6 @@ export function parseUSGB(meta) {
 }
 
 /**
- * Get western label for display
- * @param {Object} meta - Metadata object
- * @returns {string} 'Westernized', 'Non-Westernized', or '—'
- */
-export function westernLabel(meta) {
-  const v = parseWestern(meta);
-  if (v === 'western') return 'Westernized';
-  if (v === 'nonwestern') return 'Non-Westernized';
-
-  const mode = meta?.Westernized_Mode ?? meta?.westernized_mode ?? null;
-  if (mode) return String(mode);
-
-  const list = getMeta(meta, KEYMAP.western);
-  if (list != null) return Array.isArray(list) ? list.join(', ') : String(list);
-
-  return '—';
-}
-
-/**
  * Check if metadata indicates non-western
  * @param {Object} meta - Metadata object
  * @returns {boolean}

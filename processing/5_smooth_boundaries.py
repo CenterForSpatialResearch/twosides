@@ -2,8 +2,8 @@
 """
 Generate smooth (non-pixelated) admin boundary GeoJSON from a Natural Earth shapefile.
 
-Unlike 4_boundaries_geojson.py, this preserves the original vector geometry
-without rasterization, maintaining smooth curves suitable for overlay display.
+This preserves the original vector geometry without rasterization, maintaining
+smooth curves suitable for overlay display.
 
 Which shapefile and which id field come from country_sets.py, so the overlay's
 feature ids are guaranteed to match the codes 2c_generate_country_sets.py burns

@@ -18,6 +18,8 @@
 // downstream (d3.geoPath, d3.geoContains, WaffleChart, the country timeseries)
 // is unchanged.
 
+import { COUNTRY_SET } from '../../shared/mapProfile.js';
+
 const cache = new Map();      // `${profile}:${set}` -> Promise<grid>
 const featureCache = new Map(); // `${profile}:${set}:${year}` -> FeatureCollection
 
@@ -31,7 +33,7 @@ const featureCache = new Map(); // `${profile}:${set}:${year}` -> FeatureCollect
  * sets refetches only the country bytes, and the browser has usually cached the
  * other two from the profile's first load.
  */
-export function loadGrid(profile, set = DEFAULT_SET) {
+export function loadGrid(profile, set = COUNTRY_SET) {
   const key = `${profile}:${set}`;
   if (cache.has(key)) return cache.get(key);
 
@@ -84,46 +86,24 @@ export function loadGrid(profile, set = DEFAULT_SET) {
   return p;
 }
 
-// The set baked into every profile by 2b_generate_grid.py.
-const DEFAULT_SET = '110m';
-
 const setsCache = new Map();   // dir -> Promise<sets|null>
 
 /**
  * The active set's {key, file, bits, table}.
  *
- * country-sets.json is written by 2c_generate_country_sets.py and is gitignored,
- * so it is absent on a clean checkout. When it is missing — or when it is
- * present but does not describe the requested set — this falls back to the
- * manifest's own countries.bin/countryTable, which is the 110m set. That is what
- * keeps the experiment removable: delete the generated files and the map loads
- * exactly what it loads today, with no code change.
+ * country-sets.json and the per-set blobs it names are written by
+ * 2c_generate_country_sets.py and ship in public/grid/<profile>/. There is no
+ * fallback: a cell's country code is an index into the set's own table, so
+ * loading against anything but the requested set would mis-name every cell.
  */
 async function resolveCountrySet(dir, manifest, set) {
-  const baked = {
-    key: DEFAULT_SET,
-    file: manifest.files.countries,
-    bits: 8,
-    table: manifest.countryTable || []
-  };
-  if (set === DEFAULT_SET && !setsCache.has(dir)) {
-    // Fast path: the shipped set needs no extra request. A cached
-    // country-sets.json is still preferred below, so the four sets stay
-    // comparable once the experiment is installed.
-    void loadCountrySets(dir);
-    return baked;
-  }
-
   const sets = await loadCountrySets(dir);
   const entry = sets?.[set];
   if (!entry) {
-    if (set !== DEFAULT_SET) {
-      console.warn(
-        `gridSource: country set "${set}" not built for this profile; using ${DEFAULT_SET}. ` +
-        'Run processing/2c_generate_country_sets.py to generate it.'
-      );
-    }
-    return baked;
+    throw new Error(
+      `gridSource: country set "${set}" is not built for ${manifest.profile}. ` +
+      'Run processing/2c_generate_country_sets.py to generate it.'
+    );
   }
   return { key: set, file: entry.file, bits: entry.bits, table: entry.table };
 }
@@ -154,7 +134,7 @@ function indexYears(years) {
 
 /**
  * Land cellIds in ascending order; array index is the cell's slot in codes.bin
- * and countries.bin. Bits are MSB-first within each byte, matching numpy's
+ * and the countries blob. Bits are MSB-first within each byte, matching numpy's
  * packbits(bitorder='big') in 2b_generate_grid.py.
  */
 function decodeMask(mask, nCells, nLand) {
@@ -409,7 +389,8 @@ export function historyForCell(grid, cellId) {
 }
 
 /**
- * ISO3 -> index into manifest.countryTable, which is what countries.bin stores.
+ * ISO3 -> index into the active set's country table, which is what the set's
+ * countries blob stores.
  * Entry 0 is null: ocean, ice, and the handful of land cells Natural Earth
  * leaves unattributed. Built once per grid.
  */
@@ -438,16 +419,15 @@ function isoIndex(grid) {
 }
 
 /**
- * The active set's country table. Every read of it goes through here so that
- * nothing is left reaching for manifest.countryTable, which describes only the
- * baked-in 110m set and would silently mis-name every cell under another one.
+ * The active set's country table. Every read of it goes through here, so the
+ * table always matches the set whose codes the cells carry.
  */
 export function countryTableOf(grid) {
-  return grid?.countrySet?.table ?? grid?.manifest?.countryTable ?? [];
+  return grid?.countrySet?.table ?? [];
 }
 
 /**
- * countryTable index -> the slots in countries.bin/codes.bin that belong to it.
+ * countryTable index -> the slots in the countries blob / codes.bin that belong to it.
  *
  * One O(nLand) counting pass, ~1ms at 83k cells, so every country after the
  * first is just a walk over its own slots instead of the whole world.

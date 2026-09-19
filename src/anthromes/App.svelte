@@ -47,11 +47,10 @@
   let rotation = $state(0);
   let mapPanX = $state(0);
   let mapPanY = $state(0);
-  let infoOpen = $state(false);
   let waffleChartRef = $state(null);
 
   // Filter rail state
-  let openPanel = $state(null); // 'anthromes' | 'zooms'
+  let openPanel = $state(null); // 'info' | null
 
   // The eight primary countries, in the biomes study's lifestyle split — a
   // clean property of the country for these eight (see biomes/App.svelte).
@@ -78,7 +77,7 @@
   // The decoded grid for the live resolution. loadGrid is module-cached and
   // dedupes concurrent callers, so this resolves to the very object MapCanvas
   // holds — no second fetch, and no need to thread it back up through
-  // WaffleChart. Same trick as the country_index.json fetch below.
+  // WaffleChart.
   // $state.raw, not $state: the grid is a decoded blob we only ever replace
   // wholesale, and deep-proxying its typed arrays would cost far more than it
   // buys. It also keeps gridSource's reads out of Svelte's reactive graph.
@@ -270,7 +269,6 @@
 
   // History chart section sizing
   let historyChartEl = $state(null);
-  let historyChartSize = $state(282); // legacy: kept while old radial imports linger
   let historyChartW = $state(340);
 
   // The Option 1 pixel timeline sizes to its own box in BOTH axes (the bar
@@ -477,7 +475,7 @@
     // appearing or resizing, or the anchor row itself
     // mounting. Under Option 1 the anchor also moves when the year changes,
     // because the anthrome name can get longer or shorter.
-    barChartData; historyChartSize; detailAnchorEl; anthromeRuleEl; detailMeta;
+    barChartData; detailAnchorEl; anthromeRuleEl; detailMeta;
     untrack(() => {
       if (!panel || !start || !open) {
         connectorEnd = null;
@@ -980,7 +978,6 @@
           bind:focusIso3={selectedCountryIso3}
           countryDistribution={countryRingDistribution}
           strictCountryFocus
-          compactCellDetail
           profile={MAP_PROFILE}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}

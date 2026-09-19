@@ -234,7 +234,11 @@ def main():
                   f'{with_cells:3d} with cells'
                   + (f', {rescued} rescued' if rescued else '') + note)
 
-            if args.verify and key == BASELINE:
+            if args.verify and key == BASELINE and 'countries' not in manifest.get('files', {}):
+                # A promoted profile: promote_grid.sh strips the baked 110m set.
+                print('              (verify: skipped — no baked countries.bin here; '
+                      'run against temp/grid)')
+            elif args.verify and key == BASELINE:
                 baked = np.frombuffer(
                     (out_dir / manifest['files']['countries']).read_bytes(), dtype=np.uint8)
                 if args.orphan_rescue:

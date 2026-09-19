@@ -2,6 +2,12 @@
 // Build public/data/primary_countries.json — curated 8-country dataset that
 // drives the country-first filter on both the biomes and anthromes sides.
 //
+// NOTE: this can no longer be re-run as is. Four of the six sources below were
+// pruned from the repo once primary_countries.json was final (country_index.json,
+// sgb_context.json, cohort_index.json, country_index_centroids.geojson); only
+// iso3_names.json and the 110m boundaries remain. Kept as the record of how
+// the shipped file was built — restore those inputs from git history to rebuild.
+//
 // Sources:
 //   public/data/country_index.json               — samples/studies/sgbs per ISO3
 //   public/data/iso3_names.json                  — display names
