@@ -2,9 +2,15 @@
   import { onMount, untrack } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import * as d3 from 'd3';
+  import { elementScale } from '../../shared/stage.svelte.js';
   import MapCanvas from './MapCanvas.svelte';
-  import { TOPO_PROFILE } from './constants.js';
+  import { MAP_PROFILE } from '../../shared/mapProfile.js';
   import { formatYearLabel } from './dataAdapter.js';
+  import {
+    SWAP_PHASE_MS,
+    SWAP_STAGGER_MS,
+    SWAP_SEG_MS
+  } from '../../shared/swapTransition.js';
 
   let {
     data = [],
@@ -16,23 +22,48 @@
     selectedAnthromes = $bindable([]),
     selectedYear = $bindable(null),
     size = 'full',
-    debugMenuVisible = false,
     showBoundaries = false,
     mapReady = $bindable(false),
     mapScale = $bindable(1),
+    mapDrawMs = $bindable(0),
+    mapLayerReused = $bindable(false),
+    mapDrawPhases = $bindable(null),
     mapRotation = 0,
     mapPanX = $bindable(0),
     mapPanY = $bindable(0),
     barChartData = $bindable(null),
+    cellSeries = $bindable(null),
     showBarChart = $bindable(false),
     isolationReset = $bindable(0),
     cellIsolated = $bindable(false),
     panelCloseSignal = 0,
     connectorStart = $bindable(null),
+    focusIso3 = $bindable(null),
+    // Per-year anthrome shares for the focused country, shaped
+    // { "1850AD": { "61": 0.42, ... } }. When set, the ring plots this instead
+    // of the world-wide distribution and swaps with an animated transition.
+    countryDistribution = null,
+    // Option 1's country semantics: the picked country is the primary state —
+    // it owns the highlight, the framing AND the ring's distribution — so it
+    // survives incidental gestures (panning, clicking dead space) and is
+    // released only by an explicit one (isolating a cell, re-clicking the
+    // bubble, Reset). The older arrangements treat it as a side note and let a
+    // pan or an outside click drop it, so they leave this off.
+    strictCountryFocus = false,
+    // Option 1 renders the cell's country facts as a rail pill, so MapCanvas
+    // omits them from the detail HTML.
+    compactCellDetail = false,
+    // The isolated cell's live position in design px — the leader's start.
+    isolatedPoint = $bindable(null),
+    // Map tile resolution — pinned; see shared/mapProfile.js.
+    profile = MAP_PROFILE,
   } = $props();
 
   const fullSize = 7000;
   const previewSize = 1200;
+  // Outer radius of the map disk in the full view, in viewBox units. Held
+  // constant so the ring thins from the outside in — see `layout` below.
+  const MAP_RADIUS = 2475;
 
   let svgElement = $state(null);
   let chartContainer = $state(null);
@@ -65,55 +96,212 @@
   // to avoid a race where the reset effect fires after handleCanvasClick isolates a cell.
   let panHasMoved = false;
 
-  const SCROLL_ZOOM_MIN = 0.5;
-  const SCROLL_ZOOM_MAX = 8;
+  // Match the zoom buttons' range (ZOOM_LEVELS in App.svelte).
+  const SCROLL_ZOOM_MIN = 1;
+  const SCROLL_ZOOM_MAX = 7;
 
   // Cursor state — grab only inside inner circle
   let hoverInCircle = $state(false);
 
+  // Pointer events arrive in screen px, but innerRadiusPx and mapPanX/Y are
+  // design px. getBoundingClientRect() reports the stage-transformed box while
+  // clientWidth stays in layout px, so their ratio is the stage scale as seen
+  // here — divide screen deltas by it to get back to design space.
+  function offsetFromCenter(event, rect) {
+    const s = elementScale(chartContainer, rect);
+    return {
+      dx: (event.clientX - (rect.left + rect.width / 2)) / s,
+      dy: (event.clientY - (rect.top + rect.height / 2)) / s,
+      s
+    };
+  }
+
+  // Active pointers on the map, by pointerId, in screen px. One pointer pans;
+  // two pinch — the map scales about the fingers' midpoint and follows it.
+  // Touch only ever reaches here as pointer events (.chart-container sets
+  // touch-action: none), so the browser's own pinch never competes.
+  const pointers = new Map();
+  let pinchPrev = null;             // { mx, my, dist } of the last two-finger frame
+  let pinchedThisGesture = false;   // a click can follow the last finger up; see swallowPinchClick
+
+  function pinchFrame() {
+    const [a, b] = [...pointers.values()];
+    return { mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, dist: Math.hypot(b.x - a.x, b.y - a.y) };
+  }
+
+  // First real movement of a gesture. Under strictCountryFocus a pan or pinch
+  // is purely a view gesture: it moves the camera and changes no selection at
+  // all. The country keeps its highlight, an isolated cell keeps its panel,
+  // and the leader line simply follows the cell across the disk. The older
+  // arrangements treat it as "free-explore" and drop both.
+  function noteMovement() {
+    if (panHasMoved) return;
+    panHasMoved = true;
+    if (strictCountryFocus) return;
+    closePanel();
+    isolationReset++;
+    if (focusIso3) focusIso3 = null;
+  }
+
+  // Keep the globe inside the disk. It is fitted to the disk at mapScale 1, so
+  // its radius is innerRadiusPx * mapScale and the pan may travel the
+  // difference between the two, plus PAN_SLACK of the disk radius so the edge
+  // of the world can come a little way in. At zoom 1 the limit is zero: a
+  // fitted globe has no slack to give. Clamped radially rather than per-axis so
+  // a diagonal drag stops on the circle, not on a square inscribed around it.
+  const PAN_SLACK = 0.25;
+  function panLimit(scale) {
+    const z = Math.max(0, scale - 1);
+    return innerRadiusPx * (z + PAN_SLACK * Math.min(1, z));
+  }
+
+  // The radius a pan may reach at `toScale`, stepping from pan (fx, fy) at
+  // `fromScale`. applyFocusFraming() in MapCanvas frames a selected country
+  // without this limit, so an edge country (Australia) can leave the view past
+  // it. Rather than snapping that back on the next gesture, the overshoot is
+  // kept — a gesture can't push further out, but it isn't yanked in — and it
+  // shrinks as the user zooms out, gone by zoom 1. PAN_EASE > 1 makes it
+  // shrink faster than the scale does, so a small zoom-out near the default
+  // view recentres firmly while the same step deep in barely moves it.
+  const PAN_EASE = 1.5;
+  function panAllowance(fx, fy, fromScale, toScale) {
+    const excess = Math.max(0, Math.hypot(fx, fy) - panLimit(fromScale));
+    const shrink = toScale < fromScale && fromScale > 1
+      ? Math.pow(Math.max(0, toScale - 1) / (fromScale - 1), PAN_EASE)
+      : 1;
+    return panLimit(toScale) + excess * shrink;
+  }
+
+  function clampPan(x, y, max) {
+    if (max <= 0) return { x: 0, y: 0 };
+    const d = Math.hypot(x, y);
+    if (d <= max) return { x, y };
+    const k = max / d;
+    return { x: x * k, y: y * k };
+  }
+
+  // Zoom about the disk centre to `scale`, clamping the pan. Used by the zoom
+  // buttons so stepping out also recentres.
+  export function zoomToScale(scale) {
+    if (!innerRadiusPx) { mapScale = scale; return; }
+    const f = scale / (mapScale || 1);
+    const max = panAllowance(mapPanX, mapPanY, mapScale, scale);
+    const next = clampPan(mapPanX * f, mapPanY * f, max);
+    mapPanX = next.x;
+    mapPanY = next.y;
+    mapScale = scale;
+  }
+
+  // Multiply the scale by `factor`, clamped to the wheel/pinch range, and
+  // return the factor that was actually applied.
+  function clampedZoomFactor(factor) {
+    const next = Math.min(SCROLL_ZOOM_MAX, Math.max(SCROLL_ZOOM_MIN, mapScale * factor));
+    return next / mapScale;
+  }
+
   function handlePanStart(event) {
-    if (panning || !chartContainer || !innerRadiusPx) return;
+    if (!chartContainer || !innerRadiusPx) return;
+    if (pointers.size >= 2) return;
     const rect = chartContainer.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
-    if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
-    panning = true;
-    panHasMoved = false;
-    panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY };
+    const { dx, dy, s } = offsetFromCenter(event, rect);
+    // The first finger has to land on the map; a second may land anywhere,
+    // since the pinch is about the gesture, not the spot.
+    if (pointers.size === 0 && dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     event.preventDefault();
-    window.addEventListener('pointermove', handlePanMove);
-    window.addEventListener('pointerup', handlePanEnd, { once: true });
+    if (pointers.size === 1) {
+      panning = true;
+      panHasMoved = false;
+      pinchedThisGesture = false;
+      panStart = { x: event.clientX, y: event.clientY, px: mapPanX, py: mapPanY, s };
+      window.addEventListener('pointermove', handlePanMove);
+      window.addEventListener('pointerup', handlePanEnd);
+      window.addEventListener('pointercancel', handlePanEnd);
+    } else {
+      pinchPrev = pinchFrame();
+    }
   }
 
   function handlePanMove(event) {
-    if (!panHasMoved) {
-      // First actual movement — clear isolation state now (not on pointerdown)
-      closePanel();
-      isolationReset++;
-      panHasMoved = true;
+    const p = pointers.get(event.pointerId);
+    if (!p) return;
+    p.x = event.clientX;
+    p.y = event.clientY;
+
+    if (pointers.size >= 2) {
+      const cur = pinchFrame();
+      if (!pinchPrev || pinchPrev.dist < 1) { pinchPrev = cur; return; }
+      noteMovement();
+      pinchedThisGesture = true;
+      const rect = chartContainer.getBoundingClientRect();
+      const { dx, dy, s } = offsetFromCenter({ clientX: cur.mx, clientY: cur.my }, rect);
+      // Follow the midpoint, then zoom about it — the same maths as the wheel,
+      // with the fingers' spread standing in for the scroll delta.
+      const factor = clampedZoomFactor(cur.dist / pinchPrev.dist);
+      const px = mapPanX + (cur.mx - pinchPrev.mx) / s;
+      const py = mapPanY + (cur.my - pinchPrev.my) / s;
+      const newScale = mapScale * factor;
+      const max = panAllowance(mapPanX, mapPanY, mapScale, newScale);
+      const next = clampPan(dx + factor * (px - dx), dy + factor * (py - dy), max);
+      mapPanX = next.x;
+      mapPanY = next.y;
+      mapScale = newScale;
+      pinchPrev = cur;
+      return;
     }
-    mapPanX = panStart.px + (event.clientX - panStart.x);
-    mapPanY = panStart.py + (event.clientY - panStart.y);
+
+    noteMovement();
+    const s = panStart.s || 1;
+    // Measured from where the drag began, so a drag that started past the
+    // limit can return to that spot but go no further.
+    const next = clampPan(
+      panStart.px + (event.clientX - panStart.x) / s,
+      panStart.py + (event.clientY - panStart.y) / s,
+      panAllowance(panStart.px, panStart.py, mapScale, mapScale)
+    );
+    mapPanX = next.x;
+    mapPanY = next.y;
   }
 
-  function handlePanEnd() {
-    panning = false;
-    window.removeEventListener('pointermove', handlePanMove);
+  function handlePanEnd(event) {
+    if (!pointers.delete(event.pointerId)) return;
+    if (pointers.size === 1) {
+      // Back to one finger: re-seed the pan from where it is now, so the map
+      // doesn't jump to where that finger first touched.
+      const [p] = pointers.values();
+      panStart = { x: p.x, y: p.y, px: mapPanX, py: mapPanY, s: panStart.s };
+      pinchPrev = null;
+      return;
+    }
+    if (pointers.size === 0) {
+      panning = false;
+      pinchPrev = null;
+      window.removeEventListener('pointermove', handlePanMove);
+      window.removeEventListener('pointerup', handlePanEnd);
+      window.removeEventListener('pointercancel', handlePanEnd);
+    }
+  }
+
+  // The browser can synthesise a click when the last finger of a pinch lifts;
+  // it must not select a country. Capture phase, so MapCanvas never sees it.
+  function swallowPinchClick(event) {
+    if (!pinchedThisGesture) return;
+    pinchedThisGesture = false;
+    event.stopPropagation();
+    event.preventDefault();
   }
 
   function handleContainerMove(event) {
     if (panning || !chartContainer || !innerRadiusPx) return;
     const rect = chartContainer.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
+    const { dx, dy } = offsetFromCenter(event, rect);
     hoverInCircle = dx * dx + dy * dy <= innerRadiusPx * innerRadiusPx;
   }
 
   function handleWheel(event) {
     if (!chartContainer || !innerRadiusPx) return;
     const rect = chartContainer.getBoundingClientRect();
-    const dx = event.clientX - (rect.left + rect.width / 2);
-    const dy = event.clientY - (rect.top + rect.height / 2);
+    const { dx, dy } = offsetFromCenter(event, rect);
     // Only zoom when the pointer is inside the inner circle (the map area).
     if (dx * dx + dy * dy > innerRadiusPx * innerRadiusPx) return;
 
@@ -126,15 +314,20 @@
     if (event.deltaMode === 1) delta *= 16;   // lines → pixels approximation
     if (event.deltaMode === 2) delta *= 400;  // pages → pixels approximation
 
-    const oldScale = mapScale;
-    const factor = Math.pow(0.999, delta);
-    const newScale = Math.min(SCROLL_ZOOM_MAX, Math.max(SCROLL_ZOOM_MIN, oldScale * factor));
-    const clampedFactor = newScale / oldScale;
+    const clampedFactor = clampedZoomFactor(Math.pow(0.999, delta));
 
     // Zoom to cursor: adjust pan so the point under the pointer stays fixed.
-    // dx/dy is the cursor offset from the container center (in screen px).
-    mapPanX = dx + clampedFactor * (mapPanX - dx);
-    mapPanY = dy + clampedFactor * (mapPanY - dy);
+    // dx/dy is the cursor offset from the container center, in design px.
+    // Clamped against the NEW scale — zooming out shrinks the slack, so a pan
+    // that was legal at the old scale can be out of bounds at this one.
+    const newScale = mapScale * clampedFactor;
+    const next = clampPan(
+      dx + clampedFactor * (mapPanX - dx),
+      dy + clampedFactor * (mapPanY - dy),
+      panAllowance(mapPanX, mapPanY, mapScale, newScale)
+    );
+    mapPanX = next.x;
+    mapPanY = next.y;
     mapScale = newScale;
   }
 
@@ -165,20 +358,6 @@
     }
   }
 
-  export function handlePanelAction(event) {
-    const btn = event.target.closest('button[data-act]');
-    if (!btn) return;
-    const act = btn.getAttribute('data-act');
-    if (act === 'highlight-biomes') {
-      const sgbs = btn.getAttribute('data-sgbs');
-      if (sgbs) {
-        const base = import.meta.env.BASE_URL;
-        sessionStorage.setItem('highlightSGBs', sgbs);
-        window.location.href = `${base}src/biomes/index.html?highlightSGBs=session`;
-      }
-    }
-  }
-
   let yearAngles = $state(new Map());
 
   let mapYear = $state(null);
@@ -188,14 +367,48 @@
   let mapPoints = $state(defaultPoints.map(p => [...p]));
   let clipAngle = $state(180);
 
+  // Whichever distribution the ring is currently plotting: the world-wide
+  // per-year counts, or — when a country is focused — that country's per-year
+  // anthrome shares reshaped into the same {year, counts, total, percentages}
+  // rows the world data uses.
+  //
+  // Shares are renormalised so every year sums to exactly COUNTRY_TOTAL. The
+  // source fractions are rounded to 2dp and can land a few millionths off 1,
+  // which would otherwise make the ring's outer edge visibly ragged; the world
+  // data has a constant total per year, so the two views want to fill the same
+  // radial band identically.
+  const COUNTRY_TOTAL = 10000;
+
+  const activeData = $derived.by(() => {
+    if (!countryDistribution || !years.length || !orderedCodes.length) return data;
+    return years.map(year => {
+      const dist = countryDistribution[year] || {};
+      const sum = orderedCodes.reduce((s, code) => s + (dist[String(code)] || 0), 0);
+      const norm = sum > 0 ? 1 / sum : 0;
+      const counts = {};
+      const percentages = {};
+      for (const code of orderedCodes) {
+        const share = (dist[String(code)] || 0) * norm;
+        counts[code] = share * COUNTRY_TOTAL;
+        percentages[String(code)] = share * 100;
+      }
+      return { year, counts, total: COUNTRY_TOTAL, percentages };
+    });
+  });
+
+  // Identifies which dataset is on screen, so the render effect can tell a
+  // "same data, re-layout" pass from a genuine world <-> country swap.
+  const activeKey = $derived(countryDistribution ? `country:${focusIso3 ?? '?'}` : 'world');
+
   // Memoized computed values using $derived
   const stackedData = $derived.by(() => {
-    if (!data.length || !orderedCodes.length || !years.length) return null;
+    const rows = activeData;
+    if (!rows.length || !orderedCodes.length || !years.length) return null;
 
     performance.mark('stack-start');
     const labels = orderedCodes.map(code => labelMapping[code]).filter(Boolean);
 
-    const dataByYear = data.map(d => {
+    const dataByYear = rows.map(d => {
       const obj = {};
       Object.keys(d.counts).forEach(code => {
         const label = labelMapping[code];
@@ -211,7 +424,7 @@
       .value((yearEntry, key) => yearEntry[1][key] || 0)
       (dataByYear);
 
-    const totalsByYear = new Map(data.map(d => [d.year, d.total]));
+    const totalsByYear = new Map(rows.map(d => [d.year, d.total]));
 
     performance.mark('stack-end');
     performance.measure('stack-computation', 'stack-start', 'stack-end');
@@ -219,6 +432,8 @@
     return { stack, labels, dataByYear, totalsByYear };
   });
 
+  // World-wide rows only — MapCanvas reads this to state each cell's share of
+  // the Earth's surface, which must not change when a country is focused.
   const yearDataLookup = $derived.by(() => new Map(data.map(d => [d.year, d])));
 
   const layout = $derived.by(() => {
@@ -226,11 +441,18 @@
 
     performance.mark('layout-start');
     const dim = size === 'full' ? fullSize : previewSize;
-    const outerMargin = size === 'full' ? 200 : 150;
+    const outerMargin = size === 'full' ? 265 : 150;
     const radius = dim / 2 - outerMargin;
-    // Target a thicker ring (~50% of radial span)
-    // Slightly thinner ring (about 1/3 thinner than previous)
-    const innerRadius = radius * 0.75;
+    // Full view pins the map disk instead of deriving it from `radius`, so
+    // `outerMargin` spends itself on ring thickness rather than on the globe.
+    // At 200 the year handle's outward tip (radius + dome + stroke, see
+    // updateYearHighlight) sat 6px inside the 3000x2000 canvas edge and its
+    // drop-shadow clipped against .stage at 6 and 12 o'clock. 265 buys ~26px of
+    // headroom for ~19px of ring — enough to clear the edge without pulling the
+    // disk back to the biomes side's much roomier ~80px (that would want 460,
+    // which read as too severe). Preview keeps the original proportion; it is
+    // never near an edge.
+    const innerRadius = size === 'full' ? MAP_RADIUS : radius * 0.75;
 
     const angle = d3.scaleBand()
       .domain(years)
@@ -277,10 +499,6 @@
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${d.label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
-      <div class="kv">
-        <div class="k">${d.label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
-        <div class="k">${d.label} share in ${yearLabel}</div><div>${percentDisplay}</div>
-      </div>
     `;
     return {
       html,
@@ -293,8 +511,33 @@
     };
   }
 
+  /**
+   * Arc generator for the ring segments, with a `t` that pulls every radius
+   * toward the inner edge: t = 1 is the segment at full extent, t = 0 is a
+   * zero-thickness sliver sitting on the map's rim. The world <-> country swap
+   * animates t so segments collapse into and grow back out of the disk.
+   */
+  function makeSegmentArc(lay, t = 1) {
+    const { rScale, angle, innerRadius } = lay;
+    const toward = (v) => innerRadius + (rScale(v) - innerRadius) * t;
+    return d3.arc()
+      .innerRadius(d => toward(d.seg[0]))
+      .outerRadius(d => toward(d.seg[1]))
+      .startAngle(d => angle(d.year))
+      .endAngle(d => angle(d.year) + angle.bandwidth())
+      .padAngle(0.006)
+      .padRadius(innerRadius);
+  }
+
+  // The layout the ring on screen was actually drawn with. The swap animation
+  // needs it: by the time the effect fires, `layout` already holds the INCOMING
+  // dataset's rScale, and running the outgoing segments' values through that
+  // scale would snap them to a wildly wrong radius before they collapse.
+  let renderedLayout = null;
+
   function renderChart() {
     if (!svgElement || !stackedData || !layout) return;
+    renderedLayout = layout;
 
     const { dim, radius, innerRadius, angle, rScale } = layout;
     const svg = d3.select(svgElement);
@@ -332,13 +575,7 @@
       .attr('cy', 0);
 
     // Stack layers
-    const arc = d3.arc()
-      .innerRadius(d => rScale(d.seg[0]))
-      .outerRadius(d => rScale(d.seg[1]))
-      .startAngle(d => angle(d.year))
-      .endAngle(d => angle(d.year) + angle.bandwidth())
-      .padAngle(0.006)
-      .padRadius(innerRadius);
+    const arc = makeSegmentArc(layout, 1);
 
     const arcHit = d3.arc()
       .innerRadius(d => Math.max(0, rScale(d.seg[0]) - 8))
@@ -370,32 +607,11 @@
       .attr('class', 'hit')
       .attr('d', arcHit)
       .attr('data-key', d => `${d.year}__${d.label}`)
-      .on('mousemove', function(event, d) {
-        if (panelPinned) return;
-        connectorStart = { x: event.clientX, y: event.clientY };
-        const { html, meta } = createTooltipData(d);
-        showPanel(html, event.clientX, event.clientY, false, meta);
-      })
-      .on('mouseover', function(event, d) {
-        const key = `${d.year}__${d.label}`;
-        d3.selectAll(`[data-key="${key}"]`).classed('is-hover', true);
-        if (!panelPinned) {
-          const { html, meta } = createTooltipData(d);
-          showPanel(html, event.clientX, event.clientY, false, meta);
-        }
-      })
-      .on('mouseout', function(event, d) {
-        const key = `${d.year}__${d.label}`;
-        d3.selectAll(`[data-key="${key}"]`).classed('is-hover', false);
-        if (!panelPinned) {
-          showPanel('');
-        }
-      })
       .on('click', function(_event, d) {
-        if (cellIsolated) {
-          closePanel();
-          isolationReset++;
-        }
+        // Changing the year is a time gesture, not a selection gesture: an
+        // isolated cell stays isolated and MapCanvas restates it for the new
+        // year. Dropping the isolation here made the ring unusable as a scrub
+        // control whenever a cell was open.
         commitYear(d.year);
       });
 
@@ -475,16 +691,32 @@
     updateYearHighlight();
   }
 
+  const labelToCode = $derived.by(() => {
+    const m = {};
+    Object.keys(labelMapping).forEach(code => {
+      m[labelMapping[code]] = Number(code);
+    });
+    return m;
+  });
+
+  // Mirrors the `.layer path.segment` / dimmed-segment rules below. The swap
+  // animation tweens opacity numerically, so it needs the literal values;
+  // applyFilters hands styling back to CSS the moment the swap is done.
+  const SEGMENT_OPACITY = 0.92;
+  const SEGMENT_DIM_OPACITY = 0.02;
+
+  function segmentIsShown(d) {
+    if (!orderedCodes.length) return true;
+    if (selectedAnthromes.length === orderedCodes.length) return true;
+    const code = labelToCode[d.label];
+    return !!code && selectedAnthromes.includes(code);
+  }
+
   function applyFilters() {
     if (!svgElement || !orderedCodes.length) return;
 
     const svg = d3.select(svgElement);
     const g = svg.select('g.zoom-container');
-
-    const labelToCode = {};
-    Object.keys(labelMapping).forEach(code => {
-      labelToCode[labelMapping[code]] = Number(code);
-    });
 
     const allAnthromesSelected = selectedAnthromes.length === orderedCodes.length;
     if (allAnthromesSelected) {
@@ -515,6 +747,82 @@
     });
   }
 
+  // ===== World <-> country ring swap =====
+  //
+  // The outgoing ring collapses into the disk staggered BACKWARDS through time
+  // (2025 first, 10000BC last); once it has gone the incoming ring grows back
+  // out staggered FORWARDS. Timing is shared with the details-panel pixel
+  // timeline so the two read as one gesture — see swapTransition.js.
+  const yearIndex = $derived(new Map(years.map((y, i) => [y, i])));
+
+  let renderedKey = null;   // activeKey of the ring currently on screen
+  let swapToken = 0;        // invalidates a swap that a newer one supersedes
+  let swapTimers = [];
+
+  function clearSwapTimers() {
+    swapTimers.forEach(clearTimeout);
+    swapTimers = [];
+  }
+
+  function animateSwap(nextKey) {
+    const outLay = renderedLayout;
+    if (!svgElement || !layout || !outLay) {
+      renderChart();
+      applyFilters();
+      renderedKey = nextKey;
+      return;
+    }
+
+    const token = ++swapToken;
+    clearSwapTimers();
+
+    const span = Math.max(1, years.length - 1);
+    const svg = d3.select(svgElement);
+
+    // Nothing is clickable mid-swap: for half of it there is no ring at all.
+    svg.selectAll('path.hit').style('pointer-events', 'none');
+
+    svg.selectAll('path.segment')
+      .interrupt()
+      .transition()
+      .delay(d => ((span - (yearIndex.get(d.year) ?? 0)) / span) * SWAP_STAGGER_MS)
+      .duration(SWAP_SEG_MS)
+      .ease(d3.easeCubicIn)
+      .attrTween('d', (d) => (t) => makeSegmentArc(outLay, 1 - t)(d))
+      .style('opacity', 0);
+
+    swapTimers.push(setTimeout(() => {
+      if (token !== swapToken) return;
+
+      // Rebuild from the incoming dataset while the ring is empty, then pin
+      // every segment to the collapsed state before the browser paints it.
+      renderChart();
+      applyFilters();
+      renderedKey = nextKey;
+
+      const inLay = renderedLayout;
+      const svgIn = d3.select(svgElement);
+      svgIn.selectAll('path.hit').style('pointer-events', 'none');
+      svgIn.selectAll('path.segment')
+        .attr('d', makeSegmentArc(inLay, 0))
+        .style('opacity', 0)
+        .transition()
+        .delay(d => ((yearIndex.get(d.year) ?? 0) / span) * SWAP_STAGGER_MS)
+        .duration(SWAP_SEG_MS)
+        .ease(d3.easeCubicOut)
+        .attrTween('d', (d) => (t) => makeSegmentArc(inLay, t)(d))
+        .style('opacity', d => (segmentIsShown(d) ? SEGMENT_OPACITY : SEGMENT_DIM_OPACITY));
+
+      swapTimers.push(setTimeout(() => {
+        if (token !== swapToken) return;
+        // Hand styling back to CSS/applyFilters so nothing stays pinned to a
+        // literal opacity, and make the ring clickable again.
+        svgIn.selectAll('path.segment').interrupt().attr('d', makeSegmentArc(inLay, 1)).style('opacity', null);
+        applyFilters();
+      }, SWAP_PHASE_MS + 20));
+    }, SWAP_PHASE_MS));
+  }
+
   function angularDistance(a, b) {
     const diff = Math.abs(a - b) % (2 * Math.PI);
     return diff > Math.PI ? 2 * Math.PI - diff : diff;
@@ -523,6 +831,8 @@
   function pointerToChartCoords(event) {
     if (!chartContainer || !layout) return null;
     const rect = chartContainer.getBoundingClientRect();
+    // Ratio of chart units to the rendered box, so the stage scale divides out
+    // on its own — this needs no separate transform correction.
     const scale = layout.dim / rect.width;
     const localX = (event.clientX - rect.left - rect.width / 2) * scale;
     const localY = (event.clientY - rect.top - rect.height / 2) * scale;
@@ -572,8 +882,9 @@
     const handleBaseR = radius + HANDLE_OFFSET;
 
     // r_dome = semicircle radius whose diameter spans the year's chord at handleBaseR
-    // ↓ adjust this multiplier to resize the dome
-    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.075;
+    // ↓ adjust this multiplier to resize the dome (kept a comfortable grab
+    //   target, but pulled back so it no longer crowds the year labels)
+    const r_dome = handleBaseR * Math.sin(angle.bandwidth() / 2) * 1.15;
 
     // Base endpoints on the handle base circle
     const px_s = Math.sin(startAngle) * handleBaseR;
@@ -616,14 +927,14 @@
     svg.select('.year-drag-handle').attr('transform', null);
     svg.select('.year-handle-arc')
       .attr('d', handlePath)
-      .attr('stroke-width', 15); // SVG user units — matches year bracket thickness (radius+22 − radius+4)
+      .attr('stroke-width', 18); // SVG user units — scaled with r_dome above
   }
 
   function startYearDrag(event) {
     event.stopPropagation();
     event.preventDefault();
-    closePanel();
-    isolationReset++;
+    // Scrubbing the year keeps any isolated cell open — see the ring click
+    // handler above for why.
     draggingYear = true;
     yearPreview = nearestYearFromPointer(event) || selectedYear;
     updateYearHighlight();
@@ -660,9 +971,11 @@
     yearPreview = selectedYear;
 
     if (chartContainer) {
-      const rect = chartContainer.getBoundingClientRect();
-      containerWidth = rect.width;
-      containerHeight = rect.height;
+      // Layout px, not getBoundingClientRect() — the latter reports the
+      // stage-transformed box, which would size the map to the scaled view.
+      // (ResizeObserver's contentRect below is already untransformed.)
+      containerWidth = chartContainer.clientWidth;
+      containerHeight = chartContainer.clientHeight;
 
       const ro = new ResizeObserver(entries => {
         const r = entries[0].contentRect;
@@ -676,18 +989,30 @@
     svg.append('g').attr('class', 'zoom-container');
   });
 
-  // Render chart when stackedData or layout change
+  // Render chart when stackedData or layout change. A change of activeKey means
+  // the ring is switching between the world and a country, which is the one
+  // case that animates rather than redrawing outright.
   $effect(() => {
     if (!stackedData || !layout) return;
+    const key = activeKey;
 
     performance.mark('render-start');
     untrack(() => {
-      renderChart();
-      applyFilters();
+      if (renderedKey !== null && renderedKey !== key) {
+        animateSwap(key);
+      } else {
+        clearSwapTimers();
+        swapToken++;
+        renderChart();
+        applyFilters();
+        renderedKey = key;
+      }
     });
     performance.mark('render-end');
     performance.measure('chart-render', 'render-start', 'render-end');
   });
+
+  $effect(() => () => clearSwapTimers());
 
   // Apply filters when selection changes
   $effect(() => {
@@ -742,6 +1067,18 @@
     });
   });
 
+  // Keep the leader anchored to the cell itself. showPanel seeds connectorStart
+  // from the click position; MapCanvas then republishes the cell's projected
+  // centre on every repaint, so the line tracks it through pans, zooms and year
+  // changes instead of staying where the pointer happened to be.
+  $effect(() => {
+    const p = isolatedPoint;
+    untrack(() => {
+      if (!p || !panelVisible) return;
+      connectorStart = p;
+    });
+  });
+
   // Close panel when parent signals a reset
   $effect(() => {
     const sig = panelCloseSignal;
@@ -751,12 +1088,12 @@
   });
 </script>
 
-<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} onwheel={handleWheel} class:panning class:in-circle={hoverInCircle}>
+<div class="chart-container" bind:this={chartContainer} onpointerdown={handlePanStart} onpointermove={handleContainerMove} onpointerleave={() => { hoverInCircle = false; }} onwheel={handleWheel} onclickcapture={swallowPinchClick} class:panning class:in-circle={hoverInCircle}>
   <MapCanvas
     width={containerWidth}
     height={containerHeight}
     innerRadiusPx={innerRadiusPx}
-    profile={TOPO_PROFILE}
+    {profile}
     year={mapYear}
     legend={legend}
     yearDataLookup={yearDataLookup}
@@ -767,9 +1104,12 @@
     bind:mapReady
     {clipAngle}
     {showBoundaries}
-    {debugMenuVisible}
-    mapPanX={mapPanX}
-    mapPanY={mapPanY}
+    bind:mapPanX
+    bind:mapPanY
+    bind:mapScale
+    bind:mapDrawMs
+    bind:mapLayerReused
+    bind:mapDrawPhases
     bind:tooltipVisible={mapTooltipVisible}
     bind:tooltipX={mapTooltipX}
     bind:tooltipY={mapTooltipY}
@@ -778,91 +1118,14 @@
     bind:tooltipPinned={mapTooltipPinned}
     bind:showBarChart
     bind:barChartData
+    bind:cellSeries
     bind:cellIsolated
     isolationReset={isolationReset}
+    bind:focusIso3
+    {strictCountryFocus}
+    {compactCellDetail}
+    bind:isolatedPoint
   />
-
-  {#if debugMenuVisible}
-    <div class="debug-panel">
-      <div class="debug-header">Projection Debug</div>
-
-      <div class="debug-section">
-        <div class="debug-label">Point A (Longitude, Latitude)</div>
-        <div class="debug-inputs">
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[0][0]}
-            oninput={(e) => {
-              const newPoints = [[parseFloat(e.target.value), mapPoints[0][1]], mapPoints[1]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lon"
-          />
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[0][1]}
-            oninput={(e) => {
-              const newPoints = [[mapPoints[0][0], parseFloat(e.target.value)], mapPoints[1]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lat"
-          />
-        </div>
-      </div>
-
-      <div class="debug-section">
-        <div class="debug-label">Point B (Longitude, Latitude)</div>
-        <div class="debug-inputs">
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[1][0]}
-            oninput={(e) => {
-              const newPoints = [mapPoints[0], [parseFloat(e.target.value), mapPoints[1][1]]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lon"
-          />
-          <input
-            type="number"
-            step="0.1"
-            value={mapPoints[1][1]}
-            oninput={(e) => {
-              const newPoints = [mapPoints[0], [mapPoints[1][0], parseFloat(e.target.value)]];
-              mapPoints = newPoints;
-            }}
-            placeholder="Lat"
-          />
-        </div>
-      </div>
-
-      <div class="debug-section">
-        <div class="debug-label">Clip Angle</div>
-        <input
-          type="number"
-          step="1"
-          value={clipAngle}
-          oninput={(e) => clipAngle = parseFloat(e.target.value)}
-          placeholder="Angle"
-          class="full-width"
-        />
-      </div>
-
-      <div class="debug-section">
-        <button
-          class="reset-btn"
-          type="button"
-          onclick={() => {
-            mapPoints = defaultPoints.map(p => [...p]);
-          }}
-        >
-          Reset projection points
-        </button>
-      </div>
-    </div>
-  {/if}
 
   <svg bind:this={svgElement} id="chart"></svg>
 
@@ -873,8 +1136,7 @@
 <style>
   .chart-container {
     width: 100%;
-    height: 100vh;
-    min-height: 100dvh;
+    height: 100%;
     display: grid;
     place-items: center;
     position: relative;
@@ -900,6 +1162,11 @@
     inset: 0;
     z-index: 2;
     pointer-events: none;
+    /* The year grab handle sits at the disk's 9-o'clock edge and overflows the
+       SVG's left viewport edge (the column seam). Outermost <svg> defaults to
+       overflow:hidden, which slices the handle at a vertical line — override it.
+       (.viz-area z-index:6 then paints the overflow above the rail.) */
+    overflow: visible;
   }
 
   :global(.layer path.segment) {
@@ -908,11 +1175,6 @@
     stroke: none;
     opacity: 0.92;
     pointer-events: all;
-  }
-
-  :global(.segment.is-hover) {
-    opacity: 1;
-    filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
   }
 
   :global(.segment.is-selected) {
@@ -937,18 +1199,20 @@
     stroke-opacity: 0.6;
   }
 
+  /* The ring's SVG is scaled down to ~0.287 on the stage, so these user-unit
+     sizes land on the type tiers as rendered: 49 -> 14px, 66 -> 19px. */
   :global(.year-axis text) {
     fill: #ffffff;
-    font-size: 52px;
+    font-size: 49px;
     opacity: 0.95;
-    font-weight: 800;
+    font-weight: 400;
     letter-spacing: 0.08em;
     pointer-events: all;
   }
 
   :global(.year-axis text.selected) {
     fill: var(--accent);
-    font-size: 65px;
+    font-size: 66px;
   }
 
   :global(.year-bracket) {
@@ -972,7 +1236,6 @@
     transition: fill 0.18s ease;
   }
 
-  :global(.year-drag-handle:hover .year-handle-arc),
   :global(.year-drag-handle:active .year-handle-arc) {
     fill: rgba(255, 255, 255, 0.15);
   }
@@ -991,86 +1254,5 @@
     pointer-events: none;
   }
 
-  .debug-panel {
-    position: fixed;
-    top: 20px;
-    left: 20px;
-    background: rgba(14, 11, 22, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    padding: 16px;
-    min-width: 280px;
-    z-index: 1000;
-    font-family: system-ui, -apple-system, sans-serif;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  }
-
-  .debug-header {
-    font-size: 14px;
-    font-weight: 700;
-    color: #ffffff;
-    margin-bottom: 12px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  .debug-section {
-    margin-bottom: 12px;
-  }
-
-  .debug-label {
-    font-size: 11px;
-    color: #9ca3af;
-    margin-bottom: 6px;
-    font-weight: 500;
-  }
-
-  .debug-inputs {
-    display: flex;
-    gap: 8px;
-  }
-
-  .debug-panel input[type="number"] {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 6px;
-    padding: 6px 8px;
-    color: #ffffff;
-    font-size: 13px;
-    font-family: 'SF Mono', Monaco, monospace;
-    flex: 1;
-    transition: border-color 0.15s ease;
-  }
-
-  .debug-panel input[type="number"]:focus {
-    outline: none;
-    border-color: var(--accent, #00d4ff);
-  }
-
-  .debug-panel input[type="number"].full-width {
-    width: 100%;
-  }
-
-  .debug-panel input[type="number"]::-webkit-inner-spin-button,
-  .debug-panel input[type="number"]::-webkit-outer-spin-button {
-    opacity: 1;
-  }
-
-  .reset-btn {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
-    color: #ffffff;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-
-  .reset-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.35);
-  }
 
 </style>

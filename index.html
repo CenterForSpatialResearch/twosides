@@ -2,12 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Anthromes & Biomes</title>
+  <title>Anthromes &amp; Biomes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* ABC Pelikan in the two cuts the piece uses (see src/shared/styles.css).
+       The splash sets its titles at 700 and every other line at 400. */
     @font-face {
       font-family: "Pelikan";
-      src: url("./fonts/ABCPelikan-Regular-Trial.woff") format("woff");
+      src: url("./fonts/ABCPelikan-Regular.woff2") format("woff2");
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Pelikan";
+      src: url("./fonts/ABCPelikan-Bold.woff2") format("woff2");
+      font-weight: 700;
       font-display: swap;
     }
 
@@ -16,15 +25,13 @@
       --fg:#ffffff;
       --muted:#cfd3e0;
       --ring:#ffffff;
-      --ringOpacity: 0.9;
-      --ringWidth: 2.5px;
-      --edgeScaleX: 0.03;
-      --tiltScaleX: 1;
-      --tiltDeg: 10deg;
-      --animMs: 800ms;
-      --ease: cubic-bezier(.19,.76,.19,1);
-      --captionSize: 18px;
-      --captionInset: 36; /* inward offset for text from ring */
+      --ringWidth: 3px;
+      /* Fixed design canvas — see src/shared/pageStage.js. Everything below is
+         authored in design px against 3000x2000 and scaled by one transform. */
+      --design-w: 3000;
+      --design-h: 2000;
+      /* Set from JS on load + resize; CSS can't divide length/length. */
+      --stage-scale: 1;
     }
 
     html, body {
@@ -36,144 +43,327 @@
       overflow: hidden;
     }
 
-    .sideLink {
+    /* ===== Fixed-canvas scaling =====
+       .viewport fills the real window and supplies the letterbox background;
+       .stage is the 1:1 design canvas. Mirrors the .viewport/.stage pair in
+       src/shared/styles.css so the splash letterboxes exactly like the two
+       visualizations it leads into. */
+    .viewport {
       position: fixed;
-      top: 50%;
-      transform: translateY(-50%);
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      font-size: 48px;
-      font-weight: 700;
-      letter-spacing: .15em;
-      color: var(--muted);
-      opacity: 0.9;
-      user-select: none;
-      text-decoration: none;
-      transition: color .3s ease, opacity .3s ease, transform .3s ease;
-      will-change: color, opacity, transform;
-      z-index: 3;
+      inset: 0;
+      overflow: hidden;
+      background: var(--bg);
     }
-    .sideLink:hover {
-      color: var(--fg);
-      opacity: 1;
-      transform: translateY(-50%) scale(1.03);
-    }
-    #leftLink { left: 20px; }
-    #rightLink { right: 20px; }
 
     .stage {
       position: absolute;
+      top: 50%;
+      left: 50%;
+      width: calc(var(--design-w) * 1px);
+      height: calc(var(--design-h) * 1px);
+      background: var(--bg);
+      overflow: hidden;
+      transform: translate(-50%, -50%) scale(var(--stage-scale));
+      transform-origin: center center;
+    }
+
+    /* The active arrangement is cloned in here — see the controller at the
+       bottom of the file. Only ever one at a time, so the ids inside each
+       template are unique at runtime. */
+    #splash-host,
+    .splash {
+      position: absolute;
       inset: 0;
+    }
+    .splash {
       display: grid;
       place-items: center;
     }
 
-    svg {
-      width: min(85vmin, 1100px);
-      height: auto;
+    /* Was sized with min(66vmin, 900px). On the 3000x2000 target that already
+       resolved to its px cap, so pinning the cap here changes nothing on the
+       display the piece actually runs on — it just stops the disk chasing the
+       browser window now that the canvas sets the scale. */
+    .splash--narrative { --disk: 900px; }
+
+    /* ---- Shared: disk + coin ---- */
+    .disk-area {
+      position: relative;
+      width: var(--disk);
+      height: var(--disk);
+    }
+
+    .enter {
+      position: absolute;
+      cursor: pointer;
+      z-index: 2;
+    }
+    /* Central clickable target: the disk plus the caption ring around it, which
+       the narrative screen hangs well outside the disk itself. */
+    .splash--narrative .enter { inset: -50%; }
+
+    .coin-wrap {
+      position: absolute;
+      inset: 0;
+      perspective: 2200px;
+    }
+    .coin {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      will-change: transform;
+    }
+    .face {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      overflow: hidden;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      border: var(--ringWidth) solid var(--ring);
+      box-shadow: 0 0 60px rgba(0,0,0,0.55);
+      background: var(--bg);
+    }
+    .face--anthromes { transform: rotateY(180deg); }
+    .face img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .caption-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       overflow: visible;
+      pointer-events: none;
+      z-index: 3;
     }
 
-    #disk {
-      transform-origin: 50% 50%;
-      transform-box: fill-box;
-      transition: transform var(--animMs) var(--ease);
-      transform: scaleX(var(--edgeScaleX)) rotateZ(0deg);
+    /* ---- Narrative arrangement (option 1) ---- */
+    .splash--narrative .face-dim {
+      position: absolute;
+      inset: 0;
+      background: rgba(14, 11, 22, 0.62);
+      z-index: 1;
+      pointer-events: none;
     }
 
-    body.tilt-left  #disk { transform: scaleX(var(--tiltScaleX)) rotateZ(calc(var(--tiltDeg) * -1)); }
-    body.tilt-right #disk { transform: scaleX(var(--tiltScaleX)) rotateZ(var(--tiltDeg)); }
-
-    .ring {
-      fill: none;
-      stroke: var(--ring);
-      stroke-opacity: var(--ringOpacity);
-      stroke-width: var(--ringWidth);
-      vector-effect: non-scaling-stroke;
+    .splash--narrative .caption-svg text {
+      fill: var(--fg);
+      will-change: opacity;
     }
-
-    text {
-      fill: var(--muted);
-      font-size: var(--captionSize);
-      font-weight: 500;
-      letter-spacing: 0.05em;
+    .splash--narrative .caption-svg text.title {
+      letter-spacing: 0.2em;
       text-transform: uppercase;
-      dominant-baseline: middle;
-      transition: fill .3s ease, opacity .3s ease;
-      opacity: .9;
+      font-weight: 700;
     }
-    body.tilt-left  #caption-left  { fill: var(--fg); opacity: 1; }
-    body.tilt-right #caption-right { fill: var(--fg); opacity: 1; }
+    /* Weights follow the rails' rule (see the WEIGHTS note in
+       src/shared/styles.css): the titles are this screen's headlines, 700;
+       everything else here is read rather than touched, 400. */
+    .splash--narrative .caption-svg text.line {
+      letter-spacing: 0.02em;
+      font-weight: 400;
+    }
+    /* The dichotomies: the same voice as the one-liners, a step smaller. */
+    .splash--narrative .caption-svg text.sub {
+      letter-spacing: 0.005em;
+      font-weight: 400;
+    }
+    /* splash-3: the framing lines set in the titles' place, at the titles'
+       size but in sentence case, in the one-liners' voice. */
+    .splash--narrative .caption-svg text.sentence {
+      letter-spacing: 0.01em;
+      font-weight: 400;
+    }
+    /* "select to enter" under each title; follows the title's emphasis. */
+    .splash--narrative .caption-svg text.enter-hint {
+      letter-spacing: 0.12em;
+      font-weight: 400;
+    }
+    /* The destination's subheadline, shown once a side has been chosen. Same
+       treatment as loading.html's, so the commit state and the cross-link
+       interstitial are the same screen. */
+    .splash--narrative .caption-svg text.subhead {
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 400;
+    }
+
+    /* Both titles are always clickable, whichever face is turned forward —
+       clicking ANTHROMES while biomes is showing enters anthromes. Arced SVG
+       glyphs are a poor hit target, so each title gets an invisible band along
+       its own arc: stroke-only, wide enough to cover the text's full height
+       (ascenders run outward from the path), and hit-tested on the stroke.
+       .caption-svg is pointer-events:none, which stops the layer itself
+       swallowing clicks meant for the disk while still letting these children
+       opt back in. */
+    .splash--narrative .title-hit {
+      fill: none;
+      stroke: transparent;
+      stroke-width: 200;   /* covers the title and the enter hint inside it */
+      pointer-events: stroke;
+      cursor: pointer;
+    }
+
+    /* Dots always take their slot; only opacity changes, so LOADING never
+       shifts along the arc as the ellipsis animates. */
+    .splash--narrative .dot.on  { opacity: 1; }
+    .splash--narrative .dot.off { opacity: 0.18; }
+
   </style>
 </head>
 <body>
-  <a id="leftLink" class="sideLink" href="/src/biomes/">BIOMES</a>
-  <a id="rightLink" class="sideLink" href="/src/anthromes/">ANTHROMES</a>
-
-  <div class="stage">
-    <svg viewBox="-550 -550 1100 1100">
-      <defs>
-        <!-- Main ring radius -->
-        <circle id="mainRing" cx="0" cy="0" r="600" />
-
-        <!-- Inset arcs for inner text -->
-        <path id="arc-left"  d="M 0 -364 A 364 364 0 0 0 0 364" />
-        <path id="arc-right" d="M 0 364 A 364 364 0 0 0 0 -364" />
-      </defs>
-
-      <g id="disk">
-        <circle class="ring" cx="0" cy="0" r="400" />
-
-        <text id="caption-left">
-          <textPath href="#arc-left" startOffset="50%" text-anchor="middle">
-            AN EXTENSIVE HUMAN MICROBIOME
-          </textPath>
-        </text>
-        <text id="caption-right">
-          <textPath href="#arc-right" startOffset="50%" text-anchor="middle">
-            MODELING 12,025 YEARS OF LAND USE
-          </textPath>
-        </text>
-      </g>
-    </svg>
+  <div class="viewport">
+    <div class="stage">
+      <div id="splash-host"></div>
+    </div>
   </div>
 
-  <script>
-    const body = document.body;
-    const left = document.getElementById('leftLink');
-    const right = document.getElementById('rightLink');
-    const stage = document.querySelector('.stage');
+  <!-- ===== Option 1: 8-21 narrative updates ===== -->
+  <template id="tpl-narrative">
+    <div class="splash splash--narrative">
+      <div class="disk-area">
+        <svg class="caption-svg" viewBox="-500 -500 1000 1000" aria-hidden="true">
+          <defs>
+            <!--
+              TITLES: outside the disk at 3 and 9 o'clock, 90° span centered on
+              the horizontal axis. Both use sweep=1 to take the SHORT arc past
+              9 / 3 respectively — an earlier version had BIOMES taking the long
+              arc via 12, planting text on top of the disk. The radius is set
+              from the canvas at mount time (see narrative.js); the d= here is
+              only a sensible starting shape.
+                BIOMES    arc: 7:30 up through 9 to 10:30
+                ANTHROMES arc: 1:30 down through 3 to 4:30
+              Ascenders point outward, away from the disk center.
+            -->
+            <path id="arc-title-left"
+                  d="M -459.62 459.62 A 650 650 0 0 1 -459.62 -459.62" />
+            <path id="arc-title-right"
+                  d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
 
-    function clearTilts() {
-      body.classList.remove('tilt-left', 'tilt-right');
+            <!--
+              ONE-LINERS: outside the disk, rotation 1 on the TOP semicircle
+              and rotation 2 on the BOTTOM, at r=760 — the middle of the three
+              rings (dichotomies at 615, titles ~1083). The 180° span meets
+              each title at its endpoint (9 or 3), so the one-liner reads as a
+              continuation of the framing hierarchy.
+                TOP arc: L→R across the top; ascenders point OUTWARD (up, away
+                  from the disk). Upright letters at the 12 o'clock midpoint.
+                BOTTOM arc: L→R across the bottom (the path traverses 9→6→3,
+                  which is CCW on the clock face); ascenders point INWARD, and
+                  letters are upright at the 6 o'clock midpoint.
+            -->
+            <path id="arc-line-top"
+                  d="M -760 0 A 760 760 0 0 1 760 0" />
+            <path id="arc-line-bottom"
+                  d="M -760 0 A 760 760 0 0 0 760 0" />
+
+            <!--
+              DICHOTOMIES: the innermost ring, just past the disk edge at
+              r=615, one per side on the same quarter-turn arcs the titles
+              use — biomes through 9 o'clock, anthromes through 3 — so each
+              half-sentence sits beside the title it belongs to.
+            -->
+            <path id="arc-sub-left"
+                  d="M -434.87 434.87 A 615 615 0 0 1 -434.87 -434.87" />
+            <path id="arc-sub-right"
+                  d="M 434.87 -434.87 A 615 615 0 0 1 434.87 434.87" />
+
+            <!--
+              ENTER HINTS: "select to enter" just inside each title, on its own
+              arc a little closer to the disk. Set from the title radius at
+              mount time, like the title arcs.
+            -->
+            <path id="arc-enter-left"
+                  d="M -424.26 424.26 A 600 600 0 0 1 -424.26 -424.26" />
+            <path id="arc-enter-right"
+                  d="M 424.26 -424.26 A 600 600 0 0 1 424.26 424.26" />
+
+            <!-- splash-1/2/3: see the text elements of the same names below. -->
+            <path id="arc-frame-top"    d="" />
+            <path id="arc-frame-bottom" d="" />
+            <path id="arc-sent-left"    d="" />
+            <path id="arc-sent-right"   d="" />
+          </defs>
+
+          <text id="label-biomes"    class="title"><textPath href="#arc-title-left"  startOffset="50%" text-anchor="middle">BIOMES</textPath></text>
+          <text id="label-anthromes" class="title"><textPath href="#arc-title-right" startOffset="50%" text-anchor="middle">ANTHROMES</textPath></text>
+          <text id="enter-biomes"    class="enter-hint"><textPath href="#arc-enter-left"  startOffset="50%" text-anchor="middle">select to enter</textPath></text>
+          <text id="enter-anthromes" class="enter-hint"><textPath href="#arc-enter-right" startOffset="50%" text-anchor="middle">select to enter</textPath></text>
+          <text id="sub-biomes"      class="sub"><textPath href="#arc-sub-left"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sub-anthromes"   class="sub"><textPath href="#arc-sub-right" startOffset="50%" text-anchor="middle"></textPath></text>
+
+          <!-- Click targets for the titles. Same d= as the arcs above, kept in
+               step by updateTitleArcs(); drawn after the text so they sit on
+               top of it in hit-test order. Pointer targets only — they sit
+               inside an aria-hidden layer, so they are deliberately not
+               focusable; #enter below is the keyboard route in. -->
+          <path id="hit-biomes"    class="title-hit"
+                d="M -459.62 459.62 A 650 650 0 0 1 -459.62 -459.62" />
+          <path id="hit-anthromes" class="title-hit"
+                d="M 459.62 -459.62 A 650 650 0 0 1 459.62 459.62" />
+
+          <!-- splash-1/2/3 only (empty otherwise). The framing lines on the
+               title ring above and below the disk (splash-1/2), and the same
+               two lines set on half-turn arcs in the titles' place
+               (splash-3). All four arcs are set from the ring radius in
+               updateTitleArcs(). -->
+          <text id="frame-top"     class="line"><textPath href="#arc-frame-top"     startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="frame-bottom"  class="line"><textPath href="#arc-frame-bottom"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sent-biomes"    class="sentence"><textPath href="#arc-sent-left"  startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="sent-anthromes" class="sentence"><textPath href="#arc-sent-right" startOffset="50%" text-anchor="middle"></textPath></text>
+
+          <text id="line-top"    class="line"><textPath href="#arc-line-top"    startOffset="50%" text-anchor="middle"></textPath></text>
+          <text id="line-bottom" class="line"><textPath href="#arc-line-bottom" startOffset="50%" text-anchor="middle"></textPath></text>
+        </svg>
+
+        <div class="coin-wrap">
+          <div class="coin" id="coin">
+            <!-- The faces carry only the photographs: every line of copy sits
+                 on the caption ring outside the disk. -->
+            <div class="face face--biomes">
+              <img src="splash/biomes.webp" alt="Biomes visualization" />
+              <div class="face-dim"></div>
+            </div>
+            <div class="face face--anthromes">
+              <img src="splash/anthromes.webp" alt="Anthromes visualization" />
+              <div class="face-dim"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="enter" id="enter" role="button" tabindex="0" aria-label="Enter the currently shown visualization"></div>
+      </div>
+    </div>
+  </template>
+
+  <script type="module">
+    // Controller: mounts the narrative splash. Cloning the <template> rather
+    // than authoring the markup inline keeps exactly one copy of each id in the
+    // document, which the SVG textPath href="#..." references depend on.
+    import { initPageStage } from './src/shared/pageStage.js';
+    import { mountNarrative } from './src/splash/narrative.js';
+
+    const host = document.getElementById('splash-host');
+
+    function render() {
+      const tpl = document.getElementById('tpl-narrative');
+      host.replaceChildren(tpl.content.cloneNode(true));
+      mountNarrative(host);
     }
 
-    left.addEventListener('mouseenter', () => {
-      body.classList.add('tilt-left');
-      body.classList.remove('tilt-right');
-    });
-    left.addEventListener('mouseleave', clearTilts);
+    initPageStage();
 
-    right.addEventListener('mouseenter', () => {
-      body.classList.add('tilt-right');
-      body.classList.remove('tilt-left');
-    });
-    right.addEventListener('mouseleave', clearTilts);
-
-    stage.addEventListener('mousemove', (e) => {
-      const rect = stage.getBoundingClientRect();
-      const midX = rect.left + rect.width / 2;
-      if (e.clientX < midX - 60) {
-        body.classList.add('tilt-left');
-        body.classList.remove('tilt-right');
-      } else if (e.clientX > midX + 60) {
-        body.classList.add('tilt-right');
-        body.classList.remove('tilt-left');
-      } else {
-        clearTilts();
-      }
-    });
-    stage.addEventListener('mouseleave', clearTilts);
+    // The splash measures text to fit it to an arc, so wait for the face rather
+    // than measuring fallback metrics and baking in the wrong size.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+    else render();
   </script>
 </body>
 </html>

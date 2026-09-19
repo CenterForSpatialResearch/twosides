@@ -5,15 +5,17 @@
 
   // ── Geometry ──────────────────────────────────────────────────────────────
   const R      = $derived(size / 2 - 2);
-  const outerR = $derived(R * 0.68);
-  // 25% thinner ring: was 0.28R thick → now 0.21R thick
-  const innerR = $derived(outerR - R * 0.21);  // ≈ R * 0.47
+  // Donut fills more of the box (was 0.68R) — the reserved outer band was mostly
+  // empty black since labels only cluster left/right, not top/bottom.
+  const outerR = $derived(R * 0.9);
+  // Ring thickness held at 0.21R
+  const innerR = $derived(outerR - R * 0.21);  // ≈ R * 0.59
 
-  // Radii for label placement
-  const YEAR_TICK_LEN  = $derived(R * 0.07);           // inward tick from inner edge
+  // Radii for label placement — pulled in with the larger ring so text still fits
+  const YEAR_TICK_LEN  = $derived(R * 0.05);           // inward tick from inner edge
   const YEAR_LABEL_R   = $derived(innerR * 0.62);       // year text inside hole
   const ANT_LEADER_R   = $derived(outerR + R * 0.02);   // leader start at outer edge
-  const ANT_LABEL_R    = $derived(outerR + R * 0.14);   // anthrome text outside
+  const ANT_LABEL_R    = $derived(outerR + R * 0.15);   // anthrome text outside
 
   // ── Sectors ───────────────────────────────────────────────────────────────
   const sectors = $derived.by(() => {

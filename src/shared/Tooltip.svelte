@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { DESIGN_W, DESIGN_H } from './stage.svelte.js';
 
   // Props
   let {
@@ -24,9 +25,9 @@
     if (!visible || !tooltipEl) return;
 
     const pad = 14;
-    const rect = tooltipEl.getBoundingClientRect();
-    const tw = rect.width;
-    const th = rect.height;
+    // Layout px — getBoundingClientRect() would report the stage-scaled box.
+    const tw = tooltipEl.offsetWidth;
+    const th = tooltipEl.offsetHeight;
 
     // Start with cursor position
     let nx = x + pad;
@@ -37,11 +38,10 @@
       ny = y + pad;
     }
 
-    // Keep within horizontal bounds
-    nx = Math.min(Math.max(8, nx), window.innerWidth - tw - 8);
-
-    // Keep within vertical bounds
-    ny = Math.min(Math.max(8, ny), window.innerHeight - th - 8);
+    // Keep within the design canvas — x/y are design px, and the tooltip is
+    // rendered inside .stage, so window dimensions are the wrong bounds here.
+    nx = Math.min(Math.max(8, nx), DESIGN_W - tw - 8);
+    ny = Math.min(Math.max(8, ny), DESIGN_H - th - 8);
 
     finalX = nx;
     finalY = ny;
@@ -108,7 +108,7 @@
 
 <style>
   .tooltip {
-    position: fixed;
+    position: absolute;
     pointer-events: none;
     z-index: 100000;
     background: #111827;

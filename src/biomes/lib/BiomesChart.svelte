@@ -1,8 +1,37 @@
+<script module>
+  // Prevalence thresholds (against leaf.data.metadata; derived from the live
+  // sgb_taxonomy_tree.json, 4,931 leaves). In a `module` block so App.svelte can
+  // import them for its live captions — one source of truth for both the filter
+  // logic here and the percentages there. "abundant"/"rare" are sample-count
+  // axes; "widespread"/"concentrated" are country-count axes — don't cross them.
+  export const ABUNDANT_MIN_SAMPLES = 8;       // Sample_ID_Count >= 8  (~27% of SGBs)
+  export const RARE_MAX_SAMPLES = 1;           // Sample_ID_Count <= 1  (~40% of SGBs)
+  export const WIDESPREAD_MIN_COUNTRIES = 4;   // Country_Count >= 4   (~25% of SGBs)
+  export const CONCENTRATED_MAX_COUNTRIES = 1; // Country_Count <= 1   (~54% of SGBs)
+
+  // ── Lifestyle-exclusivity colouring (UI Option 1) ────────────────────────────
+  // A species is "non-Westernized-exclusive" when every sample it was ever
+  // reconstructed from came from a non-Westernized cohort. Westernized_Count is
+  // the number of DISTINCT Westernized values across the whole corpus (1 or 2),
+  // and Westernized_Mode is that value when there is only one — both are true,
+  // un-truncated corpus-wide figures on the tree, unlike the per-country SGB
+  // rosters in sgb_edges_genome_sample_study.csv (capped at 10–20 genomes per
+  // SGB, which inflates apparent exclusivity). 315 of 4,930 SGBs qualify; 95% of
+  // them were unknown to science before this study.
+  export const LIFESTYLE_MAGENTA = '#ff2d95'; // found only in non-Westernized populations
+  export const LIFESTYLE_SHARED = '#f2eef8';  // also found in Westernized populations
+
+  export function isNonWesternExclusive(metadata) {
+    if (!metadata) return false;
+    return Number(metadata.Westernized_Count) === 1 && metadata.Westernized_Mode === 'No';
+  }
+</script>
+
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import * as d3 from 'd3';
-  import Tooltip from '../../shared/Tooltip.svelte';
   import { createEventDispatcher } from 'svelte';
+  import { screenToDesign, elementScale } from '../../shared/stage.svelte.js';
   import {
     colorMapping,
     pickTextColor,
@@ -23,10 +52,13 @@
     taxonomyTree = null,
     selectedPhyla = $bindable([]),
     unknownFilter = $bindable('all'), // 'all' | 'unknown' | 'known'
-    westernFilter = $bindable('any'),
+    westernFilter = $bindable('any'), // 'any' | 'western' | 'nonwestern'
+    abundanceFilter = $bindable('any'), // 'any' | 'abundant' | 'rare'
+    geoFilter = $bindable('any'),       // 'any' | 'widespread' | 'concentrated'
     bodySiteFilter = $bindable(new Set()),
     proxyKey = $bindable(null),
     studyKey = $bindable(null),
+    countryIso3 = $bindable(null),
     size = 'full',
     tension = 0.95
   } = $props();
@@ -46,10 +78,6 @@
   let maxGenomeCount = $state(1);
   let tickDenom = $state(1);
 
-  // Cross-highlighting state
-  let highlightedSGBs = $state(new Set());
-  let crossHighlightActive = $state(false);
-
   // Country name lookup (ISO3 → display name)
   let iso3ToName = $state(new Map());
 
@@ -66,7 +94,7 @@
   const resetPx = null;          // override anchor if set
   const zoomLevels = [1, 2, 7];
   const edgeMarginPx = 12;
-  const geographyFilters = ['Western', 'Non-Western', 'Unknown'];
+  const geographyFilters = ['Westernized', 'Non-Westernized', 'Unknown'];
   const backgroundColor = '#0e0b16';
   const DIM_OPACITY = 0.02;
   const DIM_LABEL_OPACITY = 0.10;
@@ -84,34 +112,118 @@
   let viewportH = $state(0);
   let proxySgbMap = {};
   let studySgbMap = {};
+  let countrySgbMap = {};
   let proxyLoaded = false;
   let studyLoaded = false;
+  let countryLoaded = false;
   let cachedLeaves = null;
 
-  function closePanel() {
-    panelVisible = false;
-    panelContent = '';
-    connectorStart = null;
-    connectorEnd = null;
-    currentTooltipDatum = null;
-    tooltipPinned = false;
-    dispatch('detail-close');
-  }
+  // ── Canvas spin engine (Mode C) ──────────────────────────────────────────
+  let vizAreaEl = $state(null);
+  let canvasEl = $state(null);
+  let lastMarkerX = -1, lastMarkerY = -1;  // last reported marker screen pos (leader line)
+  let cctx = null;                 // 2D context
+  let dpr = 1;
+  let boxW = 0, boxH = 0, sBase = 0; // viewBox→css mapping (S_css/dim, plus center = box/2)
+  let fgColor = '#e9e6f2';
+  let geom = null;                 // { dim, radius, outerRadius, barInner, usgb*, west*, ... }
+  let fullBatches = null;          // batches for all leaves (no filter)
+  let keepBatches = null, dimBatches = null; // partitioned when a filter/highlight is active
+  let bandList = [];               // region gradient bands (drawn on canvas): {path, color, innerR, outerR, keyNode}
+  let leavesByAngle = [];          // leaves sorted by .x for center-leaf binary search
+  let selectableByAngle = [];      // subset of leavesByAngle eligible for center selection
+                                   // (= leavesByAngle when no filter; only kept leaves when filtered)
+  let keepSet = null;              // null = no filter (everything kept)
+  let selIndex = -1;               // index into selectableByAngle of the center-selected leaf
+  let selLeaf = null;
+  // Cached Path2D of the selected leaf's branch line (root → leaf), so the
+  // per-frame highlight during a spin only rebuilds when the selection changes.
+  let selLinkPath = null;
+  let selLinkLeafId = null;
 
-  function showPanel(html) {
+  // rotation / momentum
+  let angVel = 0;                  // deg/frame
+  let spinning = false;
+  let dragging = false;
+  let dragSamples = [];            // {a, t} recent pointer angles for velocity
+  let lastCommittedLeafId = null;  // throttle details-panel updates
+
+  // draw scheduling
+  let dirty = false;
+  let rafId = 0;
+  let inMotion = false;            // true while dragging or coasting → resolution cap
+  let renderTick = $state(0);      // bumped each render() so label-gate effect re-runs
+
+  const FRICTION = 0.94;           // per-frame angular decay
+  const MIN_ANGVEL = 0.05;         // deg/frame → settle
+  const MOTION_DPR_CAP = 1.25;     // cap backing scale during motion (Surface hardening)
+  const LIVE_COMMIT_MS = 90;       // throttle for live details-panel updates while spinning
+  const FINISH_DELAY = 90;         // ms after the wheel stops before the heavy finish (full-DPR + labels)
+  let lastCommitT = 0;
+  let finishTimer = 0;
+
+  function showPanel(html, datum) {
     panelContent = html;
     panelVisible = !!html;
     if (panelVisible) {
-      dispatch('detail', { content: html, point: connectorStart });
+      // Emit the leaf's structured metadata alongside the HTML so the App
+      // rail can compose graphical add-ons (mini-glyph, lineage chips, genome
+      // meter, badges) without re-parsing the HTML blob.
+      let meta = null;
+      if (datum) {
+        const ancestors = datum
+          .ancestors()
+          .slice(0, -1)
+          .reverse()
+          .map((a) => ({
+            depth: a.depth,
+            name: (a.data?.name || '').split('__').pop()?.replace(/_/g, ' ') || ''
+          }))
+          .filter((a) => a.name);
+        meta = {
+          metadata: datum.data?.metadata || null,
+          name: datum.data?.name || null,
+          phylum: getPhylum(datum),
+          leafId: datum.leafId ?? null,
+          ancestors,
+          genomeCount: Number(datum.data?.metadata?.['#_Reconstructed_genomes']) || 0,
+          maxGenomeCount,
+          glyphPath: buildMiniGlyphPath(datum)
+        };
+      }
+      dispatch('detail', { content: html, point: connectorStart, meta });
     } else {
       dispatch('detail-close');
     }
+  }
+
+  // Mini-glyph path: a radial line traced through the leaf's ancestor chain
+  // (root → phylum → … → leaf) in the disk's polar coordinates, scaled into a
+  // small preview radius. Shared between the tooltip HTML and the App-side
+  // enriched detail card so both stay in sync visually.
+  function buildMiniGlyphPath(d) {
+    const chain = d.ancestors().reverse();
+    const yVals = chain.map((n) => n.y);
+    const yMin = Math.min(...yVals);
+    const yMax = Math.max(...yVals);
+    const rMin = 12, rMax = 50;
+    const line = d3
+      .lineRadial()
+      .curve(d3.curveBundle.beta(0.85))
+      .angle((n) => n.x)
+      .radius((n) =>
+        yMax === yMin
+          ? (rMin + rMax) / 2
+          : rMin + ((n.y - yMin) / (yMax - yMin)) * (rMax - rMin)
+      );
+    return line(chain);
   }
 
   function applyTransforms() {
     if (!svgElement) return;
     const g = d3.select(svgElement).select('g.zoom-container');
     g.attr('transform', `${currentTransform} rotate(${rotationDeg || 0})`);
+    requestDraw(); // canvas mirrors the same transform
   }
 
   function clampScale(k) {
@@ -157,8 +269,9 @@
     }
 
     if (k === 7) {
-      // Position so the rightmost content (bars) is visible with a small margin
-      const targetX = rect.width - outerScreen - edgeMarginPx;
+      // Position so the rightmost content (bars) is visible with a small margin.
+      // This function works in screen px (rect), so scale the design-px margin up.
+      const targetX = rect.width - outerScreen - edgeMarginPx * elementScale(svgElement, rect);
       return { x: targetX, y: base.y };
     }
 
@@ -205,6 +318,7 @@
     const k = zoomLevels[zoomIdx];
     const { x: anchorX, y: anchorY } = anchorPoint(rect, k);
     applyZoom(k, anchorX, anchorY);
+    syncLabelZoom();
     emitZoomChange();
   }
 
@@ -218,7 +332,15 @@
   // Expose controls for parent rail
   export function zoomInControl() { zoomIn(); }
   export function zoomOutControl() { zoomOut(); }
-  export function resetControl() { resetView(); }
+  export function resetControl() {
+    // Full reset to page-load state: reset zoom + rotation and repaint from the
+    // live filters (which live in App). The details panel is never empty — it
+    // re-resolves to whichever species the marker now points at.
+    applyFiltersNow();
+    resetView();
+    updateSelectionFromAngle();
+    commitSelectionToPanel();
+  }
   export function rotateLeftControl() { rotateBy(-rotateStepDeg); }
   export function rotateRightControl() { rotateBy(rotateStepDeg); }
 
@@ -298,139 +420,53 @@
       .angle(d => d.x)
       .radius(d => d.y);
 
-    // SGB lines + hits
-    const sgbGroup = g.append('g');
-    const sgbLines = sgbGroup.selectAll('path.sgb-line')
-      .data(leaves)
-      .join('path')
-      .attr('class', 'sgb-line')
-      .attr('data-leaf-id', d => d.leafId)
-      .attr('d', d => {
-        const theta = d.x - Math.PI / 2;
-        const x0 = Math.cos(theta) * d.y;
-        const y0 = Math.sin(theta) * d.y;
-        const outerRadius = barInner + barScale(d.data.metadata?.["#_Reconstructed_genomes"] || 0);
-        const x1 = Math.cos(theta) * outerRadius;
-        const y1 = Math.sin(theta) * outerRadius;
-        return `M${x0},${y0}L${x1},${y1}`;
-      });
-
-    const sgbHits = sgbGroup.selectAll('path.sgb-hit')
-      .data(leaves)
-      .join('path')
-      .attr('class', 'hit sgb-hit')
-      .attr('data-leaf-id', d => d.leafId)
-      .attr('d', d => {
-        const theta = d.x - Math.PI / 2;
-        const x0 = Math.cos(theta) * d.y;
-        const y0 = Math.sin(theta) * d.y;
-        const outerRadius = barInner + barScale(d.data.metadata?.["#_Reconstructed_genomes"] || 0);
-        const x1 = Math.cos(theta) * outerRadius;
-        const y1 = Math.sin(theta) * outerRadius;
-        return `M${x0},${y0}L${x1},${y1}`;
-      });
-
-    attachTooltipHandlers(sgbHits, d => d);
-
-    // Regions + labels
-    const regionsLayer = g.append('g');
-    const labelsLayer = g.append('g');
-    let id = 0;
+    // Shared geometry for the canvas engine + center-leaf selection
+    fgColor = resolveFg();
     const maxDepth = d3.max(root.descendants(), d => d.depth);
-    const regionPaths = [];
-    const labelEls = [];
+    const outerRadius = barInner + barMaxLength; // outer extent (for the center marker)
+    geom = { dim, radius, outerRadius, barInner, barScale, maxRec,
+             usgbInner, usgbOuter, westInner, westOuter, line };
 
+    // ── SVG overlay (sparse): region bands are canvas; region labels stay SVG ──
+    const labelsLayer = g.append('g').attr('class', 'region-labels');
+    bandList = [];
+    let arcId = 0;
     for (let depth = 2; depth <= maxDepth; depth++) {
-      const nodes = root.descendants().filter(d => d.depth === depth);
-      d3.groups(nodes, d => getPhylum(d)).forEach(([phylum, group]) => {
+      const dnodes = root.descendants().filter(d => d.depth === depth);
+      d3.groups(dnodes, d => getPhylum(d)).forEach(([phylum, group]) => {
         if (group.length < 2) return;
-
         const sorted = group.sort((a, b) => a.x - b.x);
         const innerR = sorted[0].y - (radius / maxDepth) * 0.75;
         const outerR = sorted[0].y;
         const ptsOuter = sorted.map(d => [d.x, outerR]);
         const ptsInner = sorted.map(d => [d.x, innerR]).reverse();
         const pathData = d3.lineRadial()
-          .curve(d3.curveCardinalClosed.tension(0.7))
-          (ptsOuter.concat(ptsInner));
+          .curve(d3.curveCardinalClosed.tension(0.7))(ptsOuter.concat(ptsInner));
 
-        const gradID = `grad-${phylum}-${depth}`;
-        const gdef = defs.append('radialGradient').attr('id', gradID);
-        gdef.selectAll('stop')
-          .data([
-            { offset: '0%', color: backgroundColor, opacity: 0 },
-            { offset: '100%', color: colorMapping[phylum] || colorMapping.Other, opacity: 1 }
-          ])
-          .join('stop')
-          .attr('offset', d => d.offset)
-          .attr('stop-color', d => d.color)
-          .attr('stop-opacity', d => d.opacity);
+        // region band → drawn on canvas with a radial gradient
+        bandList.push({
+          path: new Path2D(pathData),
+          color: colorMapping[phylum] || colorMapping.Other,
+          innerR, outerR,
+          keyNode: sorted[0]
+        });
 
-        const bandNode = sorted[0];
-        const region = regionsLayer.append('path')
-          .datum(bandNode)
-          .attr('class', 'region-path')
-          .attr('d', pathData)
-          .attr('fill', `url(#${gradID})`);
-        regionPaths.push(region.node());
-
-        const arcID = `arc-${id++}`;
-        defs.append('path')
-          .attr('id', arcID)
-          .attr('d', d3.arc()({
-            innerRadius: outerR - 12,
-            outerRadius: outerR - 12,
-            startAngle: sorted[0].x,
-            endAngle: sorted[sorted.length - 1].x
-          }));
-
-        const labelText = labelsLayer.append('text')
-          .attr('class', 'region-label');
+        // curved region label → SVG overlay
+        const arcID = `arc-${arcId++}`;
+        defs.append('path').attr('id', arcID).attr('d', d3.arc()({
+          innerRadius: outerR - 12, outerRadius: outerR - 12,
+          startAngle: sorted[0].x, endAngle: sorted[sorted.length - 1].x
+        }));
+        const labelText = labelsLayer.append('text').attr('class', 'region-label').datum(sorted[0]);
         labelText.append('textPath')
           .attr('xlink:href', `#${arcID}`)
           .attr('startOffset', '50%')
           .text(phylum.replace(/_/g, ' '));
-        labelEls.push(labelText.node());
       });
     }
 
-    // Links + hits
-    const linkData = root.links().filter(d => !d.target.children);
-    const links = g.append('g')
-      .selectAll('path.link')
-      .data(linkData)
-      .join('path')
-      .attr('class', 'link')
-      .attr('data-leaf-id', d => d.target.leafId)
-      .attr('d', d => line(d.target.ancestors().reverse()));
-
-    const linkHits = g.append('g')
-      .selectAll('path.hit-link')
-      .data(linkData)
-      .join('path')
-      .attr('class', 'hit')
-      .attr('data-leaf-id', d => d.target.leafId)
-      .attr('d', d => line(d.target.ancestors().reverse()));
-
-    attachTooltipHandlers(linkHits, d => d.target);
-
-    // Nodes
-    const nodes = g.append('g')
-      .selectAll('g.node')
-      .data(root.descendants())
-      .join('g')
-      .attr('class', 'node')
-      .attr('data-leaf-id', d => d.children ? null : d.leafId)
-      .attr('transform', d => `rotate(${d.x * 180 / Math.PI - 90}) translate(${d.y},0)`);
-
-    nodes.append('circle')
-      .attr('r', d => d.children ? 0 : 2.5)
-      .attr('fill', d => colorMapping[getPhylum(d)] || colorMapping.Other);
-
-    attachTooltipHandlers(nodes, d => d);
-
-    // Internal labels
-    const internals = g.append('g')
+    // Internal labels (SVG overlay)
+    const internals = g.append('g').attr('class', 'internal-labels')
       .selectAll('text.internal-label')
       .data(root.descendants().filter(d => d.children))
       .join('text')
@@ -441,109 +477,451 @@
       .attr('text-anchor', d => d.x < Math.PI ? 'start' : 'end')
       .text(d => (d.data.name || '').split('__').pop().replace(/_/g, ' '));
 
-    // Bars
-    const bars = g.append('g')
-      .selectAll('path.bar')
-      .data(leaves)
-      .join('path')
-      .attr('class', 'bar')
-      .attr('data-leaf-id', d => d.leafId)
-      .attr('d', d => {
-        const count = d.data.metadata?.["#_Reconstructed_genomes"] || 0;
-        const r0 = barInner;
-        const r1 = barInner + barScale(count);
-        return d3.arc()({
-          innerRadius: r0,
-          outerRadius: r1,
-          startAngle: d.x - 0.0005,
-          endAngle: d.x + 0.0005
-        });
-      })
-      .attr('fill', d => colorMapping[getPhylum(d)] || colorMapping.Other);
-
-    attachTooltipHandlers(bars);
-
-    // Bar axis
+    // Bar axis (SVG overlay). Ticks only: the 1 / 10 / 100 / 500 labels drew at
+    // ~3px on the stage, too small to read, so they are gone.
     const axisGroup = g.append('g').attr('class', 'bar-axis');
     axisGroup.append('line')
       .attr('x1', 0).attr('y1', barInner)
       .attr('x2', 0).attr('y2', barInner + barMaxLength)
       .attr('stroke', 'white');
-
     [1, 10, 100, 500].filter(v => v <= maxRec).forEach(t => {
       const y = barInner + barScale(t);
-      axisGroup.append('line')
-        .attr('x1', 0).attr('y1', y)
-        .attr('x2', 8).attr('y2', y);
-      axisGroup.append('text')
-        .attr('x', 10).attr('y', y)
-        .attr('dy', '.32em')
-        .text(t);
+      axisGroup.append('line').attr('x1', 0).attr('y1', y).attr('x2', 8).attr('y2', y);
     });
 
-    // Unknown & Western rings
-    const usgb = g.append('g')
-      .selectAll('path.usgb')
-      .data(leaves)
-      .join('path')
-      .attr('class', 'usgb')
-      .attr('data-leaf-id', d => d.leafId)
-      .attr('d', d => d3.arc()({
-        innerRadius: usgbInner,
-        outerRadius: usgbOuter,
-        startAngle: d.x - 0.0005,
-        endAngle: d.x + 0.0005
-      }))
-      .attr('fill', d => (parseUSGB(d.data.metadata) === 'Yes') ? 'white' : 'black')
-      .attr('opacity', d => (parseUSGB(d.data.metadata) === 'Yes') ? 1 : 0.5);
+    // Leaves sorted by angle → binary-search for the center-selected leaf
+    leavesByAngle = leaves.slice().sort((a, b) => a.x - b.x);
+    selectableByAngle = leavesByAngle; // no filter yet on (re)build
 
-    attachTooltipHandlers(usgb);
+    // Build canvas Path2D batches for all leaves
+    fullBatches = buildBatches(leaves);
+    keepSet = null; keepBatches = null; dimBatches = null;
+    lastCommittedLeafId = null;
+    // geom.line coords changed — invalidate the selected-leaf path cache
+    selLinkLeafId = null; selLinkPath = null;
 
-    g.append('circle')
-      .attr('r', (usgbInner + usgbOuter) / 2)
-      .attr('fill', 'none')
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2);
-
-    const west = g.append('g')
-      .selectAll('path.western')
-      .data(leaves)
-      .join('path')
-      .attr('class', 'western')
-      .attr('data-leaf-id', d => d.leafId)
-      .attr('d', d => d3.arc()({
-        innerRadius: westInner,
-        outerRadius: westOuter,
-        startAngle: d.x - 0.0005,
-        endAngle: d.x + 0.0005
-      }))
-      .attr('fill', d => isWesternNo(d.data.metadata) ? 'white' : 'black')
-      .attr('opacity', d => isWesternNo(d.data.metadata) ? 1 : 0.5);
-
-    attachTooltipHandlers(west);
-
-    g.append('circle')
-      .attr('r', (westInner + westOuter) / 2)
-      .attr('fill', 'none')
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2);
-
-    // Store selections for filtering
+    // Overlay selections that dim via opacity when filtered
     handles.selections = {
-      nodes,
       internals,
-      links,
-      linkHits,
-      bars,
-      sgbLines,
-      usgb,
-      west,
-      regions: d3.selectAll(regionsLayer.selectAll('path').nodes()),
       labels: d3.selectAll(labelsLayer.selectAll('text').nodes())
     };
 
-    applyFiltersNow();
-    applyTransforms();
+    // untrack so this render $effect doesn't re-subscribe to filter props
+    // (the dedicated filter $effect handles filter changes via scheduleFilters).
+    untrack(() => {
+      resizeCanvas();
+      applyFiltersNow();   // partitions batches + dims overlay when a filter is active
+      applyTransforms();   // overlay transform + marks canvas dirty
+      syncLabelZoom();     // phylum labels only at closest zoom
+      requestDraw();
+      // Show the initial center leaf in the details panel (center-select is always on)
+      updateSelectionFromAngle();
+      commitSelectionToPanel();
+      // Bump inside untrack so this render $effect doesn't subscribe to renderTick
+      // (reading it here would self-trigger the effect → infinite loop). The write
+      // still notifies the label-gate effect below.
+      renderTick++;
+    });
+  }
+
+  // Reactive label gate: re-runs on zoom change and after each render.
+  $effect(() => { renderTick; zoomIdx; syncLabelZoom(); });
+
+  // ── Canvas engine ─────────────────────────────────────────────────────────
+  function resolveFg() {
+    try {
+      const v = getComputedStyle(svgElement).getPropertyValue('--fg').trim();
+      return v || '#e9e6f2';
+    } catch { return '#e9e6f2'; }
+  }
+
+  function hexToRgba(hex, a) {
+    const c = (hex || '#000').replace('#', '');
+    const n = c.length === 3 ? c.split('').map(x => x + x).join('') : c;
+    const r = parseInt(n.slice(0, 2), 16), gg = parseInt(n.slice(2, 4), 16), bb = parseInt(n.slice(4, 6), 16);
+    return `rgba(${r},${gg},${bb},${a})`;
+  }
+
+  // Build the per-leaf Path2D batches for a leaf subset (grouped by fill colour).
+  function buildBatches(leafList) {
+    const b = {
+      sgbLine: new Path2D(),
+      link: new Path2D(),
+      barsByColor: new Map(),
+      nodesByColor: new Map(),
+      usgbWhite: new Path2D(), usgbBlack: new Path2D(),
+      westWhite: new Path2D(), westBlack: new Path2D()
+    };
+    if (!geom) return b;
+    const { barInner, barScale, usgbInner, usgbOuter, westInner, westOuter, line } = geom;
+    const arc = d3.arc();
+    const grp = (map, color) => { let p = map.get(color); if (!p) { p = new Path2D(); map.set(color, p); } return p; };
+    for (const d of leafList) {
+      const theta = d.x - Math.PI / 2;
+      const cos = Math.cos(theta), sin = Math.sin(theta);
+      const cnt = d.data.metadata?.["#_Reconstructed_genomes"] || 0;
+      const color = colorMapping[getPhylum(d)] || colorMapping.Other;
+      // sgb radial line (leaf rim → beyond the bars)
+      const rOut = barInner + barScale(cnt);
+      b.sgbLine.moveTo(cos * d.y, sin * d.y);
+      b.sgbLine.lineTo(cos * rOut, sin * rOut);
+      // bundle-curve link root → leaf
+      b.link.addPath(new Path2D(line(d.ancestors().reverse())));
+      // node dot
+      const nx = cos * d.y, ny = sin * d.y;
+      const ndp = grp(b.nodesByColor, color);
+      ndp.moveTo(nx + 2.5, ny); ndp.arc(nx, ny, 2.5, 0, Math.PI * 2);
+      // genome bar
+      grp(b.barsByColor, color).addPath(new Path2D(arc({
+        innerRadius: barInner, outerRadius: rOut, startAngle: d.x - 0.0005, endAngle: d.x + 0.0005
+      })));
+      // unknown ring
+      (parseUSGB(d.data.metadata) === 'Yes' ? b.usgbWhite : b.usgbBlack).addPath(new Path2D(arc({
+        innerRadius: usgbInner, outerRadius: usgbOuter, startAngle: d.x - 0.0005, endAngle: d.x + 0.0005
+      })));
+      // western ring
+      (isWesternNo(d.data.metadata) ? b.westWhite : b.westBlack).addPath(new Path2D(arc({
+        innerRadius: westInner, outerRadius: westOuter, startAngle: d.x - 0.0005, endAngle: d.x + 0.0005
+      })));
+    }
+    return b;
+  }
+
+  const realDpr = () => window.devicePixelRatio || 1;
+
+  function resizeCanvas() {
+    if (!canvasEl || !vizAreaEl) return;
+    // Layout px, not getBoundingClientRect() — the latter reports the
+    // stage-transformed box, which would size the disk to the scaled view.
+    boxW = vizAreaEl.clientWidth; boxH = vizAreaEl.clientHeight;
+    const dimv = geom ? geom.dim : (size === 'full' ? fullSize : previewSize);
+    sBase = Math.min(boxW, boxH) / dimv;
+    dpr = inMotion ? Math.min(realDpr(), MOTION_DPR_CAP) : realDpr();
+    canvasEl.style.width = boxW + 'px';
+    canvasEl.style.height = boxH + 'px';
+    canvasEl.width = Math.max(1, Math.round(boxW * dpr));
+    canvasEl.height = Math.max(1, Math.round(boxH * dpr));
+    cctx = canvasEl.getContext('2d');
+    dirty = true;
+  }
+
+  // device = A·p + E ; A = dpr·sBase·k·R(rot), E = dpr·center + dpr·sBase·t
+  function canvasMatrix() {
+    const k = currentTransform.k || 1;
+    const tx = currentTransform.x || 0, ty = currentTransform.y || 0;
+    const rot = (rotationDeg || 0) * Math.PI / 180;
+    const s = dpr * sBase * k;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    return {
+      a: s * cos, b: s * sin, c: -s * sin, d: s * cos,
+      e: dpr * (boxW / 2) + dpr * sBase * tx,
+      f: dpr * (boxH / 2) + dpr * sBase * ty,
+      k, s
+    };
+  }
+
+  function draw() {
+    if (!cctx || !geom || !fullBatches) return;
+    const m = canvasMatrix();
+    cctx.setTransform(1, 0, 0, 1, 0, 0);
+    cctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    cctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+    cctx.lineCap = 'round';
+    cctx.lineJoin = 'round';
+
+    const nsw = 0.5 / (sBase * (m.k || 1)); // non-scaling 0.5px stroke in user units
+    const filtered = !!(keepBatches && dimBatches);
+    const layer = (fn) => { if (filtered) { fn(dimBatches, DIM_OPACITY); fn(keepBatches, 1); } else fn(fullBatches, 1); };
+
+    // 1) sgb lines (fg, α0.8)
+    cctx.strokeStyle = fgColor;
+    layer((b, a) => { cctx.globalAlpha = 0.8 * a; cctx.lineWidth = nsw; cctx.stroke(b.sgbLine); });
+
+    // 2) region bands (radial gradient, canvas)
+    for (const band of bandList) {
+      const kept = !keepSet || keepSet.has(band.keyNode);
+      cctx.globalAlpha = kept ? 1 : DIM_OPACITY;
+      const grad = cctx.createRadialGradient(0, 0, band.innerR, 0, 0, band.outerR);
+      grad.addColorStop(0, hexToRgba(backgroundColor, 0));
+      grad.addColorStop(1, band.color);
+      cctx.fillStyle = grad;
+      cctx.fill(band.path);
+    }
+
+    // 3) links (fg, α0.35)
+    cctx.strokeStyle = fgColor;
+    layer((b, a) => { cctx.globalAlpha = 0.35 * a; cctx.lineWidth = nsw; cctx.stroke(b.link); });
+
+    // 4) node dots (skip while moving — resolution cap)
+    if (!inMotion) {
+      layer((b, a) => { for (const [color, p] of b.nodesByColor) { cctx.globalAlpha = a; cctx.fillStyle = color; cctx.fill(p); } });
+    }
+
+    // 5) genome bars
+    layer((b, a) => { for (const [color, p] of b.barsByColor) { cctx.globalAlpha = a; cctx.fillStyle = color; cctx.fill(p); } });
+
+    // 6) unknown ring + separator
+    layer((b, a) => {
+      cctx.globalAlpha = 1 * a; cctx.fillStyle = '#fff'; cctx.fill(b.usgbWhite);
+      cctx.globalAlpha = 0.5 * a; cctx.fillStyle = '#000'; cctx.fill(b.usgbBlack);
+    });
+    cctx.globalAlpha = 1; cctx.strokeStyle = '#fff'; cctx.lineWidth = 2;
+    cctx.beginPath(); cctx.arc(0, 0, (geom.usgbInner + geom.usgbOuter) / 2, 0, Math.PI * 2); cctx.stroke();
+
+    // 7) western ring + separator
+    layer((b, a) => {
+      cctx.globalAlpha = 1 * a; cctx.fillStyle = '#fff'; cctx.fill(b.westWhite);
+      cctx.globalAlpha = 0.5 * a; cctx.fillStyle = '#000'; cctx.fill(b.westBlack);
+    });
+    cctx.globalAlpha = 1; cctx.strokeStyle = '#fff'; cctx.lineWidth = 2;
+    cctx.beginPath(); cctx.arc(0, 0, (geom.westInner + geom.westOuter) / 2, 0, Math.PI * 2); cctx.stroke();
+
+    // 8) selected-leaf emphasis. Drawn every frame (not gated on inMotion) so the
+    //    selected species stays lit while the wheel spins.
+    if (selLeaf) {
+      const theta = selLeaf.x - Math.PI / 2;
+      const cos = Math.cos(theta), sin = Math.sin(theta);
+      const cnt = selLeaf.data.metadata?.["#_Reconstructed_genomes"] || 0;
+      const rOut = geom.barInner + geom.barScale(cnt);
+      const px = 1 / (sBase * (m.k || 1)); // one CSS px in user units
+
+      // Full branch line (root → leaf), rebuilt only when the selection changes.
+      if (selLeaf.leafId !== selLinkLeafId) {
+        selLinkLeafId = selLeaf.leafId;
+        selLinkPath = geom.line ? new Path2D(geom.line(selLeaf.ancestors().reverse())) : null;
+      }
+
+      // Spoke path (leaf node → bar tip), extending the branch outward.
+      const spoke = new Path2D();
+      spoke.moveTo(cos * selLeaf.y, sin * selLeaf.y);
+      spoke.lineTo(cos * rOut, sin * rOut);
+
+      // Line casing: a dark halo separates the highlight from the surrounding
+      // pale links so the selected species reads clearly even in a dense bundle.
+      cctx.globalAlpha = 1;
+      cctx.strokeStyle = backgroundColor;
+      cctx.lineWidth = 5 * px;
+      if (selLinkPath) cctx.stroke(selLinkPath);
+      cctx.stroke(spoke);
+
+      // Bright core on top.
+      cctx.strokeStyle = '#fff';
+      cctx.lineWidth = 2 * px;
+      if (selLinkPath) cctx.stroke(selLinkPath);
+      cctx.stroke(spoke);
+
+      // Leaf node dot with a dark ring, matching the casing treatment.
+      const nx = cos * selLeaf.y, ny = sin * selLeaf.y;
+      cctx.beginPath(); cctx.arc(nx, ny, 5, 0, Math.PI * 2);
+      cctx.fillStyle = '#fff'; cctx.fill();
+      cctx.lineWidth = 1.5 * px; cctx.strokeStyle = backgroundColor; cctx.stroke();
+    }
+
+    // 9) fixed selection marker at screen right-center (3 o'clock from disk centre)
+    cctx.setTransform(1, 0, 0, 1, 0, 0);
+    cctx.globalAlpha = 1;
+    const cxDev = m.e, cyDev = m.f;
+    const rimDev = geom.outerRadius * m.s;
+    const mx = cxDev + rimDev + 10 * dpr, my = cyDev;
+    cctx.fillStyle = '#fff';
+    cctx.beginPath();
+    cctx.moveTo(mx, my);
+    cctx.lineTo(mx + 16 * dpr, my - 9 * dpr);
+    cctx.lineTo(mx + 16 * dpr, my + 9 * dpr);
+    cctx.closePath();
+    cctx.fill();
+
+    // Report the marker's design-space position so App can draw a leader to the
+    // details panel. mx/my are device px; /dpr puts them in the canvas's own
+    // design px, and screenToDesign rebases the canvas origin onto the stage.
+    // (Marker is rotation-invariant, so only emit when it actually moves — zoom/pan/resize.)
+    const cr = canvasEl.getBoundingClientRect();
+    const origin = screenToDesign(cr.left, cr.top);
+    const markX = origin.x + (mx + 16 * dpr) / dpr;
+    const markY = origin.y + my / dpr;
+    if (Math.abs(markX - lastMarkerX) > 0.5 || Math.abs(markY - lastMarkerY) > 0.5) {
+      lastMarkerX = markX; lastMarkerY = markY;
+      dispatch('marker', { x: markX, y: markY });
+    }
+  }
+
+  function requestDraw() {
+    dirty = true;
+    if (!rafId) rafId = requestAnimationFrame(frameTick);
+  }
+
+  function frameTick() {
+    rafId = 0;
+    if (spinning && !dragging) {
+      rotationDeg = (rotationDeg + angVel + 360) % 360;
+      angVel *= FRICTION;
+      if (Math.abs(angVel) < MIN_ANGVEL) { angVel = 0; spinning = false; settle(); }
+      dirty = true;
+    }
+    if (dirty) {
+      dirty = false;
+      updateSelectionFromAngle();
+      if (svgElement) d3.select(svgElement).select('g.zoom-container')
+        .attr('transform', `${currentTransform} rotate(${rotationDeg || 0})`);
+      draw();
+    }
+    // Live details-panel update while animating (throttled to avoid HTML thrash)
+    if (spinning || dragging) {
+      const now = performance.now();
+      if (now - lastCommitT >= LIVE_COMMIT_MS) { lastCommitT = now; commitSelectionToPanel(); }
+      rafId = requestAnimationFrame(frameTick);
+    }
+  }
+
+  function settle() {
+    inMotion = false;
+    // Paint the final resting frame cheaply — at the current (motion) DPR and with
+    // the overlay still hidden — so the last frames of the spin stay smooth.
+    requestDraw();
+    commitSelectionToPanel();
+    // Defer the expensive finish (full-DPR re-render + label reveal/fade) until the
+    // wheel is visibly at rest. Doing it inline stutters the landing frame, and a
+    // brief post-stop load reads far better than jerky rotation.
+    scheduleFinish();
+  }
+
+  function scheduleFinish() {
+    cancelFinish();
+    finishTimer = setTimeout(finishSettle, FINISH_DELAY);
+  }
+
+  function cancelFinish() {
+    if (finishTimer) { clearTimeout(finishTimer); finishTimer = 0; }
+  }
+
+  function finishSettle() {
+    finishTimer = 0;
+    if (inMotion) return;      // a new spin/drag began during the delay — skip
+    resizeCanvas();            // upgrade the backing store to full DPR
+    requestDraw();             // sharp re-render now that we're at rest
+    showOverlay(true, true);   // labels/axis fade in (0.5s), no longer during motion
+  }
+
+  // The overlay (region/internal labels + bar axis) is hidden during motion. On
+  // settle, `fade` ramps its opacity 0→1 over 0.5s so labels don't pop in — most
+  // noticeable when zoomed in, where labels are dense.
+  function showOverlay(v, fade = false) {
+    if (!svgElement) return;
+    const g = d3.select(svgElement).select('g.zoom-container');
+    if (g.empty()) return;
+    g.interrupt(); // cancel any in-flight fade before re-hiding/re-showing
+    if (!v) {
+      g.style('display', 'none').style('opacity', null);
+    } else if (fade) {
+      g.style('display', null).style('opacity', 0)
+        .transition().duration(500).style('opacity', 1);
+    } else {
+      g.style('display', null).style('opacity', null);
+    }
+  }
+
+  // Phylum + internal labels only at the closest zoom — keeps them from popping on rotate.
+  function syncLabelZoom() {
+    if (!svgElement) return;
+    const show = zoomIdx === zoomLevels.length - 1;
+    const sel = d3.select(svgElement);
+    sel.select('g.region-labels').style('display', show ? null : 'none');
+    sel.select('g.internal-labels').style('display', show ? null : 'none');
+  }
+
+  // ── Center-leaf selection (angle math) ────────────────────────────────────
+  function nearestLeafByAngle(target) {
+    const arr = selectableByAngle;
+    const n = arr.length;
+    if (!n) return -1;
+    // binary search for first .x >= target
+    let lo = 0, hi = n;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid].x < target) lo = mid + 1; else hi = mid; }
+    const i1 = lo % n, i0 = (lo - 1 + n) % n;
+    const d1 = angDist(arr[i1].x, target), d0 = angDist(arr[i0].x, target);
+    return d0 <= d1 ? i0 : i1;
+  }
+  function angDist(a, b) { let d = Math.abs(a - b) % (2 * Math.PI); if (d > Math.PI) d = 2 * Math.PI - d; return d; }
+
+  function updateSelectionFromAngle() {
+    if (!selectableByAngle.length) return;
+    const rot = (rotationDeg || 0) * Math.PI / 180;
+    // a leaf at .x is drawn toward screen angle (.x - π/2 + rot); we want that = 0 (screen right)
+    let target = (Math.PI / 2 - rot) % (2 * Math.PI);
+    if (target < 0) target += 2 * Math.PI;
+    selIndex = nearestLeafByAngle(target);
+    selLeaf = selectableByAngle[selIndex] || null;
+  }
+
+  function commitSelectionToPanel() {
+    if (!selLeaf) return;
+    if (selLeaf.leafId === lastCommittedLeafId) return;
+    lastCommittedLeafId = selLeaf.leafId;
+    selectedLeafId = selLeaf.leafId;
+    connectorStart = null;
+    currentTooltipDatum = selLeaf;
+    showPanel(createTooltipHTML(selLeaf), selLeaf);
+  }
+
+  // ── Drag-to-spin + momentum ───────────────────────────────────────────────
+  function pointerAngleDeg(ev) {
+    // boxW/boxH and sBase are design px, so bring the pointer into that space
+    // first rather than mixing it with the screen-space rect.
+    const rect = vizAreaEl.getBoundingClientRect();
+    const s = elementScale(vizAreaEl, rect);
+    const px = (ev.clientX - rect.left) / s;
+    const py = (ev.clientY - rect.top) / s;
+    const cx = boxW / 2 + sBase * (currentTransform.x || 0);
+    const cy = boxH / 2 + sBase * (currentTransform.y || 0);
+    return Math.atan2(py - cy, px - cx) * 180 / Math.PI;
+  }
+
+  function onSpinPointerDown(ev) {
+    if (!geom) return;
+    if (ev.button != null && ev.button !== 0) return;
+    dragging = true; spinning = false; angVel = 0;
+    cancelFinish();  // abort any pending post-stop finish from a prior settle
+    inMotion = true; resizeCanvas(); showOverlay(false);
+    dragSamples = [{ a: pointerAngleDeg(ev), t: performance.now() }];
+    try { vizAreaEl.setPointerCapture?.(ev.pointerId); } catch {}
+    window.addEventListener('pointermove', onSpinPointerMove);
+    // pointercancel too: a touch the browser takes over mid-drag would
+    // otherwise leave the disk dragging with no finger on it.
+    window.addEventListener('pointerup', onSpinPointerUp);
+    window.addEventListener('pointercancel', onSpinPointerUp);
+    requestDraw();
+  }
+
+  function onSpinPointerMove(ev) {
+    if (!dragging) return;
+    const a = pointerAngleDeg(ev);
+    const prev = dragSamples[dragSamples.length - 1];
+    let delta = a - prev.a;
+    while (delta > 180) delta -= 360;
+    while (delta < -180) delta += 360;
+    rotationDeg = (rotationDeg + delta + 360) % 360;
+    dragSamples.push({ a, t: performance.now() });
+    if (dragSamples.length > 5) dragSamples.shift();
+    requestDraw();
+  }
+
+  function onSpinPointerUp() {
+    if (!dragging) return;
+    dragging = false;
+    window.removeEventListener('pointermove', onSpinPointerMove);
+    window.removeEventListener('pointerup', onSpinPointerUp);
+    window.removeEventListener('pointercancel', onSpinPointerUp);
+    const n = dragSamples.length;
+    if (n >= 2) {
+      const first = dragSamples[0], last = dragSamples[n - 1];
+      let dA = last.a - first.a;
+      while (dA > 180) dA -= 360;
+      while (dA < -180) dA += 360;
+      const dT = Math.max(1, last.t - first.t);
+      angVel = Math.max(-30, Math.min(30, (dA / dT) * 16)); // deg per ~16ms frame
+    } else angVel = 0;
+    if (Math.abs(angVel) >= MIN_ANGVEL) { spinning = true; requestDraw(); }
+    else settle();
   }
 
   function updateConnector() {
@@ -561,7 +939,7 @@
     const meta = d?.data?.metadata || {};
     const rec = +meta["#_Reconstructed_genomes"] || 0;
     const status = (parseUSGB(meta) === 'Yes') ? 'Unknown' : '—';
-    const geo = (parseWestern(meta) === 'western') ? 'Western' : (parseWestern(meta) === 'nonwestern' ? 'Non-Western' : '—');
+    const geo = (parseWestern(meta) === 'western') ? 'Westernized' : (parseWestern(meta) === 'nonwestern' ? 'Non-Westernized' : '—');
     const leaf = !d.children;
     const color = colorMapping[phylum] || colorMapping.Other;
     const glyphStroke = color;
@@ -578,145 +956,23 @@
       .radius(n => (yMax === yMin ? (rMin + rMax) / 2 : rMin + (n.y - yMin) / (yMax - yMin) * (rMax - rMin)));
     const glyphPath = glyphLine(chain);
 
-    // Summary text
+    // Summary text. The genome count already lives here ("includes N genomes"),
+    // so the old standalone "N genomes identified" meter was redundant and is
+    // dropped. The country-highlight action is an inline link right after the
+    // locations, so it reads as one sentence and keeps the panel compact.
     const loc = locationsFromMeta(meta, iso3ToName);
     const sgb = sgbLabel(d);
-    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> genomes within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.`;
+    const recWord = rec === 1 ? 'genome' : 'genomes';
+    const summary = `<b>${sgb}</b> includes <b>${rec.toLocaleString()}</b> ${recWord} within the <b>${phylum.replace(/_/g, ' ')}</b> phylum, identified from <b>${loc}</b>.`;
 
-    // Genome meter ticks
-    const maxTicks = 20;
-    const denom = Math.max(1, tickDenom);
-    const fraction = Math.min(1, rec / denom);
-    const targetTicks = Math.max((rec > 0 ? 1 : 0), fraction * maxTicks);
-    const ticksInt = Math.min(maxTicks, Math.round(targetTicks));
-
-    let ticksHTML = '';
-    for (let i = 0; i < maxTicks; i++) {
-      const filled = i < ticksInt ? 'filled' : '';
-      ticksHTML += `<span class="tick ${filled}" style="--tickColor: ${color}"></span>`;
-    }
-
-    return `
-      <div class="tip-header">
-        <div class="h-left">
-          <div class="title-block two-col">
-            <div class="title-row">
-              <span class="swatch" style="background:${color}"></span>
-              <div class="title">${sgb}</div>
-            </div>
-            <div class="subtitle">${phylum.replace(/_/g, ' ')}</div>
-            <div class="subtitle lineage">${lineage(d) || ''}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="summary">${summary}</div>
-
-      <div class="genome-meter">
-        <div class="ticks">${ticksHTML}</div>
-        <div class="num"><span class="val">${rec.toLocaleString()}</span> genomes identified</div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Status</div><div>${safe(status)}</div>
-        <div class="k">Geography</div><div>${safe(geo)}</div>
-      </div>
-
-      ${leaf && meta?.SGB_ID ? `<div class="actions">
-        <button data-act="highlight-countries" data-sgb="${meta.SGB_ID}">Highlight countries where this species is found →</button>
-      </div>` : ''}
-    `;
+    // The title / phylum / lineage / status-geo pairs are now composed
+    // graphically by the App (mini-glyph, breadcrumb chips, badge row, genome
+    // meter). The tooltip HTML keeps just the descriptive prose summary.
+    return `<div class="summary">${summary}</div>`;
   }
 
-  // Attach tooltip handlers
-  function attachTooltipHandlers(selection, accessor = (d) => d) {
-    selection
-      .classed('hover-target', true)
-      .on('mousemove', function (event, d) {
-        if (tooltipPinned) return;
-        const datum = accessor(d);
-        tooltipX = event.clientX;
-        tooltipY = event.clientY;
-        connectorStart = { x: event.clientX, y: event.clientY };
-        showPanel(createTooltipHTML(datum));
-        currentTooltipDatum = datum; // Track current datum
-        updateConnector();
-      })
-      .on('mouseover', function (event, d) {
-        d3.select(this).classed('is-hover', true);
-        const lid = this.getAttribute('data-leaf-id');
-        if (lid) toggleClassForLeaf(lid, 'is-hover', true);
-        if (!tooltipPinned) {
-          const datum = accessor(d);
-          showPanel(createTooltipHTML(datum));
-          currentTooltipDatum = datum; // Track current datum
-          connectorStart = { x: event.clientX, y: event.clientY };
-          updateConnector();
-        }
-      })
-      .on('mouseout', function () {
-        d3.select(this).classed('is-hover', false);
-        const lid = this.getAttribute('data-leaf-id');
-        if (lid) toggleClassForLeaf(lid, 'is-hover', false);
-        if (!tooltipPinned) {
-          showPanel('');
-          currentTooltipDatum = null; // Clear datum when hiding
-          connectorStart = null;
-          connectorEnd = null;
-        }
-      })
-      .on('click', function (event, d) {
-        const datum = accessor(d);
-        const lid = this.getAttribute('data-leaf-id');
-
-        if (tooltipPinned && currentTooltipDatum === datum) {
-          tooltipPinned = false;
-          clearSelected();
-          event.stopPropagation();
-          return;
-        }
-
-        tooltipPinned = true;
-        tooltipX = event.clientX;
-        tooltipY = event.clientY;
-        showPanel(createTooltipHTML(datum));
-        currentTooltipDatum = datum; // Track current datum
-        connectorStart = { x: event.clientX, y: event.clientY };
-        updateConnector();
-
-        if (lid) {
-          clearSelected();
-          selectedLeafId = lid;
-          toggleClassForLeaf(lid, 'is-selected', true);
-        }
-
-        event.stopPropagation();
-      });
-  }
-
-  // Helper functions
-  function toggleClassForLeaf(id, cls, on = true) {
-    if (id == null) return;
-    const svg = d3.select(svgElement);
-    svg.selectAll(`[data-leaf-id="${id}"]`).classed(cls, on);
-  }
-
-  function clearSelected() {
-    selectedLeafId = null;
-    const svg = d3.select(svgElement);
-    svg.selectAll('.is-selected').classed('is-selected', false);
-  }
-
-  function clearHighlight() {
-    highlightedSGBs = new Set();
-    crossHighlightActive = false;
-    const svg = d3.select(svgElement);
-    const g = svg.select('g.zoom-container');
-    g.classed('isolated', false);
-    g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
-      .attr('opacity', null)
-      .style('pointer-events', null);
-  }
+  // (Center-select drives selection now — per-mark tap handlers/hit layers were
+  // removed, and nothing clears the selection: a species is always selected.)
 
   // Filtering logic
   function leafMatchesFilters(leaf) {
@@ -730,9 +986,19 @@
       if (parseUSGB(leaf.data.metadata) !== 'No') return false;
     }
     if (westernFilter === 'western') {
-      if (!isWesternYes(leaf.data.metadata)) return false;
+      if (parseWestern(leaf.data.metadata) !== 'western') return false;
     } else if (westernFilter === 'nonwestern') {
-      if (!isWesternNo(leaf.data.metadata)) return false;
+      if (parseWestern(leaf.data.metadata) !== 'nonwestern') return false;
+    }
+    if (abundanceFilter === 'abundant') {
+      if (Number(leaf.data.metadata?.Sample_ID_Count) < ABUNDANT_MIN_SAMPLES) return false;
+    } else if (abundanceFilter === 'rare') {
+      if (Number(leaf.data.metadata?.Sample_ID_Count) > RARE_MAX_SAMPLES) return false;
+    }
+    if (geoFilter === 'widespread') {
+      if (Number(leaf.data.metadata?.Country_Count) < WIDESPREAD_MIN_COUNTRIES) return false;
+    } else if (geoFilter === 'concentrated') {
+      if (Number(leaf.data.metadata?.Country_Count) > CONCENTRATED_MAX_COUNTRIES) return false;
     }
     // Body site filter (best-effort; expects metadata.body_site)
     if (bodySiteFilter.size > 0) {
@@ -754,6 +1020,13 @@
       const allowed = studySgbMap[studyKey] || null;
       if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
     }
+    // Country filter (primary_countries.json SGB set per ISO3)
+    if (countryIso3) {
+      const sgbIdRaw = leaf?.data?.metadata?.SGB_ID;
+      const sgbId = sgbIdRaw == null ? null : Number(sgbIdRaw);
+      const allowed = countrySgbMap[countryIso3] || null;
+      if (allowed && (sgbId == null || !allowed.has(sgbId))) return false;
+    }
     return true;
   }
 
@@ -762,9 +1035,12 @@
       selectedPhyla.length > 0 ||
       unknownFilter !== 'all' ||
       westernFilter !== 'any' ||
+      abundanceFilter !== 'any' ||
+      geoFilter !== 'any' ||
       bodySiteFilter.size > 0 ||
       !!proxyKey ||
-      !!studyKey;
+      !!studyKey ||
+      !!countryIso3;
     if (!anyActive) return null;
 
     const leaves = cachedLeaves || root.leaves();
@@ -779,48 +1055,42 @@
 
   let filterRaf = null;
 
+  // Recompute keep-set → repartition canvas batches (kept vs dimmed) → dim overlay labels.
   function applyFiltersNow() {
     try {
       const { root, selections } = handles;
-      if (!root) {
-        return;
-      }
+      if (!root || !fullBatches) return;
 
       const keep = computeKeepSet(root);
-
-      function styleDim(sel, isKept, isLabel = false) {
-        return sel
-          .attr('opacity', d => isKept(d) ? 1 : (isLabel ? DIM_LABEL_OPACITY : DIM_OPACITY))
-          .style('pointer-events', d => isKept(d) ? null : 'none');
-      }
-
-      const svg = d3.select(svgElement);
-      const g = svg.select('g.zoom-container');
-
-      if (keep === null) {
-        g.classed('isolated', false);
-        Object.values(selections).forEach(sel => {
-          if (sel) {
-            sel.attr('opacity', null).style('pointer-events', null);
-          }
-        });
-        return;
-      }
-
-      g.classed('isolated', true);
-      styleDim(selections.nodes, d => keep.has(d));
-      styleDim(selections.internals, d => keep.has(d), true);
-      styleDim(selections.links, d => keep.has(d.target));
-      styleDim(selections.linkHits, d => keep.has(d.target));
-      styleDim(selections.bars, d => keep.has(d));
-      styleDim(selections.sgbLines, d => keep.has(d));
-      styleDim(selections.usgb, d => keep.has(d));
-      styleDim(selections.west, d => keep.has(d));
-      styleDim(selections.regions, d => keep.has(d));
-      styleDim(selections.labels, d => keep.has(d), true);
+      applyKeepSet(keep, selections);
+      // Selection is now restricted to the filter — re-snap the center leaf so a
+      // previously-selected (now excluded) leaf doesn't stay highlighted.
+      updateSelectionFromAngle();
+      commitSelectionToPanel();
+      requestDraw();
     } catch (err) {
       console.error('Failed to apply filters', err);
     }
+  }
+
+  // Shared by filters and URL cross-highlight: set the keep-set, partition batches, dim labels.
+  function applyKeepSet(keep, selections = handles.selections) {
+    keepSet = keep;
+    if (keep === null) {
+      // No filter: every leaf is selectable again.
+      selectableByAngle = leavesByAngle;
+      keepBatches = null; dimBatches = null;
+      if (selections?.internals) selections.internals.attr('opacity', null);
+      if (selections?.labels) selections.labels.attr('opacity', null);
+      return;
+    }
+    // Restrict center selection (rotation snapping) to leaves in the filter.
+    selectableByAngle = leavesByAngle.filter(l => keep.has(l));
+    const leaves = cachedLeaves || handles.root.leaves();
+    keepBatches = buildBatches(leaves.filter(l => keep.has(l)));
+    dimBatches = buildBatches(leaves.filter(l => !keep.has(l)));
+    if (selections?.internals) selections.internals.attr('opacity', d => keep.has(d) ? 1 : DIM_LABEL_OPACITY);
+    if (selections?.labels) selections.labels.attr('opacity', d => keep.has(d) ? 1 : DIM_LABEL_OPACITY);
   }
 
   function scheduleFilters() {
@@ -832,40 +1102,11 @@
     filterRaf = requestAnimationFrame(cb);
   }
 
-  // Handle tooltip actions
-  export function handleTooltipAction(event) {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-
-    const act = btn.getAttribute('data-act');
-    if (act === 'highlight-countries') {
-      const sgbId = parseInt(btn.getAttribute('data-sgb'), 10);
-      if (sgbId) {
-        const base = import.meta.env.BASE_URL;
-        window.location.href = `${base}src/anthromes/index.html?highlightSGB=${sgbId}`;
-      }
-    }
-  }
-
-
-  // Handle window click (unpin, clear selection, clear highlight)
+  // Handle window click (tapping away from the disk/rail repaints from filters)
   function handleWindowClick(event) {
     const target = event.target;
-    if (target.closest('#info-panel') || target.closest('.zoom-controls') || target.closest('.filter-rail') || target.closest('.control-circles')) return;
-
-    closePanel();
-    clearSelected();
-    clearHighlight();
-
-    // Clear URL parameters and cross-highlighting state
-    if (crossHighlightActive) {
-      crossHighlightActive = false;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGBs');
-      url.searchParams.delete('highlightSGB');
-      window.history.replaceState({}, '', url);
-      sessionStorage.removeItem('highlightSGBs');
-    }
+    // Ignore clicks on the disk itself — center-select owns the details panel now.
+    if (target.closest('.viz-area') || target.closest('#info-panel') || target.closest('.zoom-controls') || target.closest('.rail') || target.closest('.control-circles') || target.closest('.detail-modal') || target.closest('.info-modal')) return;
 
     scheduleFilters();
   }
@@ -875,9 +1116,6 @@
     if (event.key === 'Escape') {
       tooltipPinned = false;
       tooltipVisible = false;
-      currentTooltipDatum = null;
-      clearSelected();
-      clearHighlight();
       scheduleFilters();
     }
   }
@@ -895,9 +1133,12 @@
     selectedPhyla.length;
     unknownFilter;
     westernFilter;
+    abundanceFilter;
+    geoFilter;
     bodySiteFilter.size;
     proxyKey;
     studyKey;
+    countryIso3;
 
     scheduleFilters();
   });
@@ -905,7 +1146,7 @@
   // Lazy-load study SGB map only when a study filter is requested
   $effect(() => {
     if (!studyKey || studyLoaded) return;
-    fetch('/data/study_index.json')
+    fetch(`${import.meta.env.BASE_URL}data/study_index.json`)
       .then(res => res.ok ? res.json() : null)
       .then(json => {
         if (json) {
@@ -919,9 +1160,27 @@
       .catch(() => {});
   });
 
+  // Lazy-load per-country SGB map from primary_countries.json when a country is
+  // first selected. Falls back gracefully if the file isn't deployed yet.
+  $effect(() => {
+    if (!countryIso3 || countryLoaded) return;
+    fetch(`${import.meta.env.BASE_URL}data/primary_countries.json`)
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (json) {
+          Object.entries(json).forEach(([iso, val]) => {
+            countrySgbMap[iso] = new Set((val?.sgbs || []).map(Number));
+          });
+          countryLoaded = true;
+          applyFiltersNow();
+        }
+      })
+      .catch(() => {});
+  });
+
   onMount(() => {
     // Lazy-load proxy SGB map from public JSON
-    fetch('/data/proxy_samples.json')
+    fetch(`${import.meta.env.BASE_URL}data/proxy_samples.json`)
       .then(res => res.ok ? res.json() : null)
       .then(json => {
         if (json?.proxies) {
@@ -972,71 +1231,19 @@
 
     // Don't render here - let $effect handle it when taxonomyTree is set
 
-    // Check for cross-highlighting from URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const highlightSGBsParam = urlParams.get('highlightSGBs');
-    const highlightSGBParam = urlParams.get('highlightSGB');
-
-    if (highlightSGBsParam || highlightSGBParam) {
-      crossHighlightActive = true;
-
-      // Wait for taxonomy tree to load using polling
-      const checkTreeInterval = setInterval(() => {
-        if (taxonomyTree && handles.root) {
-          clearInterval(checkTreeInterval);
-
-          // Parse comma-separated SGB IDs (or single SGB ID).
-          // If sentinel 'session', read the full list from sessionStorage
-          // to avoid URI Too Long errors for large countries.
-          const resolvedSGBsParam = highlightSGBsParam === 'session'
-            ? (sessionStorage.getItem('highlightSGBs') || '')
-            : highlightSGBsParam;
-          const sgbIds = resolvedSGBsParam
-            ? resolvedSGBsParam.split(',').map(id => parseInt(id.trim(), 10))
-            : [parseInt(highlightSGBParam, 10)];
-
-          // Find ALL matching leaves
-          const leaves = handles.root.leaves();
-          const matchedLeaves = leaves.filter(leaf => {
-            const sgbId = leaf?.data?.metadata?.SGB_ID;
-            return sgbId && sgbIds.includes(sgbId);
-          });
-
-          if (matchedLeaves.length > 0) {
-            // Collect all ancestors to keep visible
-            const keep = new Set();
-            matchedLeaves.forEach(leaf => {
-              keep.add(leaf);
-              leaf.ancestors().forEach(a => keep.add(a));
-            });
-
-            // Dim non-highlighted nodes
-            const g = svg.select('g.zoom-container');
-            g.classed('isolated', true);
-            g.selectAll('.node, .link, .bar, .usgb, .western, .sgb-line')
-              .attr('opacity', datum => {
-                const nd = datum?.target ? datum.target : datum;
-                return keep.has(nd) ? 1 : 0.02;
-              })
-              .style('pointer-events', datum => {
-                const nd = datum?.target ? datum.target : datum;
-                return keep.has(nd) ? null : 'none';
-              });
-
-            // Make matched leaves bold
-            matchedLeaves.forEach(leaf => {
-              if (leaf.leafId != null) {
-                svg.selectAll(`[data-leaf-id="${leaf.leafId}"]`)
-                   .classed('is-selected', true);
-              }
-            });
-          }
-        }
-      }, 100);
-
-      // Safety timeout
-      setTimeout(() => clearInterval(checkTreeInterval), 10000);
+    // Keep the canvas backing store matched to the viz-area size
+    let ro = null;
+    if (vizAreaEl && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => { resizeCanvas(); requestDraw(); });
+      ro.observe(vizAreaEl);
     }
+
+    // Re-emit the marker position once the initial layout has fully settled
+    // (fonts/labels/rail content load after first draw), so App's leader starts correct.
+    requestAnimationFrame(() => {
+      lastMarkerX = -1; lastMarkerY = -1;
+      requestDraw();
+    });
 
     // Add event listeners
     window.addEventListener('click', handleWindowClick);
@@ -1046,12 +1253,22 @@
     return () => {
       window.removeEventListener('click', handleWindowClick);
       window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('pointermove', onSpinPointerMove);
+      if (ro) ro.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+      cancelFinish();
     };
   });
 </script>
 
 <div class="chart-container">
-  <div class="viz-area">
+  <div
+    class="viz-area"
+    bind:this={vizAreaEl}
+    onpointerdown={onSpinPointerDown}
+  >
+    <!-- Dense marks (canvas, roulette-spinnable). Sparse labels/axis are the SVG overlay on top. -->
+    <canvas bind:this={canvasEl} class="disk-canvas"></canvas>
     <svg bind:this={svgElement} id="chart" aria-label="Radial phylogenetic tree visualization" role="img">
     </svg>
   </div>
@@ -1075,14 +1292,24 @@
     overflow: visible;
     background: var(--bg);
     z-index: 1;
-    padding: 0 8px;
+    padding: 0 10px;
     box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    touch-action: none; /* let drag-to-spin own the gesture */
+  }
+
+  /* Canvas holds the ~30k dense marks; SVG overlay (labels/axis) sits on top. */
+  .disk-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    display: block;
   }
 
   svg {
+    position: absolute;
+    inset: 0;
     display: block;
     background: transparent;
     width: 100%;
@@ -1090,143 +1317,8 @@
     max-height: 100%;
     object-fit: contain;
     margin: 0 auto;
-  }
-
-  .circle-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-    transform: none;
-  }
-
-  .circle-btn.active {
-    background: var(--accent, rgba(255, 255, 255, 0.2));
-    border-color: var(--accent, rgba(255, 255, 255, 0.35));
-  }
-
-  .preset-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: center;
-  }
-
-  .chip {
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--fg);
-    padding: 6px 10px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease;
-  }
-
-  .chip:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.28);
-  }
-
-
-  .filter-stack {
-    position: absolute;
-    top: 72px;
-    right: 16px;
-    width: 28vw;
-    max-width: 340px;
-    min-width: 220px;
-    max-height: 72vh;
-    background: rgba(14, 11, 22, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 14px;
-    padding: 10px 12px;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
-    box-shadow: var(--shadow);
-    z-index: 11;
-    overflow: auto;
-  }
-
-  .panel-toggle {
-    position: absolute;
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: rgba(14, 11, 22, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: var(--fg);
-    font-weight: 700;
-    cursor: pointer;
-    z-index: 1001;
-    box-shadow: var(--shadow);
-  }
-
-  .panel-toggle.fab {
-    right: 24px;
-    bottom: 120px; /* stack above existing filter circle */
-  }
-
-  .filter-card {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 10px;
-  }
-
-  .card-title {
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 0.06em;
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  .pill-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: flex-start;
-  }
-
-  .pill-row.wrap {
-    flex-wrap: wrap;
-  }
-
-  .pill {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--fg);
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    border-radius: 999px;
-    padding: 10px 12px;
-    font-size: 12px;
-    cursor: pointer;
-    letter-spacing: 0.02em;
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
-  }
-
-  .pill:hover {
-    background: rgba(255, 255, 255, 0.14);
-    border-color: rgba(255, 255, 255, 0.28);
-    transform: translateY(-1px);
-  }
-
-  .pill.small {
-    padding: 6px 8px;
-    font-size: 11px;
-  }
-
-  .pill.active {
-    background: var(--accent, #8af);
-    color: var(--bg);
-    border-color: var(--accent, #8af);
-  }
-
-  .proxy-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 6px;
-    margin-top: 8px;
+    z-index: 2;
+    pointer-events: none; /* overlay is non-interactive; canvas/viz-area own pointers */
   }
 
   :global(.region-path) {
@@ -1289,26 +1381,14 @@
     font-size: 10px;
   }
 
+  /* Touch build: no hover cursor, no hover-only states — selection is by tap */
   :global(.hover-target) {
-    cursor: crosshair;
+    cursor: pointer;
   }
 
-  :global(.is-hover.link),
   :global(.is-selected.link) {
     stroke-opacity: 1;
-  }
-
-  :global(.is-hover.link) {
-    stroke-width: 1.2;
-  }
-
-  :global(.is-selected.link) {
     stroke-width: 2;
-  }
-
-  :global(.is-hover.sgb-line) {
-    stroke-width: 1.2;
-    opacity: 1;
   }
 
   :global(.is-selected.sgb-line) {
@@ -1316,20 +1396,9 @@
     opacity: 1;
   }
 
-  :global(.is-hover .node circle),
-  :global(.node.is-hover circle) {
-    r: 4;
-  }
-
   :global(.node.is-selected circle) {
     r: 5;
     stroke-width: 1;
-  }
-
-  :global(.bar.is-hover),
-  :global(.usgb.is-hover),
-  :global(.western.is-hover) {
-    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.7));
   }
 
   :global(.bar.is-selected),
@@ -1338,52 +1407,31 @@
     filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.9));
   }
 
-  /* Biomes-specific tooltip styles */
-  .biomes-tooltip {
-    position: fixed;
-    left: 0;
-    top: 0;
-    pointer-events: auto;
-    z-index: 10;
-    background: var(--panel);
-    color: var(--fg);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    max-width: 380px;
-    min-width: 260px;
-    padding: 12px 14px;
-    line-height: 1.45;
-  }
-
-  .biomes-tooltip.hidden {
-    display: none;
-  }
-
+  /* Detail-panel content styles (createTooltipHTML output, rendered in App .panel-content) */
 :global(.biomes-tooltip .tip-header) {
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10.2px;
+  margin-bottom: 10.2px;
 }
 
 :global(.biomes-tooltip .h-left) {
   display: flex;
-  gap: 8px;
+  gap: 10.2px;
   align-items: center;
 }
 
 :global(.biomes-tooltip .swatch) {
-  width: 12px;
-  height: 12px;
+  width: 15.4px;
+  height: 15.4px;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.45);
-    margin-top: 4px;
+    border: 1.3px solid rgba(255, 255, 255, 0.45);
+    margin-top: 5.1px;
   }
 
 :global(.biomes-tooltip .title) {
-  font-size: 16px;
+  font-size: 20.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -1391,21 +1439,21 @@
 :global(.biomes-tooltip .title-row) {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7.7px;
   min-width: 0;
 }
 
 :global(.biomes-tooltip .subtitle) {
-  font-size: 12px;
+  font-size: 15.4px;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 2.6px;
 }
 
 :global(.biomes-tooltip .title-block.two-col) {
   display: grid;
   grid-template-columns: 1fr auto;
-  column-gap: 8px;
-  row-gap: 2px;
+  column-gap: 10.2px;
+  row-gap: 2.6px;
   min-width: 0;
   align-items: center;
 }
@@ -1429,8 +1477,8 @@
 }
 
   :global(.biomes-tooltip .summary) {
-    font-size: 13px;
-    margin: 8px 0 6px;
+    font-size: 16.6px;
+    margin: 10.2px 0 7.7px;
   }
 
   :global(.biomes-tooltip .summary b) {
@@ -1440,11 +1488,11 @@
   :global(.biomes-tooltip .kv) {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 6px 12px;
-    margin-top: 6px;
-    font-size: 12px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.12);
-    padding-top: 8px;
+    gap: 7.7px 15.4px;
+    margin-top: 7.7px;
+    font-size: 15.4px;
+    border-top: 1.3px dashed rgba(255, 255, 255, 0.12);
+    padding-top: 10.2px;
   }
 
   :global(.biomes-tooltip .kv .k) {
@@ -1454,41 +1502,41 @@
   :global(.biomes-tooltip .actions) {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 8px;
+    gap: 10.2px;
+    margin-top: 10.2px;
   }
 
   :global(.biomes-tooltip button) {
     pointer-events: auto;
     background: #1d1a33;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1.3px solid rgba(255, 255, 255, 0.12);
     color: var(--fg);
-    border-radius: 8px;
-    padding: 6px 8px;
-    font-size: 12px;
+    border-radius: 10.2px;
+    padding: 7.7px 10.2px;
+    font-size: 15.4px;
     cursor: pointer;
   }
 
   :global(.biomes-tooltip .genome-meter) {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 6px;
+    gap: 10.2px;
+    margin-top: 7.7px;
   }
 
   :global(.biomes-tooltip .genome-meter .ticks) {
     display: flex;
-    gap: 2px;
+    gap: 2.6px;
     align-items: flex-end;
     flex-wrap: nowrap;
   }
 
   :global(.biomes-tooltip .genome-meter .tick) {
-    width: 6px;
-    height: 12px;
+    width: 7.7px;
+    height: 15.4px;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.25);
-    border-radius: 2px;
+    border: 1.3px solid rgba(255, 255, 255, 0.25);
+    border-radius: 2.6px;
   }
 
   :global(.biomes-tooltip .genome-meter .tick.filled) {
@@ -1497,7 +1545,7 @@
   }
 
   :global(.biomes-tooltip .genome-meter .num) {
-    font-size: 12px;
+    font-size: 15.4px;
     color: var(--muted);
     white-space: nowrap;
   }

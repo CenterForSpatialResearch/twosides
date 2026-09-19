@@ -13,6 +13,10 @@
  *   --quantization    Coordinate quantization grid size; larger (e.g., 1e5) snaps
  *                     to a coarser lattice, shrinking files but removing sub-arcsecond detail.
  *   --input/--output  Source GeoJSON folder and destination TopoJSON folder per profile.
+ *   --only            Comma-separated basenames (no extension) to convert, instead of
+ *                     every .geojson in --input. The admin-boundary sets live in one
+ *                     folder but need different --simplification values, so they are
+ *                     converted in groups; see 5_smooth_boundaries.py.
  */
 
 import fs from 'fs';
@@ -38,6 +42,10 @@ const outputDir = path.resolve(
   getArg('output', path.join(__dirname, '../public/topojson'))
 );
 const simplification = parseFloat(getArg('simplification', '0'));
+const only = getArg('only', '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const quantization = parseFloat(getArg('quantization', '1e5'));
 
 /**
@@ -86,11 +94,16 @@ function main() {
   // Get all GeoJSON files
   const geojsonFiles = fs.readdirSync(inputDir)
     .filter(f => f.endsWith('.geojson'))
+    .filter(f => only.length === 0 || only.includes(f.replace('.geojson', '')))
     .sort();
 
   if (geojsonFiles.length === 0) {
     console.log(`❌ No GeoJSON files found in ${inputDir}`);
-    console.log(`   Run: python3 1_extract_geojson.py first`);
+    if (only.length > 0) {
+      console.log(`   --only=${only.join(',')} matched nothing there`);
+    } else {
+      console.log(`   Run: python3 1_extract_geojson.py first`);
+    }
     return;
   }
 

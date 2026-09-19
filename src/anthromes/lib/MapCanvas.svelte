@@ -3,17 +3,297 @@
   import * as d3 from 'd3';
   import { geoTwoPointEquidistant } from 'd3-geo-projection';
   import * as topojson from 'topojson-client';
-  import { TOPO_PROFILE, USE_PIXEL_BOUNDARIES } from './constants.js';
+  import {
+    loadGrid, featuresForYear, historyForCell, meshForGrid, featureAt, featureIndex,
+    runsForYear, runBounds
+  } from './gridSource.js';
+  import { USE_PIXEL_BOUNDARIES } from './constants.js';
+  import { MAP_PROFILE, COUNTRY_SET, boundaryUrl } from '../../shared/mapProfile.js';
   import { formatYearLabel, parseYearString, sortYears } from './dataAdapter.js';
+  import { screenToDesign } from '../../shared/stage.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
+
+  // --- render batching -------------------------------------------------------
+  // Cells are drawn grouped by anthrome code rather than one at a time. Canvas
+  // state changes and colour parsing are per-batch instead of per-cell, so the
+  // ~21 legend codes cost 21 beginPath/fill/stroke cycles instead of 182,503 at
+  // 33km. The geometry still goes through d3.geoPath, so every projection stays
+  // correct — only the bookkeeping around it collapses.
+  const codeGroupCache = new WeakMap();   // FeatureCollection -> Map<code, Feature[]>
+
+  function groupByCode(fc) {
+    let groups = codeGroupCache.get(fc);
+    if (!groups) {
+      groups = new Map();
+      for (const f of fc.features) {
+        const code = f.properties?.a;
+        let bucket = groups.get(code);
+        if (!bucket) groups.set(code, (bucket = []));
+        bucket.push(f);
+      }
+      codeGroupCache.set(fc, groups);
+    }
+    return groups;
+  }
+
+  // rgba strings, memoised per colour+opacity so d3.color() runs once per code
+  // per draw style rather than once per cell.
+  const rgbaCache = new Map();
+  function rgbaFor(color, opacity) {
+    const key = `${color}|${opacity}`;
+    let out = rgbaCache.get(key);
+    if (out === undefined) {
+      const rgb = d3.color(color);
+      out = rgb ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})` : color;
+      rgbaCache.set(key, out);
+    }
+    return out;
+  }
+
+  // --- direct-projection fast path -------------------------------------------
+  // d3.geoPath costs ~2.8x the raw projection math it wraps: stream machinery,
+  // clipping, and adaptive resampling that subdivides every cell edge into ~10
+  // canvas ops instead of 5. Measured at 33km, one draw: 433ms of geoPath
+  // against 155ms to project the same corners directly.
+  //
+  // So this projects the rectangles itself. Crucially it subdivides each run's
+  // long edges at every column boundary rather than drawing corner to corner: a
+  // 64-column run spans 19.2 degrees at 33km, and the projection curves visibly
+  // across that, so a straight chord pulls the edge away from its neighbours and
+  // opens seams — worst exactly where one anthrome repeats across many cells.
+  // Subdividing puts the outline through the same projected vertices the
+  // per-cell path used, so adjacent runs and adjacent rows share them exactly
+  // and the tiling is seamless by construction.
+  //
+  // Within one cell the remaining difference from geoPath is the ~0.02px
+  // geodesic bow it would have resampled in — the same sub-pixel difference the
+  // grid hit-test accepts.
+  //
+  // What geoPath does that this cannot is clip. Raw projection(point) ignores
+  // clipAngle, so geometry straddling the projection's far rim would draw across
+  // the disc. Guarded two ways: runs are capped at 64 columns (MAX_RUN_COLS),
+  // and any run whose projected span exceeds maxEdgePx is dropped. The path is
+  // only used when the whole sphere is visible (clipAngle >= 180); anything
+  // narrower falls back to geoPath, which clips properly.
+  // `year` and `currentGeo` update independently, so confirm the manifest really
+  // covers this year rather than letting runsForYear throw mid-draw.
+  function canUseFastPath() {
+    return !!gridData && clipAngle >= 180 && gridData.yearIndex.has(year);
+  }
+
+  // --- cached map layer ------------------------------------------------------
+  // Panning does not refit the projection — only ctx.translate changes — so the
+  // emitted geometry is identical frame to frame. Rendering it once into an
+  // offscreen canvas turns a pan into a single drawImage, which costs the same
+  // at 50km as at 100km and is the only way panning gets cheap when zoomed out,
+  // where there is nothing for the viewport cull to remove.
+  //
+  // The offscreen holds PROJECTION-space content: offscreen pixel (0,0) is
+  // projection coordinate (ox, oy). Because draw() blits while still inside
+  // ctx.translate(pan), drawing it at (ox, oy) lands every pixel exactly where
+  // drawing directly would have.
+  let layerCanvas = null;
+  let layerOx = 0, layerOy = 0, layerKey = null;
+  const LAYER_MARGIN = 320;   // device px of slack, so small pans stay cached
+
+  // Everything that changes what the layer looks like. The projection is
+  // identified by its own parameters rather than object identity, since draw()
+  // rebuilds it on refit even when nothing visible changed.
+  function computeLayerKey(projection, dpr, circle) {
+    const t = projection.translate();
+    return [
+      gridData?.manifest?.profile, year, dpr, circle.r,
+      projection.scale(), t[0], t[1], clipAngle,
+      isolatedCellId, selectedCodes?.join(','),
+      Object.keys(legend || {}).length
+    ].join('|');
+  }
+
+  function layerCovers(cx, cy, r) {
+    if (!layerCanvas) return false;
+    return cx - r >= layerOx && cy - r >= layerOy &&
+           cx + r <= layerOx + layerCanvas.width &&
+           cy + r <= layerOy + layerCanvas.height;
+  }
+
+  // Cached result of fitExtent: the scale and translate that fit the land
+  // outline into the map circle. Keyed on everything the fit depends on —
+  // notably NOT the zoom, which is applied afterwards as a plain multiplier.
+  // currentMesh is compared by identity; gridSource caches one mesh per profile,
+  // so it is stable until the profile changes.
+  let fitCache = null;
+
+  function fittedBase(points, clipAngle, extent, mesh) {
+    const key = [
+      points[0][0], points[0][1], points[1][0], points[1][1],
+      clipAngle, extent[0][0], extent[0][1], extent[1][0], extent[1][1]
+    ].join(',');
+
+    if (fitCache && fitCache.key === key && fitCache.mesh === mesh) {
+      return fitCache;
+    }
+
+    const probe = geoTwoPointEquidistant(points[0], points[1]).clipAngle(clipAngle);
+    probe.fitExtent(extent, mesh);
+    fitCache = { key, mesh, scale: probe.scale(), translate: probe.translate() };
+    return fitCache;
+  }
+
+  // A coarse visibility mask over the grid, used to reject runs before spending
+  // any projection on them.
+  //
+  // This forward-projects a lattice of block corners rather than inverting the
+  // visible circle. Inversion was the wrong tool: projection.invert is undefined
+  // wherever the disc reaches past the edge of the projected world, and bailing
+  // on that put a hard cliff in the frame time — culling was simply off below
+  // zoom ~3 at a 2560px viewport, costing 274ms a frame where 57ms was
+  // available. Forward projection is defined everywhere, so the mask works at
+  // every zoom and pan.
+  //
+  // Cost is one projection per block corner: ~5,000 at 50km, under a
+  // millisecond, against the ~2,000 canvas operations each culled run avoids.
+  const CULL_BLOCK = 8;   // grid cells per block edge
+
+  function buildCullMask(projection, cx, cy, r, manifest) {
+    const { res, originX, originY, ncols, nrows } = manifest;
+    const bcols = Math.ceil(ncols / CULL_BLOCK);
+    const brows = Math.ceil(nrows / CULL_BLOCK);
+
+    // Corner lattice, shared between neighbouring blocks so each is projected once.
+    const lx = new Float64Array((bcols + 1) * (brows + 1));
+    const ly = new Float64Array((bcols + 1) * (brows + 1));
+    const ok = new Uint8Array((bcols + 1) * (brows + 1));
+    for (let br = 0; br <= brows; br++) {
+      const lat = originY - Math.min(br * CULL_BLOCK, nrows) * res;
+      for (let bc = 0; bc <= bcols; bc++) {
+        const lng = originX + Math.min(bc * CULL_BLOCK, ncols) * res;
+        const p = projection([lng, lat]);
+        const i = br * (bcols + 1) + bc;
+        if (p && Number.isFinite(p[0]) && Number.isFinite(p[1])) {
+          lx[i] = p[0]; ly[i] = p[1]; ok[i] = 1;
+        }
+      }
+    }
+
+    // A block counts as visible when its corner bbox meets the disc's bbox. The
+    // margin covers the slight bow of an edge between two corners — a block is
+    // 8 cells wide, where that bow is a fraction of a pixel — plus the stroke.
+    const margin = 8;
+    const visible = new Uint8Array(bcols * brows);
+    let anyVisible = false;
+    for (let br = 0; br < brows; br++) {
+      for (let bc = 0; bc < bcols; bc++) {
+        const i0 = br * (bcols + 1) + bc;
+        const i1 = i0 + 1;
+        const i2 = i0 + (bcols + 1);
+        const i3 = i2 + 1;
+        // A corner that will not project leaves the block's extent unknown;
+        // keep it rather than risk a hole.
+        if (!ok[i0] || !ok[i1] || !ok[i2] || !ok[i3]) {
+          visible[br * bcols + bc] = 1; anyVisible = true; continue;
+        }
+        const minX = Math.min(lx[i0], lx[i1], lx[i2], lx[i3]) - margin;
+        const maxX = Math.max(lx[i0], lx[i1], lx[i2], lx[i3]) + margin;
+        const minY = Math.min(ly[i0], ly[i1], ly[i2], ly[i3]) - margin;
+        const maxY = Math.max(ly[i0], ly[i1], ly[i2], ly[i3]) + margin;
+        if (maxX >= cx - r && minX <= cx + r && maxY >= cy - r && minY <= cy + r) {
+          visible[br * bcols + bc] = 1; anyVisible = true;
+        }
+      }
+    }
+    return anyVisible ? { visible, bcols, brows } : null;
+  }
+
+  // Scratch buffer for one run's outline, reused across runs to keep the draw
+  // allocation-free. A run of N columns needs 2*(N+1) points.
+  const runPts = new Float64Array(4 * (64 + 1) + 4);
+
+  function drawGridRuns(ctx, projection, dpr, opts) {
+    const { runs, legend, selectedSet, baseOpacity, lineWidth, maxEdgePx, cull, motion } = opts;
+    const { res, originX, originY } = gridData.manifest;
+    let dropped = 0;
+    let culled = 0;
+
+    ctx.lineWidth = lineWidth;
+    for (const [code, runArr] of runs) {
+      if (selectedSet && !selectedSet.has(code)) continue;
+
+      const style = rgbaFor(legend[code]?.color || '#ffffff', baseOpacity);
+      ctx.fillStyle = style;
+      ctx.strokeStyle = style;
+      ctx.beginPath();
+
+      for (let k = 0; k < runArr.length; k += 3) {
+        const row = runArr[k], c0 = runArr[k + 1], c1 = runArr[k + 2];
+        // Canonical boundary expressions: an ULP difference here between a row's
+        // south edge and the next row's north edge is a visible hairline seam.
+        const north = originY - row * res;
+        const south = originY - (row + 1) * res;
+
+        // Reject off-screen runs before spending a single projection on them.
+        // A run sits in one block row and spans a few block columns; it survives
+        // if any of those blocks is on screen.
+        if (cull) {
+          const br = (row / 8) | 0;
+          const bc0 = (c0 / 8) | 0;
+          const bc1 = (c1 / 8) | 0;
+          let anyVisible = false;
+          const base = br * cull.bcols;
+          for (let b = bc0; b <= bc1; b++) {
+            if (cull.visible[base + b]) { anyVisible = true; break; }
+          }
+          if (!anyVisible) { culled++; continue; }
+        }
+
+        // Walk the south edge east->west, then the north edge west->east,
+        // stopping at every column boundary. Same orientation as the Feature
+        // path, so winding is unchanged.
+        let n = 0;
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        let ok = true;
+
+        for (let col = c1 + 1; col >= c0 && ok; col--) {
+          const p = projection([originX + col * res, south]);
+          if (!p) { ok = false; break; }
+          runPts[n++] = p[0]; runPts[n++] = p[1];
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        }
+        for (let col = c0; col <= c1 + 1 && ok; col++) {
+          const p = projection([originX + col * res, north]);
+          if (!p) { ok = false; break; }
+          runPts[n++] = p[0]; runPts[n++] = p[1];
+          if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0];
+          if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1];
+        }
+
+        // NaN-safe: a non-finite point fails these comparisons too.
+        if (!ok || !(maxX - minX <= maxEdgePx) || !(maxY - minY <= maxEdgePx)) {
+          dropped++;
+          continue;
+        }
+
+        ctx.moveTo(runPts[0], runPts[1]);
+        for (let i = 2; i < n; i += 2) ctx.lineTo(runPts[i], runPts[i + 1]);
+        ctx.closePath();
+      }
+
+      ctx.fill();
+      // The stroke only covers the hairline seams antialiasing leaves between
+      // adjacent quads. It roughly doubles rasterisation, and during a transient
+      // (a focus animation) the seams are never on screen long enough to read.
+      if (!motion) ctx.stroke();
+    }
+    return { dropped, culled };
+  }
 
   let {
     width = 0,
     height = 0,
     innerRadiusPx = 0,
-    profile = TOPO_PROFILE,
+    profile = MAP_PROFILE,
     year = null,
     legend = {},
     yearDataLookup = new Map(),
@@ -26,9 +306,13 @@
     clipAngle = 180,
     mapReady = $bindable(false),
     showBoundaries = false,
-    debugMenuVisible = false,
-    mapPanX = 0,
-    mapPanY = 0,
+    mapPanX = $bindable(0),
+    mapPanY = $bindable(0),
+    mapScale = $bindable(1),
+    // Draw diagnostics, surfaced by the dev HUD.
+    mapDrawMs = $bindable(0),
+    mapLayerReused = $bindable(false),
+    mapDrawPhases = $bindable(null),
     tooltipVisible = $bindable(false),
     tooltipX = $bindable(0),
     tooltipY = $bindable(0),
@@ -37,8 +321,25 @@
     tooltipPinned = $bindable(false),
     showBarChart = $bindable(false),
     barChartData = $bindable(null),
+    // The isolated cell's raw history, { id, byYear: { year: code } }. The
+    // pixel ladder in the details panel plots one class per sampled year, so
+    // it needs the unmerged series rather than barChartData's merged periods.
+    cellSeries = $bindable(null),
     cellIsolated = $bindable(false),
     isolationReset = 0,
+    // Bindable: under strictCountryFocus, isolating a single cell is a
+    // finer-grained question than "show me this country", so a pixel click
+    // releases the country lock upward.
+    focusIso3 = $bindable(null),
+    // See WaffleChart: Option 1 makes the picked country the primary state.
+    strictCountryFocus = false,
+    // Option 1 renders the cell's country facts as a pill in the rail, so the
+    // detail HTML omits its key/value block and biomes cross-link.
+    compactCellDetail = false,
+    // Where the isolated cell currently sits, in DESIGN px, or null. Tracked
+    // continuously so the leader line follows the cell through pans and zooms
+    // instead of staying pinned to wherever the click happened to land.
+    isolatedPoint = $bindable(null),
   } = $props();
 
   let canvasEl = $state(null);
@@ -52,12 +353,15 @@
   let boundariesLoading = $state(false);
   let cellHistory = $state(null);
   let cellHistoryLoading = $state(false);
+  // Decoded grid blobs for the current profile, or null if this profile is still
+  // served as per-year TopoJSON. Holding both paths is what lets the two be
+  // compared on screen during the migration.
+  let gridData = $state(null);
   let countryData = $state(null);
   let countryDataLoading = $state(false);
   let iso3ToName = $state(new Map());
   const cache = new Map();
   const inFlight = new Map();
-  let draggingHandle = $state(false);
   let animRaf = null;
   let drawRaf = null;
   let drawScheduled = false;
@@ -65,7 +369,7 @@
   let initialDrawDone = $state(false);
   let isAnimating = $state(false);
 
-  // Cross-highlighting state
+  // Boundary-highlight state, driven entirely by the country picker.
   let highlightedCountries = $state(new Set());
   let crossHighlightActive = $state(false);
 
@@ -81,11 +385,25 @@
   let lastPointerMoveTime = 0;
   const POINTER_MOVE_THROTTLE = 16; // ~60fps
 
-  // Handle positions for the two-point projection controls
-  let handlePositions = $state([
-    { x: 0, y: 0, visible: false },
-    { x: 0, y: 0, visible: false }
-  ]);
+  /**
+   * Pointer event -> device px in the canvas backing store, which is what the
+   * projection works in.
+   *
+   * The stage transform means getBoundingClientRect() no longer matches the
+   * canvas's layout size, so scaling by dpr alone would be wrong. Going through
+   * the backing-store/rendered-box ratio absorbs both dpr and the stage scale in
+   * one step. mapPanX/Y are design px, so they still convert with dpr.
+   */
+  function pointerToDevice(e) {
+    const rect = canvasEl.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const sx = rect.width ? canvasEl.width / rect.width : dpr;
+    const sy = rect.height ? canvasEl.height / rect.height : dpr;
+    return {
+      x: (e.clientX - rect.left) * sx - (mapPanX || 0) * dpr,
+      y: (e.clientY - rect.top) * sy - (mapPanY || 0) * dpr
+    };
+  }
 
   // Resize canvas to device pixel ratio
   function resizeCanvas() {
@@ -131,6 +449,10 @@
       ctx.stroke();
     }
 
+    // Recomputed on every overlay paint — which is every pan, zoom and year
+    // change — so the leader line always points at the cell as it is now.
+    updateIsolatedPoint(circle, dpr);
+
     if (hoveredFeature && hoveredFeature !== isolatedFeature) {
       ctx.beginPath();
       path(hoveredFeature);
@@ -140,6 +462,42 @@
     }
 
     ctx.restore();
+  }
+
+  /**
+   * Publish the isolated cell's centre in design px, or null when there is no
+   * cell (or it has been panned outside the disk, where a leader pointing at it
+   * would leave the map). The overlay draws with the pan applied as a canvas
+   * translate, so the same offset has to be added here by hand.
+   */
+  function updateIsolatedPoint(circle, dpr) {
+    if (!isolatedFeature || !projection) {
+      if (isolatedPoint !== null) isolatedPoint = null;
+      return;
+    }
+    const centroid = d3.geoPath(projection).centroid(isolatedFeature);
+    if (!Number.isFinite(centroid?.[0]) || !Number.isFinite(centroid?.[1])) {
+      if (isolatedPoint !== null) isolatedPoint = null;
+      return;
+    }
+    const x = centroid[0] / dpr + (mapPanX || 0);
+    const y = centroid[1] / dpr + (mapPanY || 0);
+    const dx = x - circle.cx;
+    const dy = y - circle.cy;
+    if (dx * dx + dy * dy > circle.r * circle.r) {
+      if (isolatedPoint !== null) isolatedPoint = null;
+      return;
+    }
+    // Design px are what the leader overlay draws in; screenToDesign converts
+    // the canvas box, which is already design-space here, so only the stage
+    // offset of the canvas itself is needed.
+    const rect = overlayCanvasEl?.getBoundingClientRect();
+    if (!rect) return;
+    const s = rect.width ? rect.width / Math.max(1, width) : 1;
+    const p = screenToDesign(rect.left + x * s, rect.top + y * s);
+    if (!isolatedPoint || Math.abs(isolatedPoint.x - p.x) > 0.5 || Math.abs(isolatedPoint.y - p.y) > 0.5) {
+      isolatedPoint = p;
+    }
   }
 
   const POINT_EPS = 1e-6;
@@ -160,7 +518,7 @@
   // Route all redraws through a single rAF so rapid reactive updates collapse to one paint
   function scheduleDraw() {
     if (drawScheduled) return;
-    if (!currentGeo || draggingHandle) return;
+    if (!currentGeo) return;
     if (isAnimating) return;
     if (width <= 0 || height <= 0 || innerRadiusPx <= 0) return;
 
@@ -184,7 +542,9 @@
       mapReady = false;
       return;
     }
-    const key = `${profile}:${targetYear}`;
+    // The set is in the key because each cell feature carries properties.c —
+    // the country it belongs to — and that is what the set decides.
+    const key = `${profile}:${COUNTRY_SET}:${targetYear}`;
     if (cache.has(key)) {
       const cached = cache.get(key);
       currentGeo = cached.geo;
@@ -203,25 +563,37 @@
     const fetchPromise = (async () => {
       performance.mark('topo-load-start');
       const base = import.meta.env.BASE_URL;
-      const url = `${base}topojson/${profile}/${targetYear}.topojson`;
 
       try {
         mapReady = false;
-        const res = await fetch(url, { cache: 'no-cache' });
-        if (!res.ok) {
-          throw new Error(`Failed to load ${url} (${res.status})`);
+
+        // Grid profiles fetch their blobs once, then every year is assembled
+        // locally — no per-year request. Profiles without a grid manifest fall
+        // through to the original per-year TopoJSON path.
+        let geo, mesh;
+        const grid = await tryLoadGrid(profile);
+        if (grid) {
+          geo = featuresForYear(grid, targetYear);
+          mesh = meshForGrid(grid);
+        } else {
+          const url = `${base}topojson/${profile}/${targetYear}.topojson`;
+          const res = await fetch(url, { cache: 'no-cache' });
+          if (!res.ok) {
+            throw new Error(`Failed to load ${url} (${res.status})`);
+          }
+
+          const text = await res.text();
+          const topo = JSON.parse(text);
+
+          const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
+          if (!objKey || !topo.objects[objKey]) {
+            throw new Error(`TopoJSON missing objects at ${url}`);
+          }
+
+          geo = topojson.feature(topo, topo.objects[objKey]);
+          mesh = topojson.mesh(topo, topo.objects[objKey]);
         }
 
-        const text = await res.text();
-        const topo = JSON.parse(text);
-
-        const objKey = topo.objects ? Object.keys(topo.objects)[0] : null;
-        if (!objKey || !topo.objects[objKey]) {
-          throw new Error(`TopoJSON missing objects at ${url}`);
-        }
-
-        const geo = topojson.feature(topo, topo.objects[objKey]);
-        const mesh = topojson.mesh(topo, topo.objects[objKey]);
         cache.set(key, { geo, mesh });
         currentGeo = geo;
         currentMesh = mesh;
@@ -249,15 +621,21 @@
     }
   }
 
-  async function loadBoundaries() {
-    if (boundariesMesh || boundariesLoading) return;
+  // The set the loaded mesh came from. COUNTRY_SET is pinned here, so this only
+  // ever guards against a second load — but it keeps the swap honest if the set
+  // is ever moved back onto a switch.
+  let boundariesSet = null;
+
+  async function loadBoundaries(set = COUNTRY_SET) {
+    if (boundariesLoading) return;
+    if (boundariesMesh && boundariesSet === set) return;
     boundariesLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
       // Use pixel-snapped boundaries (matches anthrome grid) or smooth Natural Earth boundaries
       const url = USE_PIXEL_BOUNDARIES
-        ? `${base}topojson/admin-boundaries/${TOPO_PROFILE}/countries.topojson`
-        : `${base}topojson/admin-boundaries/countries-110m.topojson`;
+        ? `${base}topojson/admin-boundaries/${profile}/countries.topojson`
+        : boundaryUrl(base, set);
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
       if (!res.ok) {
@@ -270,6 +648,19 @@
       }
       boundariesMesh = topojson.mesh(topo, topo.objects[objKey]);
       boundariesGeo = topojson.feature(topo, topo.objects[objKey]);
+      boundariesSet = set;
+
+      // Backfill display names from the boundary features. iso3_names.json is
+      // hand-maintained and inherits the same ISO_A3 gap the boundaries had, so
+      // without this the tooltip prints a bare "FRA" for France. Existing
+      // entries win: that file carries the study's preferred short forms.
+      const named = new Map(iso3ToName);
+      for (const f of boundariesGeo.features) {
+        const id = f?.id ?? f?.properties?.id;
+        const name = f?.properties?.name;
+        if (id && name && !named.has(id)) named.set(id, name);
+      }
+      iso3ToName = named;
     } catch (err) {
       console.error('MapCanvas: Failed to load boundaries', err);
     } finally{
@@ -277,12 +668,44 @@
     }
   }
 
+  // Resolve a profile's grid blobs, remembering the result so a profile without
+  // a manifest doesn't re-request it on every year change.
+  // Every grid profile ships its whole series as blobs, so none of them needs
+  // the legacy per-profile cell-history JSON or the per-year TopoJSON fetch.
+  // MAP_PROFILE is one of these, so both legacy paths are inert here.
+  const GRID_PROFILES = new Set(['100km', '75km', '70km', '60km', '50km']);
+  // Keyed by profile AND set. Only one pair is ever requested here, but the key
+  // keeps a failed set from blacklisting the profile itself.
+  const gridMissing = new Set();
+  async function tryLoadGrid(p, set = COUNTRY_SET) {
+    const key = `${p}:${set}`;
+    if (gridMissing.has(key)) return null;
+    try {
+      const grid = await loadGrid(p, set);
+      gridData = grid;
+      return grid;
+    } catch (err) {
+      gridMissing.add(key);
+      if (gridData?.manifest?.profile === p) gridData = null;
+      return null;
+    }
+  }
+
+  // Grid profiles read history straight out of the codes blob — a strided read
+  // over data already in memory, so there is nothing to fetch. The separate
+  // cell-history JSON exists only for profiles still on the TopoJSON path; it is
+  // the same data transposed, which is why it reaches 166MB at 33km.
   async function loadCellHistory() {
-    if (cellHistory || cellHistoryLoading) return;
+    if (gridData || cellHistory || cellHistoryLoading) return;
+    // Grid profiles read history straight out of codes.bin, and only 100km ever
+    // had a cell-history JSON. Asking for one at 60km got the dev server's HTML
+    // fallback and a JSON parse error on every call. The gridData check above
+    // misses the window before the grid resolves, so gate on the profile too.
+    if (GRID_PROFILES.has(profile)) return;
     cellHistoryLoading = true;
     try {
       const base = import.meta.env.BASE_URL;
-      const url = `${base}data/cell-history-${TOPO_PROFILE}.json`;
+      const url = `${base}data/cell-history-${profile}.json`;
       const isDev = import.meta.env.DEV;
       const res = await fetch(url, { cache: isDev ? 'no-store' : 'force-cache' });
       if (!res.ok) {
@@ -294,6 +717,21 @@
     } finally {
       cellHistoryLoading = false;
     }
+  }
+
+  function getCellHistory(cellId) {
+    if (gridData) return historyForCell(gridData, cellId);
+    return cellHistory ? cellHistory[cellId] : null;
+  }
+
+  // Which cell is under a lng/lat. On a grid this is arithmetic — two divisions
+  // and a map lookup — instead of scanning every feature with d3.geoContains,
+  // which ran a spherical point-in-polygon test per cell on every pointer move.
+  // Profiles still on TopoJSON keep the scan.
+  function findCellAt(lnglat) {
+    if (!currentGeo) return null;
+    if (gridData) return featureAt(currentGeo, gridData, lnglat[0], lnglat[1]);
+    return currentGeo.features.find(f => d3.geoContains(f, lnglat)) || null;
   }
 
   async function loadCountryData() {
@@ -312,7 +750,10 @@
       countryData = new Map(Object.entries(await countryRes.json()));
 
       if (namesRes.ok) {
-        iso3ToName = new Map(Object.entries(await namesRes.json()));
+        // Merged, not assigned: the boundary backfill in loadBoundaries() may
+        // already have run, and these two resolve in either order. This file's
+        // names take precedence — they are the study's preferred short forms.
+        iso3ToName = new Map([...iso3ToName, ...Object.entries(await namesRes.json())]);
       }
     } catch (err) {
       console.error('MapCanvas: Failed to load country data', err);
@@ -321,22 +762,17 @@
     }
   }
 
-  function updateHandles(currentPoints = points) {
-    if (!projection || !currentPoints || currentPoints.length < 2) {
-      handlePositions = handlePositions.map(h => ({ ...h, visible: false }));
-      return;
-    }
-    const dpr = window.devicePixelRatio || 1;
-    const next = currentPoints.map(pt => {
-      const proj = projection(pt);
-      if (!proj) return { x: 0, y: 0, visible: false };
-      return { x: proj[0] / dpr + mapPanX, y: proj[1] / dpr + mapPanY, visible: true };
-    });
-    handlePositions = next;
-  }
+  // Set by the last draw: whether the map layer was blitted from cache rather
+  // than re-rendered. Surfaced in the dev HUD.
+  let lastLayerReused = false;
+  let lastDrawMs = 0;
 
   function draw(currentPoints = points, options = {}) {
-    const { projectionOverride = null, skipCache = false } = options;
+    const { projectionOverride = null, skipCache = false, motion = false } = options;
+    const drawStart = performance.now();
+    // Phase timestamps for the dev HUD. Guessing at where draw time goes has
+    // been wrong twice; this reports it instead.
+    const phaseT = { proj: 0, features: 0, boundaries: 0, handles: 0, overlay: 0 };
     if (!canvasEl || !currentGeo || !currentMesh) return;
     if (width <= 0 || height <= 0 || innerRadiusPx <= 0) return;
     if (!currentPoints || currentPoints.length < 2) return;
@@ -396,11 +832,17 @@
           [circle.cx * dpr + circle.r * dpr, circle.cy * dpr + circle.r * dpr]
         ];
         performance.mark('projection-fit-start');
-        // Use mesh (shared arcs) for bounds; fewer coords than full feature collection
-        nextProj.fitExtent(extent, currentMesh);
+        // fitExtent walks the whole land outline — 11,008 mesh segments at 50km,
+        // measured at ~45ms — and it ran on every refit, including a plain zoom
+        // change. But its result does NOT depend on the zoom: the code fits and
+        // only then multiplies the scale. So the fit is cached against the
+        // things it actually depends on (points, clip angle, mesh, extent), and
+        // a zoom change now just re-applies scale and translate.
+        const fit = fittedBase(currentPoints, clipAngle, extent, currentMesh);
         performance.mark('projection-fit-end');
         performance.measure('projection-fit', 'projection-fit-start', 'projection-fit-end');
-        nextProj.scale(nextProj.scale() * 0.98 * (zoom?.k || 1));
+        nextProj.scale(fit.scale * 0.98 * (zoom?.k || 1));
+        nextProj.translate(fit.translate);
         if (!skipCache) {
           projectionCache = {
             geo: currentGeo,
@@ -413,15 +855,10 @@
           };
         }
         projection = nextProj;
-        if (debugMenuVisible) {
-          console.debug('MapCanvas: refit projection', refitReason);
-        }
       } catch (err) {
         console.error('Projection error', err);
         return;
       }
-    } else if (debugMenuVisible) {
-      console.debug('MapCanvas: reuse projection cache');
     }
 
     projection = projectionOverride || projection || projectionCache?.projection;
@@ -429,6 +866,7 @@
     const panAbsY = Math.abs((mapPanY || 0) * dpr);
     projection.clipExtent([[-panAbsX, -panAbsY], [canvasEl.width + panAbsX, canvasEl.height + panAbsY]]);
     performance.mark('projection-create-end');
+    phaseT.proj = performance.now();
     performance.measure('projection-create', 'projection-create-start', 'projection-create-end');
 
     performance.mark('path-setup-start');
@@ -450,222 +888,191 @@
     performance.measure('path-setup', 'path-setup-start', 'path-setup-end');
 
     performance.mark('feature-render-start');
-    // Draw features directly (matches test-anthromes-d3.html approach)
-    if (showAll) {
-      for (let i = 0; i < currentGeo.features.length; i++) {
-        const feature = currentGeo.features[i];
-        const code = feature.properties?.a;
-        const cellId = feature.properties?.i;
-        const color = legend[code]?.color || '#ffffff';
+    // One path per anthrome code, not per cell. The stroke is what covers the
+    // hairline seams between adjacent cells, so it still runs — just once per
+    // batch, at the same width as before (1px showing all, 0.5px when filtered).
+    const selectedSet = showAll ? null : new Set(selectedCodes);
+    const lineWidth = (showAll ? 1 : 0.5) * dpr;
+    // Isolating a cell dims everything else to 10%; the isolated cell is drawn
+    // on its own afterwards so it can stay fully opaque.
+    const isolating = isolatedCellId !== null;
+    const baseOpacity = isolating ? 0.1 : 1.0;
 
-        // Determine opacity for isolate pixel feature
-        let opacity = 1.0;
-        if (isolatedCellId !== null && cellId !== isolatedCellId) {
-          opacity = 0.1; // 90% transparent
+    if (canUseFastPath()) {
+      // Runs already exclude nothing; the isolated cell is redrawn opaque below,
+      // and an opaque fill fully covers the dimmed one underneath.
+      // ctx.clip() runs on the circle BEFORE ctx.translate(pan), so in projection
+      // coordinates the visible disc sits at the circle centre minus the pan.
+      const discCx = (circle.cx - (mapPanX || 0)) * dpr;
+      const discCy = (circle.cy - (mapPanY || 0)) * dpr;
+      const discR = circle.r * dpr;
+
+      const key = computeLayerKey(projection, dpr, circle);
+      const reusable = key === layerKey && layerCovers(discCx, discCy, discR)
+        && !motion;
+
+      if (!reusable) {
+        // Cover the visible disc plus slack, in projection coordinates, so an
+        // ordinary drag stays inside what has already been rendered.
+        const size = Math.ceil(2 * discR + 2 * LAYER_MARGIN);
+        if (!layerCanvas || layerCanvas.width !== size || layerCanvas.height !== size) {
+          layerCanvas = document.createElement('canvas');
+          layerCanvas.width = size;
+          layerCanvas.height = size;
         }
+        layerOx = Math.round(discCx - discR - LAYER_MARGIN);
+        layerOy = Math.round(discCy - discR - LAYER_MARGIN);
 
-        // Parse color and apply opacity
-        const rgb = d3.color(color);
-        if (rgb) {
-          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-          ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-        } else {
-          ctx.fillStyle = color;
-          ctx.strokeStyle = color;
-        }
+        const lctx = layerCanvas.getContext('2d');
+        lctx.setTransform(1, 0, 0, 1, 0, 0);
+        lctx.clearRect(0, 0, layerCanvas.width, layerCanvas.height);
+        lctx.translate(-layerOx, -layerOy);
 
-        ctx.beginPath();
-        path(feature);
-        ctx.fill();
-        ctx.lineWidth = 1 * dpr;
-        ctx.stroke();
+        const cull = buildCullMask(
+          projection, discCx, discCy, discR + LAYER_MARGIN, gridData.manifest);
+
+        const { dropped, culled } = drawGridRuns(lctx, projection, dpr, {
+          runs: runsForYear(gridData, year),
+          legend,
+          selectedSet,
+          baseOpacity,
+          lineWidth,
+          maxEdgePx: Math.max(canvasEl.width, canvasEl.height),
+          cull,
+          motion
+        });
+
+        // A layer rendered mid-motion is deliberately lower fidelity, so do not
+        // let it be reused once the map settles.
+        layerKey = motion ? null : key;
       }
+
+      // Already inside ctx.translate(pan), so (layerOx, layerOy) is exactly where
+      // direct drawing would have put it — but the pan is fractional, and
+      // drawImage at a fractional offset resamples, which softens every cell
+      // edge. Nudge the blit so it lands on whole device pixels: the transform
+      // is translate-only at scale 1, so an integral offset is a pure copy.
+      // The cost is a sub-pixel shift of the layer, invisible next to the blur
+      // it avoids.
+      const panDX = (mapPanX || 0) * dpr;
+      const panDY = (mapPanY || 0) * dpr;
+      ctx.drawImage(
+        layerCanvas,
+        Math.round(layerOx + panDX) - panDX,
+        Math.round(layerOy + panDY) - panDY
+      );
+      lastLayerReused = reusable;
     } else {
-      const selectedSet = new Set(selectedCodes);
-      for (let i = 0; i < currentGeo.features.length; i++) {
-        const feature = currentGeo.features[i];
-        const code = feature.properties?.a;
-        if (!selectedSet.has(code)) continue;
+      ctx.lineWidth = lineWidth;
+      for (const [code, bucket] of groupByCode(currentGeo)) {
+        if (selectedSet && !selectedSet.has(code)) continue;
 
-        const cellId = feature.properties?.i;
-        const color = legend[code]?.color || '#ffffff';
-
-        // Determine opacity for isolate pixel feature
-        let opacity = 1.0;
-        if (isolatedCellId !== null && cellId !== isolatedCellId) {
-          opacity = 0.1; // 90% transparent
-        }
-
-        // Parse color and apply opacity
-        const rgb = d3.color(color);
-        if (rgb) {
-          ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-          ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-        } else {
-          ctx.fillStyle = color;
-          ctx.strokeStyle = color;
-        }
+        const style = rgbaFor(legend[code]?.color || '#ffffff', baseOpacity);
+        ctx.fillStyle = style;
+        ctx.strokeStyle = style;
 
         ctx.beginPath();
-        path(feature);
+        for (let i = 0; i < bucket.length; i++) {
+          const feature = bucket[i];
+          if (isolating && feature.properties.i === isolatedCellId) continue;
+          path(feature);
+        }
         ctx.fill();
-        ctx.lineWidth = 0.5 * dpr;
         ctx.stroke();
       }
     }
+
+    if (isolating) {
+      const isolated = featureIndex(currentGeo).get(isolatedCellId);
+      const code = isolated?.properties?.a;
+      if (isolated && (!selectedSet || selectedSet.has(code))) {
+        const style = rgbaFor(legend[code]?.color || '#ffffff', 1.0);
+        ctx.fillStyle = style;
+        ctx.strokeStyle = style;
+        ctx.beginPath();
+        path(isolated);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    phaseT.features = performance.now();
     performance.mark('feature-render-end');
     performance.measure('feature-render', 'feature-render-start', 'feature-render-end');
 
-    // Draw country boundaries overlay if enabled
+    // Draw country boundaries overlay if enabled. Base pass = mesh; primary
+    // highlight = 3-pass bold ring; range annotation = dashed white on top.
     if (showBoundaries && boundariesMesh) {
       performance.mark('boundaries-render-start');
 
-      // If cross-highlighting is active, render individual features with custom styling
+      ctx.beginPath();
+      path(boundariesMesh);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.setLineDash([]);
+      ctx.stroke();
+
+      // Primary highlight (picker-driven, single country): bold white ring
+      // with a black spacer + soft outer halo. Reads unmistakably.
       if (crossHighlightActive && highlightedCountries.size > 0 && boundariesGeo) {
-        for (let i = 0; i < boundariesGeo.features.length; i++) {
-          const feature = boundariesGeo.features[i];
-          const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
-
-          ctx.beginPath();
-          path(feature);
-
-          if (highlightedCountries.has(iso3)) {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 1)';
-            ctx.lineWidth = 3 * dpr;
-          } else {
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.lineWidth = 1 * dpr;
+        const passes = [
+          { style: 'rgba(255, 255, 255, 0.22)', width: 11 * dpr },
+          { style: 'rgba(0, 0, 0, 0.85)',       width: 7 * dpr  },
+          { style: 'rgba(255, 255, 255, 1)',    width: 4 * dpr  }
+        ];
+        for (const pass of passes) {
+          ctx.strokeStyle = pass.style;
+          ctx.lineWidth = pass.width;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.setLineDash([]);
+          for (const feature of boundariesGeo.features) {
+            const iso3 = feature.properties?.ISO_A3 || feature.properties?.iso_a3 || feature.properties?.id;
+            if (!highlightedCountries.has(iso3)) continue;
+            ctx.beginPath();
+            path(feature);
+            ctx.stroke();
           }
-
-          ctx.stroke();
         }
-      } else {
-        // Normal boundary rendering
-        ctx.beginPath();
-        path(boundariesMesh);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 1 * dpr;
-        ctx.stroke();
       }
 
+      phaseT.boundaries = performance.now();
       performance.mark('boundaries-render-end');
       performance.measure('boundaries-render', 'boundaries-render-start', 'boundaries-render-end');
     }
 
+    if (phaseT.boundaries === 0) phaseT.boundaries = phaseT.features;
     performance.mark('draw-cleanup-start');
     ctx.restore();
-    updateHandles(currentPoints);
     initialDrawDone = true;
     mapReady = true;
+    phaseT.handles = performance.now();
     drawOverlay();
+    phaseT.overlay = performance.now();
     performance.mark('draw-cleanup-end');
     performance.measure('draw-cleanup', 'draw-cleanup-start', 'draw-cleanup-end');
+
+    // Wall-clock cost of the whole draw, including rasterisation the JS-side
+    // benchmarks cannot see. Reported in the dev HUD.
+    lastDrawMs = performance.now() - drawStart;
+    mapDrawMs = lastDrawMs;
+    mapLayerReused = lastLayerReused;
+    mapDrawPhases = {
+      proj: (phaseT.proj || drawStart) - drawStart,
+      features: (phaseT.features || phaseT.proj || drawStart) - (phaseT.proj || drawStart),
+      boundaries: (phaseT.boundaries || phaseT.features || drawStart) - (phaseT.features || drawStart),
+      handles: (phaseT.handles || drawStart) - (phaseT.boundaries || drawStart),
+      overlay: (phaseT.overlay || drawStart) - (phaseT.handles || drawStart)
+    };
   }
 
-  function animateProjection(fromPts, toPts) {
-    if (!fromPts || !toPts || fromPts.length < 2 || toPts.length < 2) return;
-    if (animRaf) cancelAnimationFrame(animRaf);
-    if (drawRaf) {
-      cancelAnimationFrame(drawRaf);
-      drawRaf = null;
-      drawScheduled = false;
-    }
-    isAnimating = true;
-
-    const interp = [
-      d3.interpolateNumber(fromPts[0][0], toPts[0][0]),
-      d3.interpolateNumber(fromPts[0][1], toPts[0][1]),
-      d3.interpolateNumber(fromPts[1][0], toPts[1][0]),
-      d3.interpolateNumber(fromPts[1][1], toPts[1][1])
-    ];
-    const duration = 500;
-    const ease = t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-    const start = performance.now();
-
-    const dpr = window.devicePixelRatio || 1;
-    const circle = getCircle();
-    const extent = [
-      [circle.cx * dpr - circle.r * dpr, circle.cy * dpr - circle.r * dpr],
-      [circle.cx * dpr + circle.r * dpr, circle.cy * dpr + circle.r * dpr]
-    ];
-
-    // Start projection params
-    let startProj = projectionCache?.projection || projection;
-    if (!startProj) {
-      try {
-        startProj = geoTwoPointEquidistant(fromPts[0], fromPts[1]).clipAngle(clipAngle);
-        startProj.fitExtent(extent, currentMesh || currentGeo);
-        startProj.scale(startProj.scale() * 0.98 * (zoom?.k || 1));
-        startProj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
-      } catch (err) {
-        console.error('Projection error (start)', err);
-      }
-    }
-    const startScale = startProj?.scale() || 1;
-    const startTranslate = startProj?.translate ? startProj.translate() : [0, 0];
-
-    // Final projection params (heavy work once)
-    let finalProjection = null;
-    let endScale = startScale;
-    let endTranslate = startTranslate;
-    try {
-      const proj = geoTwoPointEquidistant(toPts[0], toPts[1]).clipAngle(clipAngle);
-      proj.fitExtent(extent, currentMesh || currentGeo);
-      proj.scale(proj.scale() * 0.98 * (zoom?.k || 1));
-      proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
-      finalProjection = proj;
-      endScale = proj.scale();
-      endTranslate = proj.translate();
-    } catch (err) {
-      console.error('Projection error (final)', err);
-    }
-
-    function step(now) {
-      const t = Math.min(1, (now - start) / duration);
-      const k = ease(t);
-      const pts = [
-        [interp[0](k), interp[1](k)],
-        [interp[2](k), interp[3](k)]
-      ];
-
-      // Build interpolated projection without running fitExtent every frame
-      const proj = geoTwoPointEquidistant(pts[0], pts[1]).clipAngle(clipAngle);
-      const lerpScale = startScale + (endScale - startScale) * k;
-      const lerpTx = startTranslate[0] + (endTranslate[0] - startTranslate[0]) * k;
-      const lerpTy = startTranslate[1] + (endTranslate[1] - startTranslate[1]) * k;
-      proj.scale(lerpScale);
-      proj.translate([lerpTx, lerpTy]);
-      proj.clipExtent([[0, 0], [canvasEl.width, canvasEl.height]]);
-
-      draw(pts, { projectionOverride: proj, skipCache: true });
-      if (t < 1) {
-        animRaf = requestAnimationFrame(step);
-      } else {
-        animRaf = null;
-        points = toPts;
-        if (finalProjection) {
-          projectionCache = {
-            geo: currentGeo,
-            points: toPts.map(p => [...p]),
-            clipAngle,
-            circle: { ...circle },
-            zoomK: zoom?.k || 1,
-            dpr,
-            projection: finalProjection
-          };
-          projection = finalProjection;
-          draw(toPts, { projectionOverride: finalProjection, skipCache: false });
-        } else {
-          draw(toPts);
-        }
-        isAnimating = false;
-      }
-    }
-
-    animRaf = requestAnimationFrame(step);
-  }
-
-  function handlePointerMove(e) {
+  /**
+   * `ignoreFilter` is set only by the click path under the 8/21 rules, where a
+   * cell click restores every anthrome anyway (App watches cellSeries). Without
+   * it, clicking a cell whose class the filter currently hides would bail out
+   * below and leave the panel with a ladder chart and no head — isolated, but
+   * unnamed and unleadered.
+   */
+  function handlePointerMove(e, ignoreFilter = false) {
     // Throttle pointer move events (but not when manually triggered from click)
     if (e.type === 'pointermove') {
       const now = performance.now();
@@ -681,17 +1088,14 @@
       }
       return;
     }
-    const rect = canvasEl.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
-    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
+    const { x, y } = pointerToDevice(e);
     const lnglat = projection.invert([x, y]);
     if (!lnglat) {
       tooltipVisible = false;
       return;
     }
 
-    const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
+    const feature = findCellAt(lnglat);
     if (!feature) {
       hoveredFeature = null;
       drawOverlay();
@@ -701,7 +1105,7 @@
     }
 
     const code = feature.properties?.a;
-    if (selectedCodes?.length) {
+    if (!ignoreFilter && selectedCodes?.length) {
       const selectedSet = new Set(selectedCodes);
       if (!selectedSet.has(code)) {
         hoveredFeature = null;
@@ -715,11 +1119,42 @@
     hoveredFeature = feature;
     drawOverlay();
 
+    // Only update position if not pinned or if manually called from click.
+    // Design px: this position ends up as the leader line's start point, which
+    // is drawn in the design-space overlay.
+    if (!tooltipPinned || e.type !== 'pointermove') {
+      const p = screenToDesign(e.clientX, e.clientY);
+      tooltipX = p.x;
+      tooltipY = p.y;
+    }
+
+    const detail = buildFeatureDetail(feature);
+    if (!detail) return;
+    tooltipMeta = detail.meta;
+    tooltipContent = detail.html;
+    tooltipVisible = true;
+  }
+
+  /**
+   * The rail's copy for one map feature at the current year: a head (swatch +
+   * name), the "In <year>, <anthrome> covers ..." sentence, and — for the older
+   * arrangements — a key/value block plus the cross-link to biomes.
+   *
+   * Option 1 drops that block (compactCellDetail): App renders the same country
+   * facts as a pill above the head, in the format the country and world scales
+   * already use, so all three read identically.
+   *
+   * Split out of handlePointerMove because the isolated cell has to be restated
+   * whenever the YEAR changes — its anthrome is a function of the year, so
+   * scrubbing time with a cell open must rewrite the panel, not stale it.
+   */
+  function buildFeatureDetail(feature) {
+    const code = feature?.properties?.a;
+    if (code == null) return null;
+
     const legendEntry = legend[code];
     const label = legendEntry?.label || 'Unknown';
     const color = legendEntry?.color || '#ffffff';
-    const areaSr = d3.geoArea(feature);
-    const areaKm2 = areaSr * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
     const yearEntry = yearDataLookup?.get?.(year);
     const percent = yearEntry?.percentages?.[String(code)];
     const percentDisplay = percent != null ? `${percent.toFixed(2)}%` : '—';
@@ -727,11 +1162,8 @@
     const globalAreaDisplay = globalAreaKm2 != null ? `${Math.round(globalAreaKm2).toLocaleString()} km²` : '—';
     const yearLabel = formatYearLabel(year) || '';
     const countryISO3 = feature.properties?.c || null;
-
-    // Lookup crosswalk data for this country
     const crosswalk = countryData?.get(countryISO3);
 
-    // Calculate westernized percentage
     let westPercent = 0;
     if (crosswalk) {
       const westYes = crosswalk.westernized_counts?.Yes || 0;
@@ -740,38 +1172,43 @@
       westPercent = westTotal > 0 ? ((westYes / westTotal) * 100).toFixed(1) : 0;
     }
 
-    // Only update position if not pinned or if manually called from click
-    if (!tooltipPinned || e.type !== 'pointermove') {
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
-    }
+    const meta = {
+      color,
+      label,
+      year: yearLabel,
+      code,
+      // Present-day country of this cell, for App's scope pill.
+      countryIso3: countryISO3,
+      countryName: countryISO3
+        ? iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3
+        : null
+    };
 
-    tooltipMeta = { color, label, year: yearLabel, code };
-    tooltipContent = `
+    const kvBlock = compactCellDetail || !(countryISO3 || crosswalk) ? '' : `
+      <div class="kv">
+        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${meta.countryName}</div>` : ''}
+        ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
+        ${crosswalk ? `<div class="k">Percent of "Westernized" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
+      </div>`;
+
+    const html = `
       <div class="tip-head">
         <span class="chip" style="background:${color}"></span>
         <div>
           <div class="title">${label}</div>
-          <div class="subtitle">Year ${yearLabel}</div>
+          <div class="subtitle">Year ${yearLabel}${
+            // The country IS the click target, so name it before the click
+            // rather than only after. compactCellDetail hides the kv block
+            // that would otherwise carry it.
+            meta.countryName ? ` &middot; ${meta.countryName}` : ''
+          }</div>
         </div>
       </div>
       <div class="summary">In <b>${yearLabel}</b>, <b>${label}</b> covers <b>${globalAreaDisplay}</b>, or <b>${percentDisplay}</b> of the Earth's surface.</div>
-      <div class="kv">
-        <div class="k">${label} total in ${yearLabel}</div><div>${globalAreaDisplay}</div>
-        <div class="k">${label} share in ${yearLabel}</div><div>${percentDisplay}</div>
-        ${countryISO3 ? `<div class="k">Present Day Country</div><div>${iso3ToName.get(countryISO3) || crosswalk?.country || countryISO3}</div>` : ''}
-        ${crosswalk ? `<div class="k">Number of samples from this country</div><div>${crosswalk.samples_total || 0}</div>` : ''}
-        ${crosswalk ? `<div class="k">Percent of "Western" lifestyles in sampled persons</div><div>${westPercent}%</div>` : ''}
-      </div>
-      ${crosswalk && crosswalk.sgbs && crosswalk.sgbs.length > 0 ? `
-        <div class="actions">
-          <button data-act="highlight-biomes" data-sgbs="${crosswalk.sgbs.join(',')}">
-            Highlight gut microbes found in this country →
-          </button>
-        </div>
-      ` : ''}
+      ${kvBlock}
     `;
-    tooltipVisible = true;
+
+    return { html, meta };
   }
 
   function handlePointerLeave() {
@@ -956,6 +1393,7 @@
     cellIsolated = false;
     showBarChart = false;
     barChartData = null;
+    cellSeries = null;
     tooltipPinned = false;
     tooltipVisible = false;
     tooltipMeta = null;
@@ -971,103 +1409,104 @@
 
     // Clear cross-highlighting only — isolation/tooltip/chart are closed via
     // isolationReset signal from App so the full state clears together.
+    //
+    // Under strictCountryFocus, clicking dead space outside the disk must
+    // leave the picked country highlighted and its ring in place.
+    if (strictCountryFocus && focusIso3) return;
     if (crossHighlightActive) {
       highlightedCountries = new Set();
       crossHighlightActive = false;
-      const url = new URL(window.location.href);
-      url.searchParams.delete('highlightSGB');
-      window.history.replaceState({}, '', url);
     }
+  }
+
+  // Is a point from pointerToDevice inside the visible disc?
+  //
+  // pointerToDevice subtracts the pan, so it hands back PROJECTION coordinates,
+  // and the disc has to be expressed in the same space: the clip runs before
+  // ctx.translate(pan), so the visible disc sits at the circle centre MINUS the
+  // pan. Same expression as discCx/discCy in the fast path.
+  //
+  // Without the pan term this is only correct while the map is unpanned. Once
+  // auto-framing moved the map, every click inside the visible disc tested as
+  // outside it, so selecting a third country silently did nothing until Reset
+  // zeroed the pan.
+  function isInsideDisk(x, y) {
+    const circle = getCircle();
+    if (!(circle.r > 0)) return false;
+    const dpr = window.devicePixelRatio || 1;
+    const dx = x - (circle.cx - (mapPanX || 0)) * dpr;
+    const dy = y - (circle.cy - (mapPanY || 0)) * dpr;
+    const r = circle.r * dpr;
+    return dx * dx + dy * dy <= r * r;
+  }
+
+  // Option 1: the map's click target is the country, not the pixel.
+  //
+  // One assignment does the whole job. focusIso3 is bindable and App binds it to
+  // selectedCountryIso3, so the boundary highlight, the ?country= param, the
+  // waffle ring's distribution and the details panel all follow from it —
+  // exactly the state a country circle produces.
+  function selectCountryAt(x, y, lnglat) {
+    // A pixel is never isolated under this option; clear anything an earlier
+    // option left open.
+    clearAll();
+
+    // Outside the disk is chrome, not ocean. The canvas fills its whole
+    // container, so without this a click in the rail gutter would land here and
+    // contradict handleGlobalClick, which deliberately protects a country
+    // selection from dead-space clicks under strictCountryFocus.
+    if (!isInsideDisk(x, y)) return;
+
+    const feature = lnglat ? findCellAt(lnglat) : null;
+    const iso3 = feature?.properties?.c ?? null;
+
+    // Ocean, ice, Antarctica, and the few land cells Natural Earth leaves
+    // unattributed: clicking there is how you deselect.
+    if (!iso3 || iso3 === focusIso3) {
+      focusIso3 = null;
+      focusPanApplied = null;
+      return;
+    }
+
+    // Selecting a country frames it, wherever the selection came from — map or
+    // circle. Leaving focusPanApplied alone is what lets applyFocusFraming treat
+    // this as a first pass and zoom.
+    focusIso3 = iso3;
+  }
+
+  // Where the pointer went down, so a drag can be told from a click. The pan
+  // gesture lives in WaffleChart and leaves the canvas's own click intact, so
+  // without this every pan ended in a selection change.
+  //
+  // Screen px on purpose: this is about how far the finger or mouse physically
+  // travelled, and clientX/Y are already in that space — converting to design px
+  // would make the slop shrink and grow with the stage scale. 8px is past mouse
+  // jitter and inside what a touch tap drifts on a large display.
+  const CLICK_SLOP_PX = 8;
+  let pointerDownAt = null;
+
+  function handleCanvasPointerDown(e) {
+    pointerDownAt = { x: e.clientX, y: e.clientY };
   }
 
   function handleCanvasClick(e) {
     if (!projection || !currentGeo) return;
 
-    const rect = canvasEl.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const x = (e.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
-    const y = (e.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
+    const down = pointerDownAt;
+    pointerDownAt = null;
+    if (down) {
+      const ddx = e.clientX - down.x;
+      const ddy = e.clientY - down.y;
+      if (ddx * ddx + ddy * ddy > CLICK_SLOP_PX * CLICK_SLOP_PX) return;
+    }
+
+    const { x, y } = pointerToDevice(e);
     const lnglat = projection.invert([x, y]);
-    if (!lnglat) {
-      clearAll();
-      return;
-    }
 
-    const feature = currentGeo.features.find(f => d3.geoContains(f, lnglat));
-    if (!feature) {
-      clearAll();
-      return;
-    }
-
-    const cellId = feature.properties?.i;
-
-    // If clicking the same cell that's already isolated, clear everything
-    if (isolatedCellId === cellId) {
-      clearAll();
-      return;
-    }
-
-    // Otherwise, pin the tooltip and isolate this cell
-    if (cellId != null) {
-      isolatedCellId = cellId;
-      cellIsolated = true;
-      isolatedFeature = feature;
-      drawOverlay();
-      tooltipPinned = true;
-      // Tooltip position is set by handlePointerMove
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
-      // Manually trigger tooltip content update
-      handlePointerMove(e);
-
-      // Get historical data for this cell
-      if (cellHistory && cellHistory[cellId]) {
-        const history = cellHistory[cellId];
-        barChartData = processHistoryData(history);
-        showBarChart = true;
-      }
-    } else {
-      showBarChart = false;
-      barChartData = null;
-    }
-  }
-
-  function startHandleDrag(idx, event) {
-    if (!projection) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = canvasEl.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    draggingHandle = true;
-    const startPoints = points.map(p => [...p]);
-
-    function onMove(ev) {
-      const x = (ev.clientX - rect.left) * dpr - (mapPanX || 0) * dpr;
-      const y = (ev.clientY - rect.top) * dpr - (mapPanY || 0) * dpr;
-      const inv = projection.invert([x, y]);
-      if (!inv) return;
-      const next = [...points];
-      next[idx] = inv;
-      points = next;
-      // Update handle position live without reprojecting map
-      const proj = projection(inv);
-      if (proj) {
-        handlePositions = handlePositions.map((h, i) => i === idx
-          ? { x: proj[0] / dpr, y: proj[1] / dpr, visible: true }
-          : h
-        );
-      }
-    }
-
-    function onUp() {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      draggingHandle = false;
-      animateProjection(startPoints, points);
-    }
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    // The click target is the COUNTRY, not the pixel: touching anywhere on
+    // land selects that cell's country, the same end state a country circle
+    // reaches.
+    selectCountryAt(x, y, lnglat);
   }
 
   onMount(() => {
@@ -1081,9 +1520,12 @@
     };
   });
 
-  // Reload data when year or profile changes
+  // Reload data when the year changes. `profile` is read here (not just inside
+  // loadYearData) so a resolution change would actually refetch — the tile cache
+  // is keyed by profile:set:year, and the set half of that key is pinned.
   $effect(() => {
     if (!year) return;
+    profile;
 
     untrack(() => {
       (async () => {
@@ -1132,27 +1574,210 @@
     }
   });
 
-  // Clear isolation when filtering changes
+  // Country picker: selecting a country strokes its boundary.
+  // NOTE: we no longer reset pan/scale here on clear — that decision belongs
+  // to the parent App, which distinguishes "picker deselect" (reset view)
+  // from "pan-cleared" (keep the panned view).
+  let focusPanApplied = $state(null); // last ISO3 we've panned/zoomed for
   $effect(() => {
-    if (selectedCodes?.length) {
-      isolatedCellId = null;
-      isolatedFeature = null;
-      untrack(() => drawOverlay());
+    if (focusIso3) {
+      highlightedCountries = new Set([focusIso3]);
+      crossHighlightActive = true;
+    } else if (crossHighlightActive && highlightedCountries.size <= 1) {
+      highlightedCountries = new Set();
+      crossHighlightActive = false;
+      focusPanApplied = null;
+      focusNeedsCorrection = false;
     }
   });
 
-  // Load boundaries when toggled on
+  // Zoom + pan the map to the selected country's boundary. Runs whenever the
+  // focus target changes or the projection first becomes available for that
+  // target (initial mount case). Uses the country's canvas-projected centroid
+  // and bbox to compute the pan needed to center it, and a scale that fills
+  // roughly 55% of the inner circle. Nothing happens for URL-param highlights
+  // (multi-country) — they keep the current view.
   $effect(() => {
-    if (showBoundaries && !boundariesMesh && !boundariesLoading) {
-      loadBoundaries();
+    focusIso3;
+    projection;
+    boundariesGeo;
+    innerRadiusPx;
+    untrack(() => applyFocusFraming());
+  });
+
+  // Set once the first pass has moved the map; the next projection rebuild then
+  // gets one corrective pass. See the note in applyFocusFraming.
+  let focusNeedsCorrection = false;
+
+  function applyFocusFraming() {
+    if (!focusIso3 || !projection || !boundariesGeo || innerRadiusPx <= 0) return;
+    const firstPass = focusPanApplied !== focusIso3;
+    if (!firstPass && !focusNeedsCorrection) return;
+
+    const feature = boundariesGeo.features.find(f => {
+      const id = f?.id ?? f?.properties?.id ?? f?.properties?.iso_a3 ?? f?.properties?.ISO_A3;
+      return id === focusIso3;
+    });
+    if (!feature) return;
+
+    const centroid = d3.geoCentroid(feature);
+    if (!Number.isFinite(centroid?.[0])) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const circle = getCircle();
+
+    const projected = projection(centroid);
+    if (!projected) return;
+    const pxDesign = projected[0] / dpr;
+    const pyDesign = projected[1] / dpr;
+
+    // Bounds are in canvas coords (dpr); span in design px.
+    //
+    // Measure with clipping OFF. The live projection carries a clipExtent sized
+    // to the current pan, so a country outside the current view projects to an
+    // empty bounds of [[Inf,Inf],[-Inf,-Inf]] — and the Math.max(1, ...) below
+    // silently turned that into a 1px span, a huge multiplier, and a maximal
+    // zoom. Focusing China after Tanzania hit exactly this: China fell wholly
+    // outside the clip window, so it framed at 7 instead of 2.02. The framing
+    // needs the whole country's extent, not the visible part of it.
+    const savedClip = projection.clipExtent();
+    let bounds;
+    try {
+      projection.clipExtent(null);
+      bounds = d3.geoPath(projection).bounds(feature);
+    } finally {
+      projection.clipExtent(savedClip);
+    }
+    const [[minX, minY], [maxX, maxY]] = bounds;
+
+    // An unclipped bounds should always be finite; if it isn't, the geometry is
+    // degenerate and any scale derived from it would be nonsense. Leave the view
+    // alone rather than snapping to a wrong one.
+    if (!Number.isFinite(minX) || !Number.isFinite(maxX) ||
+        !Number.isFinite(minY) || !Number.isFinite(maxY)) return;
+
+    // Centre on the projected BOUNDING BOX rather than the spherical centroid —
+    // they agree for compact countries but not for China (the western bulge
+    // drags the centroid off the shape's visual middle) or the USA (Alaska lifts
+    // the box well above it). The box is what the eye reads as centred.
+    //
+    // BOTH passes anchor on this same point. When the first pass predicted the
+    // centroid and the second measured the box, the difference between them
+    // showed up as a visible drift a frame or two after the click — the second
+    // pass was correcting the first rather than confirming it.
+    const boxCx = (minX + maxX) / 2 / dpr;
+    const boxCy = (minY + maxY) / 2 / dpr;
+    // A country straddling the antimeridian can project to a box spanning the
+    // whole plane; fall back to the centroid, which is computed on the sphere
+    // and has no such seam.
+    const boxSane =
+      Number.isFinite(boxCx) && Number.isFinite(boxCy) &&
+      (maxX - minX) / dpr < circle.r * 4 && (maxY - minY) / dpr < circle.r * 4;
+    const anchorX = boxSane ? boxCx : pxDesign;
+    const anchorY = boxSane ? boxCy : pyDesign;
+
+    // Second pass: the projection has now been rebuilt at the target scale, so
+    // the country's position is a measurement rather than a prediction. With the
+    // first pass anchored on the same box centre this should be a no-op; it
+    // stays as a safety net for clamped scales and odd shapes.
+    if (!firstPass) {
+      mapPanX = circle.cx - anchorX;
+      mapPanY = circle.cy - anchorY;
+      focusNeedsCorrection = false;
+      return;
+    }
+
+    const spanPx = Math.max(1, Math.max(maxX - minX, maxY - minY)) / dpr;
+    const targetDiameter = circle.r * 2 * 0.55;
+    const scaleMultiplier = spanPx > 0 ? targetDiameter / spanPx : 1;
+    const currentScale = mapScale || 1;
+    const nextScale = Math.max(1, Math.min(7, currentScale * scaleMultiplier));
+
+    // Predict where that anchor lands at the new scale. Every projected point
+    // scales about the projection's translate, so the bounds box — and its
+    // centre — moves the same way, which makes this prediction exact rather
+    // than approximate. The fixed point of a
+    // scale change is the projection's TRANSLATE, not the circle centre: draw()
+    // runs fitExtent (which sets translate so the whole world's bbox centres in
+    // the circle) and only then multiplies the scale, leaving translate alone.
+    // Those two points differ — the world's projected bbox centre is not the
+    // circle centre — so centring on the circle instead put every country off
+    // by that constant, which is why the miss always leaned the same way.
+    const [tx, ty] = projection.translate();
+    const txDesign = tx / dpr;
+    const tyDesign = ty / dpr;
+    const scaleRatio = nextScale / currentScale;
+    const predictedX = txDesign + (anchorX - txDesign) * scaleRatio;
+    const predictedY = tyDesign + (anchorY - tyDesign) * scaleRatio;
+
+    // Batch all three writes; Svelte flushes them in one tick so only one draw
+    // runs downstream instead of a scale-draw-refit-effect-pan-draw chain.
+    mapScale = nextScale;
+    mapPanX = circle.cx - predictedX;
+    mapPanY = circle.cy - predictedY;
+    focusPanApplied = focusIso3;
+    // The refit that follows gives this effect one more run; take it as a
+    // chance to correct any residue (odd-shaped countries, clamped scale).
+    focusNeedsCorrection = true;
+  }
+
+  // Load boundaries when toggled on, and reload them when the country set
+  // changes — the overlay geometry and the grid's country codes come from the
+  // same shapefile and have to be swapped together, or a cell's code resolves
+  // against the wrong set's ids and every dependency stops highlighting.
+  $effect(() => {
+    const set = COUNTRY_SET;
+    if (showBoundaries && !boundariesLoading && boundariesSet !== set) {
+      loadBoundaries(set);
     }
   });
 
-  // Load cell history on mount (needed for historical bar chart)
+  // Load cell history on mount (needed for historical bar chart). No-ops for
+  // grid profiles, which serve history from the codes blob already in memory.
   $effect(() => {
-    if (!cellHistory && !cellHistoryLoading) {
+    if (!gridData && !cellHistory && !cellHistoryLoading) {
       loadCellHistory();
     }
+  });
+
+  // Switching resolution invalidates everything keyed to the old grid: cell ids
+  // are per-profile, so an isolated cell would point at a different patch of
+  // land, and the cell history file has to be refetched for the new grid.
+  let loadedHistoryProfile = null;
+  $effect(() => {
+    const p = profile;
+    untrack(() => {
+      if (loadedHistoryProfile === null) { loadedHistoryProfile = p; return; }
+      if (loadedHistoryProfile === p) return;
+      loadedHistoryProfile = p;
+      clearAll();
+      cellHistory = null;
+      cellHistoryLoading = false;
+      gridData = null;
+      loadCellHistory();
+    });
+  });
+
+  // An isolated cell's anthrome is a function of the year, so scrubbing time
+  // has to restate the panel rather than leave last year's reading in place.
+  // currentGeo is a new object for each year; re-find the same cell id in it.
+  $effect(() => {
+    year;
+    currentGeo;
+    untrack(() => {
+      if (isolatedCellId == null || !currentGeo) return;
+      const next = currentGeo.features.find(f => f.properties?.i === isolatedCellId);
+      if (!next) return;
+      isolatedFeature = next;
+      const detail = buildFeatureDetail(next);
+      if (detail) {
+        tooltipMeta = detail.meta;
+        tooltipContent = detail.html;
+        tooltipVisible = true;
+        tooltipPinned = true;
+      }
+      drawOverlay();
+    });
   });
 
   // Clear all isolation state when isolationReset signal increments
@@ -1174,36 +1799,13 @@
   // processHistoryData still uses it with a safe fallback when 0.
   const timelineHeightPx = 0;
 
-  // Handle cross-highlighting from URL parameter
-  $effect(() => {
-    if (!countryData) return;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const highlightSGB = urlParams.get('highlightSGB');
-
-    if (highlightSGB) {
-      const sgbId = parseInt(highlightSGB, 10);
-      const matchingCountries = [];
-
-      for (const [iso3, data] of countryData.entries()) {
-        if (data.sgbs && data.sgbs.includes(sgbId)) {
-          matchingCountries.push(iso3);
-        }
-      }
-
-      highlightedCountries = new Set(matchingCountries);
-      crossHighlightActive = matchingCountries.length > 0;
-    }
-  });
-
 </script>
 
 <div class="map-layer" style={`width:${width}px;height:${height}px;`}>
   <canvas
     bind:this={canvasEl}
     aria-label="Anthromes map"
-    onpointermove={handlePointerMove}
-    onpointerleave={handlePointerLeave}
+    onpointerdown={handleCanvasPointerDown}
     onclick={handleCanvasClick}
   ></canvas>
 
@@ -1212,21 +1814,6 @@
     class="overlay-canvas"
     aria-hidden="true"
   ></canvas>
-
-  {#if debugMenuVisible}
-    <div class="handles">
-      {#each handlePositions as h, idx}
-        {#if h.visible}
-          <div
-            class="handle"
-            style={`left:${h.x}px; top:${h.y}px;`}
-            title={`Projection point ${idx === 0 ? 'A' : 'B'}`}
-            onpointerdown={(e) => startHandleDrag(idx, e)}
-          ></div>
-        {/if}
-      {/each}
-    </div>
-  {/if}
 
   {#if loading}
     <div class="loading">Loading map…</div>
@@ -1260,29 +1847,6 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-  }
-
-  .handles {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  .handle {
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: #ffffff;
-    border: 3px solid #0e0b16;
-    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
-    transform: translate(-50%, -50%);
-    cursor: grab;
-    pointer-events: auto;
-  }
-
-  .handle:active {
-    cursor: grabbing;
   }
 
   .loading {

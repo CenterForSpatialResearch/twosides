@@ -1,1 +1,4 @@
 public/topojson/**/*.topojson filter=lfs diff=lfs merge=lfs -text
+# Grid-format map data: one binary bundle per resolution profile, all 76 years.
+# manifest.json stays a normal tracked file so the profile is readable in diffs.
+public/grid/**/*.bin filter=lfs diff=lfs merge=lfs -text
