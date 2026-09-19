@@ -1376,7 +1376,7 @@
     let bounds;
     try {
       projection.clipExtent(null);
-      bounds = d3.geoPath(projection).bounds(feature);
+      bounds = framedBounds(feature);
     } finally {
       projection.clipExtent(savedClip);
     }
@@ -1399,12 +1399,21 @@
     // pass was correcting the first rather than confirming it.
     const boxCx = (minX + maxX) / 2 / dpr;
     const boxCy = (minY + maxY) / 2 / dpr;
-    // A country straddling the antimeridian can project to a box spanning the
-    // whole plane; fall back to the centroid, which is computed on the sphere
-    // and has no such seam.
+    // A single polygon straddling the projection's seam would still project to a
+    // box spanning the whole plane (framedBounds only drops whole pieces); fall
+    // back to the centroid, which is computed on the sphere and has no seam.
+    //
+    // The limit is in radians of arc — box span over projection.scale() — so it
+    // reads the same at every zoom. It used to be a pixel limit (4 x the disk
+    // radius), which the box outgrows simply by being zoomed in: from zoom 7 the
+    // USA measured just over 4 radii, so the first pass fell back to the centroid while
+    // the second, measured at the new zoom, passed and used the box. The map
+    // settled on one point and then visibly jumped to the other.
+    const projScale = projection.scale();
     const boxSane =
       Number.isFinite(boxCx) && Number.isFinite(boxCy) &&
-      (maxX - minX) / dpr < circle.r * 4 && (maxY - minY) / dpr < circle.r * 4;
+      (maxX - minX) / projScale < FOCUS_BOX_MAX_RAD &&
+      (maxY - minY) / projScale < FOCUS_BOX_MAX_RAD;
     const anchorX = boxSane ? boxCx : pxDesign;
     const anchorY = boxSane ? boxCy : pyDesign;
 
@@ -1450,7 +1459,76 @@
     focusPanApplied = focusIso3;
     // The refit that follows gives this effect one more run; take it as a
     // chance to correct any residue (odd-shaped countries, clamped scale).
-    focusNeedsCorrection = true;
+    // Only a scale change refits. Without one (two small countries in a row,
+    // both clamped to 7) the flag would sit armed until some later, unrelated
+    // rebuild and re-centre the map under the user then.
+    focusNeedsCorrection = nextScale !== currentScale;
+  }
+
+  // Widest box the framing will trust, in radians of arc along either axis.
+  // The widest real one is France with its overseas departments at 2.2; a box
+  // split by the seam starts at 3.2.
+  const FOCUS_BOX_MAX_RAD = 2.6;
+  // A piece counts as across the seam when it projects this many times further
+  // from the main polygon than it is on the sphere. Across all 242 features the
+  // honest ratios top out at 2.0 and the split ones start at 4.0.
+  const FOCUS_SEAM_RATIO = 3;
+
+  // The spherical facts about a feature's polygons: projection-independent, so
+  // measured once per feature. Largest first.
+  const focusPartsCache = new WeakMap();
+  function focusParts(feature) {
+    let parts = focusPartsCache.get(feature);
+    if (parts) return parts;
+    const g = feature.geometry;
+    const polygons = g?.type === 'MultiPolygon' ? g.coordinates
+      : g?.type === 'Polygon' ? [g.coordinates] : [];
+    parts = polygons.map(coordinates => {
+      const geometry = { type: 'Polygon', coordinates };
+      return { geometry, area: d3.geoArea(geometry), centroid: d3.geoCentroid(geometry) };
+    }).sort((a, b) => b.area - a.area);
+    focusPartsCache.set(feature, parts);
+    return parts;
+  }
+
+  // Projected bounds of the part of a country that can be framed together: its
+  // largest polygon plus every other polygon on the same side of the seam.
+  //
+  // The two-point equidistant projection has a seam — the arc between the
+  // antipodes of its two control points, which runs through the Southern Ocean
+  // south of Tasmania and across New Zealand's waters. Land either side of it
+  // lands on opposite rims of the map. Australia's Macquarie Island is across
+  // it: the mainland draws at the top of the disk and the island at the bottom,
+  // so the country's box was the full height of the world, the framing scale
+  // clamped to 1, and selecting Australia left the map at world level. New
+  // Zealand (Auckland, Campbell and Chatham Islands) did the same.
+  //
+  // No view can hold both sides, so frame the side the country is on. Both
+  // distances scale together with the zoom, so the test reads the same at any.
+  function framedBounds(feature) {
+    const path = d3.geoPath(projection);
+    const parts = focusParts(feature);
+    const main = parts[0];
+    const mainXY = main && projection(main.centroid);
+    if (!mainXY || parts.length < 2) return path.bounds(feature);
+
+    const scale = projection.scale();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const part of parts) {
+      if (part !== main) {
+        const xy = projection(part.centroid);
+        if (!xy) continue;
+        const planar = Math.hypot(xy[0] - mainXY[0], xy[1] - mainXY[1]);
+        const onSphere = d3.geoDistance(part.centroid, main.centroid) * scale;
+        if (planar > FOCUS_SEAM_RATIO * onSphere) continue;
+      }
+      const [[x0, y0], [x1, y1]] = path.bounds(part.geometry);
+      if (x0 < minX) minX = x0;
+      if (y0 < minY) minY = y0;
+      if (x1 > maxX) maxX = x1;
+      if (y1 > maxY) maxY = y1;
+    }
+    return [[minX, minY], [maxX, maxY]];
   }
 
   // Load boundaries when toggled on, and reload them when the country set
