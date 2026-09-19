@@ -8,7 +8,8 @@
   import { feature as topoFeature } from 'topojson-client';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
-  import ArcLabel from '../shared/ArcLabel.svelte';
+  import ControlBar from '../shared/ControlBar.svelte';
+  import InfoModal from '../shared/InfoModal.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
@@ -767,24 +768,18 @@
         <!-- Top tier: large control circles, spread across the full rail width
              with an arced caption hung off the LEFT of each bubble (mirroring
              the biomes rail, which captions to the right). -->
-        <div class="control-circles">
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-            <ArcLabel text="Info" side="left" />
-          </div>
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={zoomOut} disabled={zoomLevel <= ZOOM_LEVELS[0]} aria-disabled={zoomLevel <= ZOOM_LEVELS[0]}>−</button>
-            <ArcLabel text="Zoom Out" side="left" />
-          </div>
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetView}>◎</button>
-            <ArcLabel text="Reset" side="left" />
-          </div>
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={zoomIn} disabled={zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} aria-disabled={zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}>＋</button>
-            <ArcLabel text="Zoom In" side="left" />
-          </div>
-        </div>
+        <ControlBar
+          side="left"
+          items={[
+            { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
+              onclick: () => openPanel = openPanel === 'info' ? null : 'info' },
+            { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−', onclick: zoomOut,
+              disabled: zoomLevel <= ZOOM_LEVELS[0] },
+            { id: 'reset', label: 'Reset', glyph: '◎', onclick: resetView },
+            { id: 'zoom-in', label: 'Zoom in', caption: 'Zoom In', glyph: '＋', onclick: zoomIn,
+              disabled: zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] }
+          ]}
+        />
 
         <!-- Country picker (parity with biomes side): the eight countries in
              the two lifestyle groups the biomes study assigns, each led by its
@@ -988,28 +983,16 @@
 
   <!-- Info modal (center-docked) -->
   {#if openPanel === 'info'}
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
-      <div class="overlay-head">
-        <div class="overlay-title">ANTHROMES</div>
-        <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
-      </div>
-      <div class="detail-body">
-        <div class="info-body">
-          <p><strong>More than 65% of terrestrial nature</strong> has been shaped, in very different ways, by people. <strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
-          <p>Visualized here is the <strong>Anthromes Dataset</strong> from the Anthroecology Lab. It is a “hindcast” model, projecting back in time from global population and land use data showing change over 12,025 years.</p>
-          <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong> Hence, preserving “cultured” and “wild” lands is key to preserving biodiversity.</p>
-
-          <div class="info-citations">
-            <div class="info-citations-title">Citations</div>
-            <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. “People have shaped most of terrestrial nature for at least 12,000 years.” <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
-            <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
-            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
-          </div>
-        </div>
-      </div>
-    </div>
+    <InfoModal title="ANTHROMES" onclose={() => openPanel = null}>
+      <p><strong>More than 65% of terrestrial nature</strong> has been shaped, in very different ways, by people. <strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
+      <p>Visualized here is the <strong>Anthromes Dataset</strong> from the Anthroecology Lab. It is a “hindcast” model, projecting back in time from global population and land use data showing change over 12,025 years.</p>
+      <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong> Hence, preserving “cultured” and “wild” lands is key to preserving biodiversity.</p>
+      {#snippet citations()}
+        <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. “People have shaped most of terrestrial nature for at least 12,000 years.” <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
+        <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
+        <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+      {/snippet}
+    </InfoModal>
   {/if}
 
   <!-- Leader line: isolated cell → docked detail panel. Endpoints are design px.
@@ -1053,34 +1036,15 @@
 </div>
 
 <style>
-  .loading-overlay,
-  .error {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    text-align: center;
-    font-size: 21px;
-    color: var(--fg);
-  }
+  /* Rules the two rails share (.app, .error, .fblock, .fblock-headrow, .ls-row,
+     .ls-row-head, .rail-leadin, .mini-link) are in src/shared/rail.css; the
+     control circles are ControlBar's and the info modal is InfoModal's. */
 
   .loading-overlay {
     position: absolute;
     inset: 0;
     background: var(--bg);
     z-index: 10000;
-  }
-
-  .error h2 {
-    color: #ff6b6b;
-    margin-bottom: 20px;
-  }
-
-  .app {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
   }
 
   /* New rail + overlay styles */
@@ -1102,6 +1066,7 @@
     overflow: hidden;
     position: relative;
     z-index: 5;
+    --ctl-pad-bottom: 4px;  /* see the rail rhythm note below */
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
@@ -1113,71 +1078,15 @@
      a 27px headline carries ~6px of empty line box above its letters, and the
      blocks above a divider end ~4px of box below their last ink. So
      margin = 28 - 4 and padding = 28 - 6. The top divider sits under the
-     control circles, whose box ends on the ink; .control-circles pays
-     that 4px back as padding. */
-  .filter-rail > * + * {
+     control circles, whose box ends on the ink; the control row pays
+     that 4px back as padding (--ctl-pad-bottom).
+     :global, because the first child is ControlBar's root, which does not
+     carry this component's style scope and so could not stand as the left
+     side of a scoped `* + *`. */
+  .filter-rail > :global(* + *) {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
     margin-top: 24px;
     padding-top: 22px;
-  }
-
-  .control-circles,
-  .anthrome-key {
-    flex: 0 0 auto;
-  }
-
-  /* ===== MoMA: top control circles (largest tier) =====
-     The row spans the rail's full content width, evenly distributed, so the
-     controls read as one measure with the menu items below them. */
-  .control-circles {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 0;
-    align-items: center;
-    justify-content: space-between;
-    padding-bottom: 4px;    /* see the rail rhythm note above */
-  }
-
-  /* Positioning context for ArcLabel, which paints centred on the button and
-     overflows it. */
-  .ctl-slot {
-    position: relative;
-    flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-  }
-
-  .ctl-btn {
-    width: 118px;
-    height: 118px;
-    border-radius: 50%;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    color: var(--fg);
-    font-weight: 500;
-    font-size: 44px;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    box-shadow: var(--shadow);
-  }
-
-  .ctl-btn.active {
-    background: #fff;
-    color: var(--bg);
-    border-color: #fff;
-  }
-
-  .ctl-btn:active {
-    transform: scale(0.95);
-  }
-
-  .ctl-btn:disabled,
-  .ctl-btn[aria-disabled="true"] {
-    opacity: 0.35;
-    cursor: not-allowed;
-    pointer-events: none;
-    filter: grayscale(0.3);
   }
 
   /* ===== MoMA: bottom anthrome filter key (always visible) ===== */
@@ -1213,20 +1122,6 @@
     min-width: 0;
   }
 
-  /* Rail lead-in: the line under a section head that names what the block
-     under IT shows — the country panel's two row descriptions, the details
-     subhead, the key's share line. One treatment for all of them so a reader
-     learns it once: full white at 19px rather than muted body copy, because
-     these lines are part of the rail's structure and not commentary on it, and
-     each ends in a colon because each introduces what follows. Same values as
-     .ls-row-desc below, which is this same voice inside the country panel. */
-  .rail-leadin {
-    margin: 0;
-    font-size: 19px;
-    line-height: 1.32;
-    color: #fff;
-  }
-
   /* The share line hugs the headline it qualifies rather than sitting midway
      between it and the legend, so the three parts read as heading, caption,
      key — not as three evenly spaced bands. */
@@ -1237,27 +1132,6 @@
   .anthrome-key-actions {
     display: flex;
     gap: 15px;
-  }
-
-  /* Matches the biomes cohort Total/Per-capita toggle: text with an underline on
-     the active state. "All" is active when every anthrome is shown (the default). */
-  .mini-link {
-    background: transparent;
-    color: var(--fg);
-    border: none;
-    border-bottom: 2.6px solid transparent;
-    padding: 0 0 2.6px;
-    font-size: 23px;
-    font-weight: 500;
-    line-height: 1.2;
-    cursor: pointer;
-    opacity: 0.45;
-    transition: opacity 0.15s ease;
-  }
-
-  .mini-link.active {
-    opacity: 1;
-    border-bottom-color: currentColor;
   }
 
   /* Bar-legend (mirrors the info-panel legend): vertical intensity axis + multi-column swatch grid */
@@ -1432,16 +1306,6 @@
     min-width: 0;
   }
 
-  .fblock-headrow {
-    display: flex;
-    /* Baseline, so "All" sits on the first line of the wrapped one-liner
-       headline rather than floating between its two lines. Mirrors biomes. */
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 15px;
-    margin-bottom: 8px;     /* mirrors the biomes rail */
-  }
-
   /* Menu item title/description — shared look with the other rail sections */
   .menu-title {
     margin: 0;
@@ -1475,32 +1339,10 @@
     color: var(--fg);
   }
 
-  /* The country section's column rhythm: the same as the biomes .fblock, so
-     the two country panels are the same height and the details titles under
-     them land at the same y. */
-  .fblock {
-    display: flex;
-    flex-direction: column;
-    gap: 17px;
-    min-width: 0;
-  }
-
   /* Lifestyle rows in the country picker — mirrors biomes' promoted row head:
      the description IS the row head, full white, sized as a lead-in. */
-  .ls-row {
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-  }
-
   .ls-row + .ls-row {
     margin-top: 36px;       /* biomes' 20px + its share of the caption line */
-  }
-
-  .ls-row-head {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
   }
 
   .ls-row-desc {
@@ -1590,34 +1432,6 @@
     width: 100%;
   }
 
-  /* Info modal: centered on the design canvas (longer read).
-     Percentages resolve against .stage, i.e. the 3000x2000 canvas. */
-  .info-modal {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 960px;             /* a comfortable measure at 17px, ~75 chars */
-    max-width: calc(100% - 123px);
-    max-height: 84%;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    border-radius: 33px;
-    padding: 33px 38px;
-    box-shadow: var(--shadow);
-    z-index: 20;
-    pointer-events: auto;
-    transform-origin: center center;
-    animation: modal-pop-center 0.18s ease;
-  }
-
-  @keyframes modal-pop-center {
-    from { transform: translate(-50%, -50%) scale(0.85); opacity: 0; }
-    to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  }
-
   /* Leader line from isolated cell to the docked detail panel.
      Spans the design canvas; its SVG user units are design px. */
   .connector-overlay {
@@ -1649,20 +1463,6 @@
     color: var(--muted);
   }
 
-  .overlay-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 13px;
-  }
-
-  .overlay-title {
-    font-size: 23px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-  }
-
   .overlay-swatch {
     width: 18px;
     height: 18px;
@@ -1691,80 +1491,6 @@
 
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
      .kv/.swatch/.pill) is shared — see src/shared/styles.css. */
-
-  .info-body {
-    display: grid;
-    gap: 13px;
-    font-size: 17px;
-    line-height: 1.55;
-    color: var(--muted);
-  }
-
-  .info-body p {
-    margin: 0;
-  }
-
-  .info-body p + p {
-    padding-top: 7.7px;
-  }
-
-  .info-body strong {
-    color: #fff;
-    letter-spacing: 0.02em;
-  }
-
-  .info-body em {
-    color: #e7e9f1;
-  }
-
-  .info-citations {
-    margin-top: 18px;
-    padding-top: 13px;
-    border-top: 1.3px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .info-citations-title {
-    font-size: 12px;
-    font-weight: 400;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-bottom: 7.7px;
-  }
-
-  .info-citations p {
-    font-size: 14px;
-    color: var(--muted);
-    line-height: 1.5;
-    margin: 0 0 10px;
-  }
-
-  .info-citations p:last-child {
-    margin-bottom: 0;
-  }
-
-  .info-citations a {
-    color: var(--accent, #7dd3fc);
-    text-decoration: none;
-  }
-
-  .info-citations a:hover {
-    text-decoration: underline;
-  }
-
-  .chevron {
-    border: 2.6px solid rgba(255, 255, 255, 0.85);
-    background: var(--bg);
-    color: var(--fg);
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    font-size: 17px;
-    font-weight: 500;
-  }
 
   .viz-area {
     grid-column: 2;

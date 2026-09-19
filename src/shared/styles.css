@@ -7,43 +7,18 @@
   --accent: #7ad7ff;
   --shadow: 0 13px 38px rgba(0, 0, 0, 0.35);
 
-  /* Fixed design canvas — see src/shared/stage.svelte.js */
-  --design-w: 3000;
-  --design-h: 2000;
-  /* Set from JS on load + resize; CSS can't divide length/length to a factor. */
-  --stage-scale: 1;
-
   /* The piece's one typeface, in two weights — Regular and Bold, with an
      outline standing in for Medium on the keys (see the @font-face blocks
      below). */
   --font-sans: 'ABCPelikan Two Weights', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* ===== Fixed-canvas scaling =====
-   .viewport fills the real window and supplies the letterbox background.
-   .stage is the 1:1 design canvas; one transform scales all app content.
-   Everything inside .stage is authored in design px and must use
-   position: absolute, never fixed. */
+/* The .viewport/.stage pair lives in stage.css, shared with the splash and the
+   loading interstitial. This is the visualizations' one addition to it: no
+   double-tap page zoom anywhere on the piece; the two charts go further and
+   take the whole gesture (touch-action: none) for their own pan/pinch. */
 .viewport {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  /* No double-tap page zoom anywhere on the piece; the two charts go further
-     and take the whole gesture (touch-action: none) for their own pan/pinch. */
   touch-action: manipulation;
-  background: var(--bg);
-}
-
-.stage {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: calc(var(--design-w) * 1px);
-  height: calc(var(--design-h) * 1px);
-  background: var(--bg);
-  overflow: hidden;
-  transform: translate(-50%, -50%) scale(var(--stage-scale));
-  transform-origin: center center;
 }
 
 /* ABC Pelikan, two weights: 400 body and 500 everything else share the Regular

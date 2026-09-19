@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>Loading…</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./src/shared/stage.css" />
   <style>
     /* ABC Pelikan in the two cuts the piece uses (see src/shared/styles.css):
        titles at 700, the subheadline at 400. */
@@ -25,11 +26,8 @@
       --fg:#ffffff;
       --ring:#ffffff;
       --ringWidth: 3px;
-      /* Fixed design canvas — see src/shared/pageStage.js. Same values as the
-         splash so the disk does not jump size across the hand-off. */
-      --design-w: 3000;
-      --design-h: 2000;
-      --stage-scale: 1;
+      /* Same value as the splash so the disk does not jump size across the
+         hand-off. */
       --disk: 900px;
     }
 
@@ -45,24 +43,9 @@
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     body { animation: fadeIn 0.6s ease-out; }
 
-    /* ===== Fixed-canvas scaling — mirrors index.html and shared/styles.css ===== */
-    .viewport {
-      position: fixed;
-      inset: 0;
-      overflow: hidden;
-      background: var(--bg);
-    }
-
+    /* The .viewport/.stage pair is in src/shared/stage.css (linked above);
+       this page only centres its one disk on the stage. */
     .stage {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: calc(var(--design-w) * 1px);
-      height: calc(var(--design-h) * 1px);
-      background: var(--bg);
-      overflow: hidden;
-      transform: translate(-50%, -50%) scale(var(--stage-scale));
-      transform-origin: center center;
       display: grid;
       place-items: center;
     }

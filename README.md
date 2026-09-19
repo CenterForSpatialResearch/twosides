@@ -102,7 +102,11 @@ twosides/
 │   │   └── lib/               # BiomesChart, dataAdapter
 │   └── shared/                # Shared components and state
 │       ├── mapProfile.js      # Pinned resolution (70km) and country set (50m)
-│       ├── pageStage.js       # Design canvas scaling
+│       ├── layoutCore.js      # Window size → layout (scales, modes, CSS variables)
+│       ├── stage.svelte.js    # layoutCore for the two apps (reactive)
+│       ├── pageStage.js       # layoutCore for the splash and interstitial
+│       ├── stage.css          # The .viewport/.stage pair, shared by all four pages
+│       ├── rail.css           # Rail rules the two sides share
 │       └── splashCopy.js      # Shared copy for splash and interstitial
 ├── public/
 │   ├── grid/70km/             # Binary grid profile (Git LFS)

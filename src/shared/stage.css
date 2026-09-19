@@ -1,0 +1,38 @@
+/* ===== The stage =====
+   The one .viewport/.stage pair, shared by all four pages: the splash, the
+   loading interstitial and the two visualizations.
+
+   .viewport fills the real window and supplies the background behind the
+   stage. .stage is the design canvas: everything inside it is authored in
+   design px and one transform scales it to the display. Anything inside .stage
+   must use position: absolute, never fixed.
+
+   The numbers are set from JS on load + resize (CSS can't divide a length by a
+   length to get a factor) — see applyLayoutVars() in layoutCore.js. The values
+   here are the design canvas at scale 1, which is what paints until then. */
+:root {
+  --design-w: 3000;
+  --design-h: 2000;
+  --stage-scale: 1;
+  --disk-size: 2000px;
+  --nav-scale: 1;
+}
+
+.viewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--design-w) * 1px);
+  height: calc(var(--design-h) * 1px);
+  background: var(--bg);
+  overflow: hidden;
+  transform: translate(-50%, -50%) scale(var(--stage-scale));
+  transform-origin: center center;
+}

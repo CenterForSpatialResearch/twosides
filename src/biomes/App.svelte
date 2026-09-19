@@ -12,7 +12,8 @@
   import { feature as topoFeature } from 'topojson-client';
   import NavCircle from '../shared/NavCircle.svelte';
   import CountryCircle from '../shared/CountryCircle.svelte';
-  import ArcLabel from '../shared/ArcLabel.svelte';
+  import ControlBar from '../shared/ControlBar.svelte';
+  import InfoModal from '../shared/InfoModal.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
@@ -838,24 +839,18 @@
         <!-- Top tier: largest control circles. Option 1 spreads them across the
              full rail width and hangs an arced caption off the RIGHT of each
              bubble (the anthromes rail mirrors this to the left). -->
-        <div class="control-circles">
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Zoom out" aria-label="Zoom out" onclick={() => biomesChartRef?.zoomOutControl?.()} disabled={zoomIdx === 0} aria-disabled={zoomIdx === 0}>−</button>
-            <ArcLabel text="Zoom Out" side="right" />
-          </div>
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Reset" aria-label="Reset" onclick={resetAll}>◎</button>
-            <ArcLabel text="Reset" side="right" />
-          </div>
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Zoom in" aria-label="Zoom in" onclick={() => biomesChartRef?.zoomInControl?.()} disabled={zoomIdx === 2} aria-disabled={zoomIdx === 2}>＋</button>
-            <ArcLabel text="Zoom In" side="right" />
-          </div>
-          <div class="ctl-slot">
-            <button class="ctl-btn" title="Info" aria-label="Info" class:active={openPanel === 'info'} onclick={() => openPanel = openPanel === 'info' ? null : 'info'}>i</button>
-            <ArcLabel text="Info" side="right" />
-          </div>
-        </div>
+        <ControlBar
+          side="right"
+          items={[
+            { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−',
+              onclick: () => biomesChartRef?.zoomOutControl?.(), disabled: zoomIdx === 0 },
+            { id: 'reset', label: 'Reset', glyph: '◎', onclick: resetAll },
+            { id: 'zoom-in', label: 'Zoom in', caption: 'Zoom In', glyph: '＋',
+              onclick: () => biomesChartRef?.zoomInControl?.(), disabled: zoomIdx === 2 },
+            { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
+              onclick: () => openPanel = openPanel === 'info' ? null : 'info' }
+          ]}
+        />
 
         <!-- Details panel, shared by both options but placed differently:
              Option 6 renders it at the TOP (right below the controls) so the
@@ -1130,26 +1125,17 @@
 
     <!-- Info modal -->
     {#if openPanel === 'info'}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="info-modal" aria-live="polite" onclick={(e) => e.stopPropagation()}>
-        <div class="overlay-head">
-          <div class="overlay-title">BIOMES</div>
-          <button class="chevron" onclick={() => openPanel = null} aria-label="Close">✕</button>
-        </div>
-        <div class="info-body">
-          <p><strong>5000 Lines 5000 Species</strong></p>
-          <p>This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
-          <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
-          <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
-          <p><strong>Westernized / Non-Westernized:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
-          <div class="info-citations">
-            <div class="info-citations-title">Citations</div>
-            <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. “Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle.” <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
-            <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
-          </div>
-        </div>
-      </div>
+      <InfoModal title="BIOMES" onclose={() => openPanel = null}>
+        <p><strong>5000 Lines 5000 Species</strong></p>
+        <p>This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
+        <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
+        <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
+        <p><strong>Westernized / Non-Westernized:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
+        {#snippet citations()}
+          <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. “Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle.” <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
+          <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+        {/snippet}
+      </InfoModal>
     {/if}
   </div>
 {/if}
@@ -1167,27 +1153,9 @@
     z-index: 10000;
   }
 
-  .error {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    text-align: center;
-    font-size: 21px;
-    color: var(--fg);
-  }
-
-  .error h2 {
-    color: #ff6b6b;
-    margin-bottom: 20px;
-  }
-
-  .app {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-  }
+  /* Rules the two rails share (.app, .error, .fblock, .fblock-headrow, .ls-row,
+     .ls-row-head, .rail-leadin, .mini-link) are in src/shared/rail.css; the
+     control circles are ControlBar's and the info modal is InfoModal's. */
 
   .layout {
     display: grid;
@@ -1197,9 +1165,8 @@
     gap: 0;
   }
 
-  /* MoMA circle-size tiers, in design px on the 3000x2000 canvas */
   .rail {
-    --tier-top: 118px;     /* biggest: controls */
+    --ctl-pad-bottom: 7px;  /* see the rail rhythm note below */
     grid-column: 2;
     padding: 51px 61px;
     box-sizing: border-box;
@@ -1217,15 +1184,17 @@
      same as the anthromes rail — see the note there for why margin and
      padding differ (28 - 4 below a block's last ink, 28 - 6 above a
      headline's letters). The arc labels on this side hang 3px below the
-     control circles, so .control-circles pays back 7px here where the
-     anthromes rail pays 4. */
-  .rail > * + * {
+     control circles, so the control row pays back 7px here where the
+     anthromes rail pays 4 (--ctl-pad-bottom).
+     :global, because the first child is ControlBar's root, which does not
+     carry this component's style scope and so could not stand as the left
+     side of a scoped `* + *`. */
+  .rail > :global(* + *) {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
     margin-top: 24px;
     padding-top: 22px;
   }
 
-  .control-circles,
   .fblock,
   .phylum-band {
     flex: 0 0 auto;
@@ -1244,69 +1213,7 @@
   }
 
 
-  /* ===== MoMA rail: top control circles (biggest tier) =====
-     The row spans the rail's full content width, evenly distributed, so the
-     controls read as one measure with the menu items below them. */
-  .control-circles {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 0;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 7px;    /* see the rail rhythm note above */
-  }
-
-  /* Positioning context for ArcLabel, which paints centred on the button and
-     overflows it. Zero-sized in flow terms beyond the button itself, so the
-     legacy options lay out exactly as they did before. */
-  .ctl-slot {
-    position: relative;
-    flex: 0 0 auto;
-    display: grid;
-    place-items: center;
-  }
-
-  .ctl-btn {
-    width: var(--tier-top);
-    height: var(--tier-top);
-    border-radius: 50%;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    color: var(--fg);
-    font-weight: 500;
-    font-size: 44px;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    box-shadow: var(--shadow);
-  }
-
-  .ctl-btn.active {
-    background: #fff;
-    color: var(--bg);
-    border-color: #fff;
-  }
-
-  .ctl-btn:active {
-    transform: scale(0.95);
-  }
-
-  .ctl-btn:disabled,
-  .ctl-btn[aria-disabled="true"] {
-    opacity: 0.35;
-    cursor: not-allowed;
-    pointer-events: none;
-    filter: grayscale(0.3);
-  }
-
   /* ===== Middle tier: menu items ===== */
-  .fblock {
-    display: flex;
-    flex-direction: column;
-    gap: 17px;              /* looser than the anthromes .detail-dock's 13px */
-    min-width: 0;
-  }
-
   .fblock-title {
     margin: 0;
     font-size: 24px;
@@ -1439,22 +1346,6 @@
     min-width: 0;
   }
 
-  /* Header row inside an fblock: title on the left, All/Clear link on the
-     right — same visual weight as the phylum-band-head. */
-  .fblock-headrow {
-    display: flex;
-    /* Baseline, not centre: the one-liner headline wraps to two lines and
-       `center` floated "All" between them, reading as misaligned against both
-       the first line and the top of the panel. On the baseline it sits on the
-       headline's first line, where the eye expects the block's top-right
-       corner to be. */
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 15px;
-    margin-bottom: 8px;     /* same as the anthromes rail — the two country
-                               panels mirror each other down to the titles */
-  }
-
   /* Bacteria Species Details enrichment header */
   /* Species detail-card styling — the .panel-content species / lineage / genome
      meter / stat-line rules are shared with the anthromes panel; see
@@ -1486,47 +1377,11 @@
     gap: 15px;
   }
 
-  /* Rail lead-in: the line under a section head that names what the block
-     under IT shows — the country panel's two row descriptions, the phylum
-     key's share line. One treatment for all of them so a reader learns it
-     once: full white at 19px rather than muted body copy, because these
-     lines are part of the rail's structure and not commentary on it, and each
-     ends in a colon because each introduces what follows. Same values as
-     .ls-row-head--promoted .ls-row-desc, which is this same voice inside the
-     country panel. Mirrors .rail-leadin on the anthromes rail. */
-  .rail-leadin {
-    margin: 0;
-    font-size: 19px;
-    line-height: 1.32;
-    color: #fff;
-  }
-
   /* Hugs the headline it qualifies rather than sitting midway between it and
      the pills — heading, caption, key, not three evenly spaced bands. Mirrors
      .key-scope on the anthromes rail. */
   .phylum-scope {
     margin-top: -7px;
-  }
-
-  /* Matches the cohort Total/Per-capita toggle: text with an underline on the
-     active state. "All" is active when no phylum filter is applied (the default). */
-  .mini-link {
-    background: transparent;
-    color: var(--fg);
-    border: none;
-    border-bottom: 2.6px solid transparent;
-    padding: 0 0 2.6px;
-    font-size: 23px;
-    font-weight: 500;
-    line-height: 1.2;
-    cursor: pointer;
-    opacity: 0.45;
-    transition: opacity 0.15s ease;
-  }
-
-  .mini-link.active {
-    opacity: 1;
-    border-bottom-color: currentColor;
   }
 
   .phylum-key {
@@ -1551,20 +1406,8 @@
   }
 
   /* ===== Options 1-3: Western / Non-Western lifestyle rows ===== */
-  .ls-row {
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-  }
-
   .ls-row + .ls-row {
     margin-top: 20px;       /* breathing room between the two groups; mirrored */
-  }
-
-  .ls-row-head {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
   }
 
   .ls-row-desc {
@@ -1650,79 +1493,6 @@
     overflow: auto;
   }
 
-  /* Info stays a centered overlay on the design canvas (longer read).
-     Percentages resolve against .stage, i.e. the 3000x2000 canvas. */
-  .info-modal {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 960px;             /* a comfortable measure at 17px, ~75 chars */
-    max-width: calc(100% - 123px);
-    max-height: 84%;
-    display: flex;
-    flex-direction: column;
-    background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
-    border-radius: 33px;
-    padding: 33px 38px;
-    box-shadow: var(--shadow);
-    z-index: 20;
-    pointer-events: auto;
-    transform-origin: center center;
-    animation: modal-pop-center 0.18s ease;
-  }
-
-  @keyframes modal-pop-center {
-    from { transform: translate(-50%, -50%) scale(0.85); opacity: 0; }
-    to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  }
-
-  /* Same measure as the anthromes info-body; the body scrolls under a fixed
-     head when the text outgrows the box. */
-  .info-body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    display: grid;
-    align-content: start;
-    gap: 13px;
-    font-size: 17px;
-    line-height: 1.55;
-    color: var(--muted);
-  }
-
-  .info-body p {
-    margin: 0;
-  }
-
-  .info-body p + p {
-    padding-top: 7.7px;
-  }
-
-  .info-body strong {
-    color: #fff;
-    letter-spacing: 0.02em;
-  }
-
-  .info-body em {
-    color: #e7e9f1;
-  }
-
-  .overlay-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 13px;
-  }
-
-  .overlay-title {
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    font-size: 23px;
-  }
-
   .panel-content {
     font-size: 17px;
     color: var(--muted);
@@ -1738,57 +1508,7 @@
     overflow: auto;
   }
 
-  .info-citations {
-    margin-top: 18px;
-    padding-top: 13px;
-    border-top: 1.3px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .info-citations-title {
-    font-size: 12px;
-    font-weight: 400;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-    margin-bottom: 7.7px;
-  }
-
-  .info-citations p {
-    font-size: 14px;
-    color: var(--muted);
-    line-height: 1.5;
-    margin: 0 0 10px;
-  }
-
-  .info-citations p:last-child {
-    margin-bottom: 0;
-  }
-
-  .info-citations a {
-    color: var(--accent, #7dd3fc);
-    text-decoration: none;
-  }
-
-  .info-citations a:hover {
-    text-decoration: underline;
-  }
-
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
      .kv/.swatch/.pill) is shared — see src/shared/styles.css. */
-
-  .chevron {
-    background: var(--bg);
-    border: 2.6px solid rgba(255, 255, 255, 0.85);
-    color: var(--fg);
-    border-radius: 50%;
-    width: 38px;
-    height: 38px;
-    font-size: 17px;
-    display: grid;
-    place-items: center;
-    font-weight: 500;
-    cursor: pointer;
-    flex: none;
-  }
 
 </style>

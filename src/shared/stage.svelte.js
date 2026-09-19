@@ -1,31 +1,77 @@
 // Fixed design canvas.
 //
-// Both apps are authored 1:1 in plain px at DESIGN_W x DESIGN_H; a single
-// transform on .stage scales that canvas to whatever display we actually get.
-// Target is a Microsoft Surface Studio 2+ in kiosk at 150% Windows scaling,
-// which exposes a 3000x2000 CSS-px viewport (4500x3000 native, DPR 1.5).
+// Both apps are authored 1:1 in plain px against a DESIGN_W x DESIGN_H canvas;
+// a single transform on .stage scales that canvas to whatever display we
+// actually get. The numbers come from layoutCore.js — this module is its
+// reactive face for the Svelte side, plus the pointer-space helpers.
 //
-// Nothing outside this module should look at window dimensions to size UI.
-export const DESIGN_W = 3000;
-export const DESIGN_H = 2000;
+// Nothing outside layoutCore should look at window dimensions to size UI.
+import {
+  DESIGN_W, DESIGN_H, computeLayout, applyLayoutVars, readOverrides
+} from './layoutCore.js';
 
-let scale = $state(1);
+export { DESIGN_W, DESIGN_H };
+
+// The apps still run letterboxed: the mode is pinned until the stage and the
+// two grids are ready to fill the window, and ?layout= is not honoured yet.
+const overrides = { ...readOverrides(globalThis.location?.search), layout: 'letterbox' };
+
+// Two copies of the current layout. `current` is the reactive one the `layout`
+// object reads. `last` is a plain mirror for fit() and screenToDesign():
+// initStage() runs inside an effect, and reading the reactive copy there would
+// make that effect depend on the very state it writes.
+let last = computeLayout(DESIGN_W, DESIGN_H, overrides);
+let current = $state.raw(last);
+let textEpoch = $state(0);
+let epochTimer = null;
 let stageEl = null;
+
+/**
+ * The current layout, reactive: every field of computeLayout()'s result, plus
+ *   textEpoch  bumped 150 ms after the last resize that changed the scale. SVG
+ *              text on a textPath is not re-laid-out when an ancestor's
+ *              transform changes, so components that draw it key on this to
+ *              remount once a resize has settled.
+ */
+export const layout = {
+  get mode() { return current.mode; },
+  get scale() { return current.scale; },
+  get diskScale() { return current.diskScale; },
+  get railScale() { return current.railScale; },
+  get designW() { return current.designW; },
+  get designH() { return current.designH; },
+  get diskSize() { return current.diskSize; },
+  get railW() { return current.railW; },
+  get railH() { return current.railH; },
+  get navScale() { return current.navScale; },
+  get textEpoch() { return textEpoch; }
+};
 
 /** Current stage scale (1 = on target). Reactive. */
 export function stageScale() {
-  return scale;
+  return current.scale;
 }
 
 export function getStageEl() {
   return stageEl;
 }
 
-// Scale-to-fit: the smaller ratio wins, so the whole canvas always fits and the
-// leftover space letterboxes. Never clips, never scrolls.
 function fit() {
-  scale = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
-  document.documentElement.style.setProperty('--stage-scale', scale);
+  const next = computeLayout(window.innerWidth, window.innerHeight, {
+    ...overrides,
+    prevMode: last.mode
+  });
+  const scaleChanged = next.scale !== last.scale;
+  last = next;
+  current = next;
+  applyLayoutVars(next);
+  return scaleChanged;
+}
+
+function onResize() {
+  if (!fit()) return;
+  clearTimeout(epochTimer);
+  epochTimer = setTimeout(() => { textEpoch += 1; }, 150);
 }
 
 /**
@@ -48,9 +94,10 @@ export function fitStage() {
 export function initStage(el) {
   stageEl = el;
   fit();
-  window.addEventListener('resize', fit);
+  window.addEventListener('resize', onResize);
   return () => {
-    window.removeEventListener('resize', fit);
+    window.removeEventListener('resize', onResize);
+    clearTimeout(epochTimer);
     if (stageEl === el) stageEl = null;
   };
 }
@@ -64,7 +111,7 @@ export function initStage(el) {
 export function screenToDesign(clientX, clientY) {
   if (!stageEl) return { x: clientX, y: clientY };
   const r = stageEl.getBoundingClientRect();
-  const s = r.width / DESIGN_W;
+  const s = r.width / last.designW;
   return { x: (clientX - r.left) / s, y: (clientY - r.top) / s };
 }
 

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>Anthromes &amp; Biomes</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="./src/shared/stage.css" />
   <style>
     /* ABC Pelikan in the two cuts the piece uses (see src/shared/styles.css).
        The splash sets its titles at 700 and every other line at 400. */
@@ -26,12 +27,6 @@
       --muted:#cfd3e0;
       --ring:#ffffff;
       --ringWidth: 3px;
-      /* Fixed design canvas — see src/shared/pageStage.js. Everything below is
-         authored in design px against 3000x2000 and scaled by one transform. */
-      --design-w: 3000;
-      --design-h: 2000;
-      /* Set from JS on load + resize; CSS can't divide length/length. */
-      --stage-scale: 1;
     }
 
     html, body {
@@ -43,29 +38,9 @@
       overflow: hidden;
     }
 
-    /* ===== Fixed-canvas scaling =====
-       .viewport fills the real window and supplies the letterbox background;
-       .stage is the 1:1 design canvas. Mirrors the .viewport/.stage pair in
-       src/shared/styles.css so the splash letterboxes exactly like the two
-       visualizations it leads into. */
-    .viewport {
-      position: fixed;
-      inset: 0;
-      overflow: hidden;
-      background: var(--bg);
-    }
-
-    .stage {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: calc(var(--design-w) * 1px);
-      height: calc(var(--design-h) * 1px);
-      background: var(--bg);
-      overflow: hidden;
-      transform: translate(-50%, -50%) scale(var(--stage-scale));
-      transform-origin: center center;
-    }
+    /* The .viewport/.stage pair is in src/shared/stage.css (linked above),
+       shared with the two visualizations this page leads into. Everything
+       below is authored in design px against that stage. */
 
     /* The active arrangement is cloned in here — see the controller at the
        bottom of the file. Only ever one at a time, so the ids inside each
