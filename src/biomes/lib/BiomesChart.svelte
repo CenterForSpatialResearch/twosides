@@ -1318,6 +1318,8 @@
     pointer-events: none; /* overlay is non-interactive; canvas/viz-area own pointers */
   }
 
+  /* @orphan: .region-path — the phylum regions are drawn on the canvas; no SVG
+     element carries the class. */
   :global(.region-path) {
     fill-opacity: 1;
     stroke: none;
@@ -1334,6 +1336,10 @@
     fill: var(--fg);
   }
 
+  /* @orphan: .node circle, .link, .sgb-line, .hit, .hit.sgb-hit (five rules, to
+     the end of `.hit.sgb-hit`) — SVG-era tree styling. Nodes, links and SGB
+     lines are canvas paths now and hit-testing is geometric, so no element
+     carries these classes. */
   :global(.node circle) {
     stroke: white;
     stroke-width: 0.4;
@@ -1379,6 +1385,9 @@
   }
 
   /* Touch build: no hover cursor, no hover-only states — selection is by tap */
+  /* @orphan: .hover-target and the .is-selected rules below (six selectors, to
+     the end of `.western.is-selected`) — SVG-era selection styling; the selected species
+     is drawn on the canvas and no element carries these classes. */
   :global(.hover-target) {
     cursor: pointer;
   }
@@ -1404,6 +1413,10 @@
     filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.9));
   }
 
+  /* @orphan hover-trace: every :global(.biomes-tooltip …) rule from here to the
+     end of the block. No element carries .biomes-tooltip — the detail panel is
+     composed in biomes/App.svelte and styled from shared/styles.css. Kept as
+     the trace of the old hover tooltip until tooltips are decided. */
   /* Detail-panel content styles (createTooltipHTML output, rendered in App .panel-content) */
 :global(.biomes-tooltip .tip-header) {
   display: flex;

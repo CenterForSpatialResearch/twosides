@@ -122,6 +122,8 @@
     stroke-width: 0.5;
   }
 
+  /* @orphan: .ctx — no element in this component carries the class (Svelte
+     reports it as an unused selector at build). */
   .ctx {
     fill: rgba(255, 255, 255, 0.14);
     stroke: rgba(255, 255, 255, 0.05);

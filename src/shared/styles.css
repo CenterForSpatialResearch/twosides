@@ -109,6 +109,7 @@ textarea {
 
 /* Common UI elements. These live inside .stage, so they are positioned
    absolutely in design px against the 3000x2000 canvas. */
+/* @orphan: .side-title — no markup on either side uses it. */
 .side-title {
   position: absolute;
   right: 18px;
@@ -128,6 +129,7 @@ textarea {
   z-index: 4;
 }
 
+/* @orphan: .zooms-link (+ :hover) — no markup on either side uses it. */
 .zooms-link {
   position: absolute;
   top: 15px;
@@ -155,6 +157,9 @@ textarea {
   color: var(--fg);
 }
 
+/* @orphan: .settings-toggle / .settings-panel (seven rules, to the end of
+   `.settings-panel .tip`) — the dev settings panel was removed when the map
+   profile was pinned (src/shared/mapProfile.js). */
 .settings-toggle {
   position: absolute;
   top: 15px;
@@ -242,7 +247,8 @@ textarea {
 /* ===== Docked detail-panel content typography — shared by biomes + anthromes =====
    Two kinds of content land in .panel-content:
      1. HTML built in the chart components and injected via {@html} (.title,
-        .subtitle, .summary, .kv, .swatch, .pill/.badge);
+        .subtitle, .summary; the .kv, .swatch and .pill/.badge rules below are
+        marked @orphan — nothing emits them any more);
      2. Svelte markup composed in biomes/App.svelte from the structured `meta`
         BiomesChart emits (.species-*, .lineage-*, .gm-*, .sp-*).
    Both are styled here so the two detail panels stay in lockstep.
@@ -291,6 +297,8 @@ textarea {
   color: #e7e9f1;
 }
 
+/* @orphan: .panel-content .kv / .kv .k / .kv .v — the key-value block
+   (kvBlock) was removed from the detail HTML; nothing emits .kv now. */
 .panel-content .kv {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -312,6 +320,8 @@ textarea {
   font-size: 17px;
 }
 
+/* @orphan: .panel-content .swatch — no {@html} detail content emits a bare
+   .swatch (anthromes uses its own scoped .overlay-swatch). */
 .panel-content .swatch {
   display: inline-block;
   width: 18px;
@@ -322,6 +332,7 @@ textarea {
   vertical-align: middle;
 }
 
+/* @orphan: .panel-content .pill / .badge — not emitted by any detail content. */
 .panel-content .pill,
 .panel-content .badge {
   display: inline-flex;

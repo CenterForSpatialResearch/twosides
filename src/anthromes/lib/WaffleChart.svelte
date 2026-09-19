@@ -1173,6 +1173,8 @@
     pointer-events: all;
   }
 
+  /* @orphan: .segment.is-selected — nothing sets is-selected on the ring
+     segments; selection is drawn through the `isolated` opacity path. */
   :global(.segment.is-selected) {
     opacity: 1;
     filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5));
