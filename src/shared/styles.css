@@ -373,8 +373,9 @@ textarea {
    block gets taller without changing its spacing to the rule above it or the
    genome meter below. */
 .panel-content .species-glyph {
-  width: 148px;
-  height: 148px;
+  /* --glyph-size: the biomes rail's compact tier (see biomes/App.svelte). */
+  width: var(--glyph-size, 148px);
+  height: var(--glyph-size, 148px);
   flex: 0 0 auto;
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.14));
 }
@@ -419,7 +420,9 @@ textarea {
   align-content: center;
   align-items: flex-start;
   gap: 3px 5px;
-  height: calc(4 * 26.2px + 3 * 3px);
+  /* --lineage-h: `auto` off the anchor rail, where the four-row measurement
+     above no longer holds (see biomes/App.svelte). */
+  height: var(--lineage-h, calc(4 * 26.2px + 3 * 3px));
   overflow: hidden;
 }
 

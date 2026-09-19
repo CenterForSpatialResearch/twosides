@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import * as d3 from 'd3';
-  import { elementScale } from '../../shared/stage.svelte.js';
+  import { elementScale, layout as stageLayout } from '../../shared/stage.svelte.js';
   import MapCanvas from './MapCanvas.svelte';
   import { MAP_PROFILE } from '../../shared/mapProfile.js';
   import { formatYearLabel } from './dataAdapter.js';
@@ -901,7 +901,9 @@
     // Reposition labels: selected gets shifted outward by half the extra font height
     // so the inner edge of all labels stays flush with the same imaginary circle.
     // The extra outward push (in SVG units) compensates for the larger CSS font size.
-    const selectedOutwardShift = 20; // SVG units ≈ half the size difference (65px vs 52px) scaled to viewBox
+    // 20 at the full-size 66-unit label; a sparse ring's larger one (see
+    // selectedYearFontSize) moves out by half of what it grew.
+    const selectedOutwardShift = 20 + (selectedYearFontSize - YEAR_SELECTED_FONT) / 2;
     const labelRadius = radius + 50;
     svg.selectAll('.year-label')
       .classed('selected', d => d === displayYear)
@@ -1015,6 +1017,40 @@
   $effect(() => {
     selectedAnthromes.length;
     applyFilters();
+  });
+
+  // ── Year labels on a small disk ────────────────────────────────────────────
+  // The ring's type has no floor: it is drawn in the SVG's own units, so it
+  // shrinks with the disk, and it cannot be set larger in place because the
+  // ring's outer margin is full. Below this disk size (the disk's side as
+  // rendered, in CSS px) the ring shows only the selected year's label and
+  // keeps the ticks; the year is still set by dragging the handle, clicking
+  // the ring, or scrubbing the timeline in the rail. 1286 is where the 14px
+  // label tier would render under 9 CSS px (14 x 1286 / 2000). Set by eye.
+  const YEAR_LABELS_MIN_DISK_PX = 1286;
+  // The selected label, in SVG units, as the stylesheet below sets it.
+  const YEAR_SELECTED_FONT = 66;
+  // On a sparse ring the one label left is held at a legible rendered size
+  // instead of shrinking with the disk — up to the cap, which is what still
+  // sits inside the handle's dome.
+  const YEAR_SELECTED_MIN_CSS_PX = 11;
+  const YEAR_SELECTED_MAX_FONT = 110;
+
+  const yearLabelsSparse = $derived(stageLayout.diskCssPx < YEAR_LABELS_MIN_DISK_PX);
+  const selectedYearFontSize = $derived(
+    yearLabelsSparse
+      ? Math.min(
+          YEAR_SELECTED_MAX_FONT,
+          Math.max(YEAR_SELECTED_FONT, YEAR_SELECTED_MIN_CSS_PX * fullSize / stageLayout.diskCssPx)
+        )
+      : YEAR_SELECTED_FONT
+  );
+
+  $effect(() => {
+    if (!svgElement) return;
+    svgElement.classList.toggle('years-sparse', yearLabelsSparse);
+    svgElement.style.setProperty('--year-selected-font', `${selectedYearFontSize}px`);
+    untrack(() => updateYearHighlight());
   });
 
   // Keep map year in sync with selected year
@@ -1210,7 +1246,13 @@
 
   :global(.year-axis text.selected) {
     fill: var(--accent);
-    font-size: 66px;
+    font-size: var(--year-selected-font, 66px);
+  }
+
+  /* A small disk keeps only the selected year's label (see
+     YEAR_LABELS_MIN_DISK_PX above); the ticks stay. */
+  :global(.years-sparse .year-axis text:not(.selected)) {
+    display: none;
   }
 
   :global(.year-bracket) {

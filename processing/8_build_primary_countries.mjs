@@ -29,7 +29,15 @@ const REPO = path.resolve(__dirname, '..');
 const DATA = path.join(REPO, 'public', 'data');
 const TOPO = path.join(REPO, 'public', 'topojson');
 
-const PRIMARY_ISO3 = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
+// ITA and MNG were appended on 2026-09-19 (the fifth country of each lifestyle
+// group on large windows), built by this same recipe from the pruned inputs as
+// they stood at d883ed2^ / 211c101^; the first eight entries were rebuilt
+// alongside and came out byte-identical. MNG is the exception to the recipe:
+// the study samples Mongolia under both Westernized labels, so its samples,
+// studies, sgbs, westernized_counts, unknown_counts and body_sites are taken
+// from cohort_index.json's `mongolia_agropastoral_stool` (Westernized: No)
+// rather than from country_index.json.
+const PRIMARY_ISO3 = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA', 'ITA', 'MNG'];
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf-8'));
 

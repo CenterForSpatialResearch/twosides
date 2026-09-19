@@ -2,6 +2,8 @@
   // The bottom-corner navigation coin, shared by both apps. Each side renders it
   // with its own labels/side; the markup and styling were byte-identical apart
   // from left/right placement and the two labels, so it lives here once.
+  import { layout } from './stage.svelte.js';
+
   let {
     side = 'left',            // 'left' | 'right' — which corner it docks in
     activeLabel = '',         // current app name, shown along the top arc
@@ -21,17 +23,22 @@
         <!-- lower arc (right→left across the bottom) -->
         <path id="nav-arc-bottom" d="M112 60 A52 52 0 0 1 8 60" />
       </defs>
-      <g class="nav-circle__labels" transform="rotate(45 60 60)">
-        <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
-        <text class="nav-circle__text nav-circle__text--active">
-          <textPath href="#nav-arc-top" startOffset="50%" text-anchor="middle"><tspan class="here">{activeLabel}</tspan></textPath>
-        </text>
-        <text class="nav-circle__text nav-circle__text--link">
-          <a href={linkHref} aria-label={linkAriaLabel}>
-            <textPath href="#nav-arc-bottom" startOffset="50%" text-anchor="middle">{linkLabel}</textPath>
-          </a>
-        </text>
-      </g>
+      <!-- Keyed on the text epoch: text on a textPath is not re-laid-out when
+           an ancestor's transform changes, so it is remounted once a resize
+           has settled (see layout.textEpoch in stage.svelte.js). -->
+      {#key layout.textEpoch}
+        <g class="nav-circle__labels" transform="rotate(45 60 60)">
+          <circle class="nav-circle__ring" cx="60" cy="60" r="52" />
+          <text class="nav-circle__text nav-circle__text--active">
+            <textPath href="#nav-arc-top" startOffset="50%" text-anchor="middle"><tspan class="here">{activeLabel}</tspan></textPath>
+          </text>
+          <text class="nav-circle__text nav-circle__text--link">
+            <a href={linkHref} aria-label={linkAriaLabel}>
+              <textPath href="#nav-arc-bottom" startOffset="50%" text-anchor="middle">{linkLabel}</textPath>
+            </a>
+          </text>
+        </g>
+      {/key}
     </svg>
   </div>
 
@@ -55,10 +62,16 @@
     z-index: 8;
     pointer-events: auto;
     overflow: visible;
+    /* The coin shrinks with the disk (--nav-scale, from layoutCore.js) so it
+       stays clear of the year ring on short windows, and shrinks into its own
+       corner so the 26px inset holds. */
+    transform: scale(var(--nav-scale));
   }
 
-  .nav-circle--left { left: 26px; }
-  .nav-circle--right { right: 26px; }
+  /* The window's corner, whether or not the disk reaches it (a window wider
+     than 3:2 leaves a margin beyond the disk — DISK_ANCHOR in layoutCore.js). */
+  .nav-circle--left { left: 26px; transform-origin: 0 100%; }
+  .nav-circle--right { right: 26px; transform-origin: 100% 100%; }
 
   .nav-circle__outer {
     display: grid;

@@ -1,26 +1,39 @@
-// Fixed design canvas.
+// The design canvas.
 //
-// Both apps are authored 1:1 in plain px against a DESIGN_W x DESIGN_H canvas;
-// a single transform on .stage scales that canvas to whatever display we
-// actually get. The numbers come from layoutCore.js — this module is its
-// reactive face for the Svelte side, plus the pointer-space helpers.
+// Both apps are authored 1:1 in plain px against a design canvas that is
+// DESIGN_W x DESIGN_H on the display it was drawn for, and a single transform
+// on .stage scales that canvas to whatever display we actually get. Off that
+// display the canvas is not 3000x2000: it fills the window, and the disk
+// column and the rail share it differently (see the modes in layoutCore.js).
+// The numbers come from layoutCore.js — this module is its reactive face for
+// the Svelte side, plus the pointer-space helpers.
 //
 // Nothing outside layoutCore should look at window dimensions to size UI.
 import {
-  DESIGN_W, DESIGN_H, computeLayout, applyLayoutVars, readOverrides
+  DESIGN_W, DESIGN_H, computeLayout, applyLayoutVars, loadOverrides, insetLayout
 } from './layoutCore.js';
 
 export { DESIGN_W, DESIGN_H };
 
-// The apps still run letterboxed: the mode is pinned until the stage and the
-// two grids are ready to fill the window, and ?layout= is not honoured yet.
-const overrides = { ...readOverrides(globalThis.location?.search), layout: 'letterbox' };
+const overrides = loadOverrides();
+
+// The stacked layout is not built yet, so a window that would pick it (or a
+// ?layout=stacked) gets the wide one instead.
+const STACKED_READY = false;
+
+function compute(winW, winH, prevMode) {
+  return insetLayout(winW, winH, overrides.margin, (w, h) => {
+    const L = computeLayout(w, h, { ...overrides, prevMode });
+    if (L.mode !== 'stacked' || STACKED_READY) return L;
+    return computeLayout(w, h, { ...overrides, layout: 'wide' });
+  });
+}
 
 // Two copies of the current layout. `current` is the reactive one the `layout`
 // object reads. `last` is a plain mirror for fit() and screenToDesign():
 // initStage() runs inside an effect, and reading the reactive copy there would
 // make that effect depend on the very state it writes.
-let last = computeLayout(DESIGN_W, DESIGN_H, overrides);
+let last = compute(DESIGN_W, DESIGN_H);
 let current = $state.raw(last);
 let textEpoch = $state(0);
 let epochTimer = null;
@@ -41,9 +54,13 @@ export const layout = {
   get designW() { return current.designW; },
   get designH() { return current.designH; },
   get diskSize() { return current.diskSize; },
+  get diskMargin() { return current.diskMargin; },
   get railW() { return current.railW; },
   get railH() { return current.railH; },
   get navScale() { return current.navScale; },
+  get large() { return !!current.large; },
+  /** The disk column's side as rendered, in CSS px. */
+  get diskCssPx() { return current.diskSize * current.scale; },
   get textEpoch() { return textEpoch; }
 };
 
@@ -57,11 +74,10 @@ export function getStageEl() {
 }
 
 function fit() {
-  const next = computeLayout(window.innerWidth, window.innerHeight, {
-    ...overrides,
-    prevMode: last.mode
-  });
-  const scaleChanged = next.scale !== last.scale;
+  const next = compute(window.innerWidth, window.innerHeight, last.mode);
+  // NavCircle carries its own scale on top of the stage's, and its arced
+  // labels go stale the same way when that one moves.
+  const scaleChanged = next.scale !== last.scale || next.navScale !== last.navScale;
   last = next;
   current = next;
   applyLayoutVars(next);

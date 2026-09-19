@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { DESIGN_W, DESIGN_H } from './stage.svelte.js';
+  import { layout } from './stage.svelte.js';
 
   // Props
   let {
@@ -40,8 +40,9 @@
 
     // Keep within the design canvas — x/y are design px, and the tooltip is
     // rendered inside .stage, so window dimensions are the wrong bounds here.
-    nx = Math.min(Math.max(8, nx), DESIGN_W - tw - 8);
-    ny = Math.min(Math.max(8, ny), DESIGN_H - th - 8);
+    // The canvas is whatever size the layout made it, not always 3000 x 2000.
+    nx = Math.min(Math.max(8, nx), layout.designW - tw - 8);
+    ny = Math.min(Math.max(8, ny), layout.designH - th - 8);
 
     finalX = nx;
     finalY = ny;

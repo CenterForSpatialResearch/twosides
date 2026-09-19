@@ -15,11 +15,13 @@
 
   let {
     side = 'right',      // which side the captions hang from: 'right' (biomes) | 'left' (anthromes)
-    items = []
+    items = [],
+    size = 118,          // button diameter, design px — the rail tier's `ctl`
+    captionSize = 19     // arced caption type size — the rail tier's `caption`
   } = $props();
 </script>
 
-<div class="control-circles">
+<div class="control-circles" style={`--ctl-size:${size}px`}>
   {#each items as item (item.id)}
     <div class="ctl-slot">
       <button
@@ -31,7 +33,7 @@
         disabled={item.disabled}
         aria-disabled={item.disabled}
       >{item.glyph}</button>
-      <ArcLabel text={item.caption ?? item.label} {side} />
+      <ArcLabel text={item.caption ?? item.label} {side} diameter={size} fontSize={captionSize} />
     </div>
   {/each}
 </div>
@@ -58,17 +60,19 @@
     place-items: center;
   }
 
-  /* 118px: the largest of the rail's circle tiers. ArcLabel's default diameter
-     is the same number; if one moves, move the other. */
+  /* 118px on the display this was drawn for: the largest of the rail's circle
+     tiers. The diameter comes from the `size` prop, which ArcLabel is handed
+     too, so the caption's arc always hugs the button. The glyph and the ring
+     are fractions of it, so they step down with it (44px and 3.8px at 118). */
   .ctl-btn {
-    width: 118px;
-    height: 118px;
+    width: var(--ctl-size);
+    height: var(--ctl-size);
     border-radius: 50%;
     background: var(--bg);
-    border: 3.8px solid rgba(255, 255, 255, 0.85);
+    border: calc(var(--ctl-size) * 3.8 / 118) solid rgba(255, 255, 255, 0.85);
     color: var(--fg);
     font-weight: 500;
-    font-size: 44px;
+    font-size: calc(var(--ctl-size) * 44 / 118);
     cursor: pointer;
     display: grid;
     place-items: center;

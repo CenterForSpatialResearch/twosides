@@ -14,7 +14,8 @@
   import CountryCircle from '../shared/CountryCircle.svelte';
   import ControlBar from '../shared/ControlBar.svelte';
   import InfoModal from '../shared/InfoModal.svelte';
-  import { initStage, screenToDesign } from '../shared/stage.svelte.js';
+  import { initStage, screenToDesign, layout } from '../shared/stage.svelte.js';
+  import { railTier, readTierOverride, readFillOverride, readFiveOverride, RAIL_FILL } from '../shared/railTiers.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -22,6 +23,15 @@
     if (!stageEl) return;
     return initStage(stageEl);
   });
+
+  // How much the rail has to give up at this window size: circle sizes, one row
+  // of eight or two of four, spacing, whether it scrolls. See railTiers.js.
+  const tierOverride = readTierOverride(globalThis.location?.search);
+  const railFill = readFillOverride(globalThis.location?.search) ?? RAIL_FILL;
+  const fiveOverride = readFiveOverride(globalThis.location?.search);
+  const tier = $derived(
+    railTier('biomes', layout.railW, layout.railH, tierOverride, { large: layout.large, five: fiveOverride })
+  );
 
   // State
   let loading = $state(true);
@@ -44,6 +54,18 @@
   let selectedBodySites = $state(new Set()); // retained for compatibility but hidden in UI
   let selectedStudyKey = $state(null);
   const PRIMARY_ORDER = ['SWE', 'GBR', 'USA', 'CHN', 'MDG', 'FJI', 'PER', 'TZA'];
+  // On a large window each lifestyle group gains a fifth country
+  // (tier.perGroup, see railTiers.js). Italy is Westernized throughout the
+  // study. Mongolia is the one country it samples under both labels (LiuW_2016:
+  // agro-pastoral herders and Ulaanbaatar), so its entry in
+  // primary_countries.json is the non-Westernized cohort alone — 39 samples,
+  // 108 species — not the country-wide roster.
+  const FIFTH_WESTERN = 'ITA';
+  const FIFTH_NONWESTERN = 'MNG';
+  // Everything that is loaded or counted per country covers all ten, so the
+  // fifth pair is ready whenever a resize brings it in.
+  const ALL_ORDER = ['SWE', 'GBR', 'ITA', 'USA', 'CHN', 'MDG', 'FJI', 'MNG', 'PER', 'TZA'];
+  const activeOrder = $derived(tier.perGroup === 5 ? ALL_ORDER : PRIMARY_ORDER);
   // Compact display labels — iso3_names.json expands SWE→"Sweden", USA→"United
   // States of America", GBR→"United Kingdom" etc. The picker needs short,
   // uniform labels that don't dictate the circle's layout width.
@@ -52,6 +74,8 @@
     GBR: 'UK',
     USA: 'USA',
     CHN: 'China',
+    ITA: 'Italy',
+    MNG: 'Mongolia',
     MDG: 'Madagascar',
     FJI: 'Fiji',
     PER: 'Peru',
@@ -87,8 +111,12 @@
       .map((iso3) => ({ iso3, unknownPct: countryRowStats[iso3]?.unknownPct ?? 0 }))
       .sort((a, b) => b.unknownPct - a.unknownPct);
   }
-  const westernRow = $derived(rankRow(WESTERN_ISOS));
-  const nonWesternRow = $derived(rankRow(NONWESTERN_ISOS));
+  const westernRow = $derived(
+    rankRow(tier.perGroup === 5 ? [...WESTERN_ISOS, FIFTH_WESTERN] : WESTERN_ISOS)
+  );
+  const nonWesternRow = $derived(
+    rankRow(tier.perGroup === 5 ? [...NONWESTERN_ISOS, FIFTH_NONWESTERN] : NONWESTERN_ISOS)
+  );
 
   // The nav coin's route to the other side: plain navigation, carrying no
   // country and no species. Both sides now draw the same eight countries, and
@@ -181,6 +209,35 @@
   let leaderFrom = $state(null); // {x, y} design px (marker, reported by chart)
   let leaderTo = $state(null);   // {x, y} design px (panel left edge, mid-height)
 
+  // The lead-in (see sgbLeadIn) is what keeps the leader dead straight, and it
+  // is paid for in rail height: the whole panel starts lower. Only the rail
+  // this was drawn for has that height in the right place (see `leadIn` in
+  // railTiers.js); everywhere else the title stays where the layout puts it
+  // and the leader bends to reach it instead.
+  const leadInAllowed = $derived(tier.leadIn);
+
+  // The leader is a straight run while the rule can be brought to the marker.
+  // It cannot when the rule already sits BELOW the marker with no lead-in left
+  // to give back (a short rail: the disk's centre is higher than the details
+  // block), or when the lead-in is off altogether. Then it is drawn the way
+  // the anthromes leader is: out level from the marker, a vertical run in the
+  // rail's empty left padding, and in level to the rule.
+  const leaderBent = $derived.by(() => {
+    if (!leaderFrom || !leaderTo || sgbLeadIn !== 0) return false;
+    const dy = leaderTo.y - leaderFrom.y;
+    return leadInAllowed ? dy > 1 : Math.abs(dy) > 1;
+  });
+
+  // x of the bent leader's vertical run: midway through the rail's left
+  // padding, and never left of the marker.
+  const leaderElbowX = $derived(
+    leaderFrom && leaderTo
+      ? Math.max(leaderFrom.x + 14, (layout.diskMargin + layout.diskSize + leaderTo.x) / 2)
+      : 0
+  );
+
+  let railEl = $state(null);
+
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
     // The leader points at the SGB by NAME, so it ends ON the rule under that
@@ -191,6 +248,13 @@
     // Rects are screen px; the overlay is design px.
     if (sgbRuleEl) {
       const rr = sgbRuleEl.getBoundingClientRect();
+      // The rail scrolls in its smallest tier. The leader follows the rule as
+      // it does, and is dropped while the rule is outside the rail's box.
+      if (railEl) {
+        const vr = railEl.getBoundingClientRect();
+        const y = rr.top + rr.height / 2;
+        if (y < vr.top || y > vr.bottom) { leaderTo = null; return; }
+      }
       leaderTo = screenToDesign(rr.left, rr.top + rr.height / 2);
       return;
     }
@@ -210,6 +274,7 @@
   }
 
   function alignSgbToMarker() {
+    if (!leadInAllowed) { sgbLeadIn = 0; return; }
     if (!sgbRuleEl || !leaderFrom) return;
     const rr = sgbRuleEl.getBoundingClientRect();
     const ruleY = screenToDesign(rr.left, rr.top + rr.height / 2).y;
@@ -232,7 +297,7 @@
   // observe its box so the leader endpoint tracks those late layout shifts.
   $effect(() => {
     const el = detailPanelEl;
-    detailContent; viewportW; viewportH; sgbRuleEl; leaderFrom;
+    detailContent; viewportW; viewportH; sgbRuleEl; leaderFrom; tier;
     alignSgbToMarker();
     updateLeaderTo();
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -318,7 +383,7 @@
           // Per-country row stats for the Option 1 bubbles. Denominator is the
           // country's distinct-SGB roster, matching countryStats below.
           const rs = {};
-          for (const iso of PRIMARY_ORDER) {
+          for (const iso of ALL_ORDER) {
             const ids = (primaryCountries[iso]?.sgbs || []).map(Number);
             if (!ids.length) continue;
             const u = ids.filter((id) => unknownSgbIds.has(id)).length;
@@ -338,7 +403,7 @@
           // Only keep the 8 target-country features. The picker no longer
           // renders context boundaries, so materializing all 172 features into
           // reactive state is wasted memory + reactivity work.
-          const wanted = new Set(PRIMARY_ORDER);
+          const wanted = new Set(ALL_ORDER);
           const byIso = new Map();
           for (const f of fc.features) {
             const id = f?.id ?? f?.properties?.id ?? f?.properties?.ISO_A3;
@@ -739,7 +804,8 @@
       }
     }
     const uniq = Array.from(new Set(arr.map((s) => String(s).trim()).filter(Boolean)));
-    const primarySet = new Set(PRIMARY_ORDER);
+    const order = activeOrder;
+    const primarySet = new Set(order);
     const primary = [];
     const other = [];
     for (const iso of uniq) {
@@ -747,7 +813,7 @@
       else other.push(iso);
     }
     // Sort primaries by our PRIMARY_ORDER, others alphabetically.
-    primary.sort((a, b) => PRIMARY_ORDER.indexOf(a) - PRIMARY_ORDER.indexOf(b));
+    primary.sort((a, b) => order.indexOf(a) - order.indexOf(b));
     other.sort();
     return { primary, other };
   });
@@ -787,8 +853,8 @@
 </script>
 
 
-<!-- .viewport fills the window and shows the letterbox; .stage is the fixed
-     3000x2000 canvas that everything below is authored against. -->
+<!-- .viewport fills the window; .stage is the design canvas that everything
+     below is authored against (see src/shared/stage.css). -->
 <div class="viewport">
 <div class="stage" bind:this={stageEl}>
 {#if loading}
@@ -835,12 +901,24 @@
         />
       </div>
 
-      <div class="rail">
+      <div
+        class="rail"
+        bind:this={railEl}
+        onscroll={updateLeaderTo}
+        data-cols={tier.cols}
+        data-spacing={tier.spacing}
+        data-detail={tier.detail}
+        data-scroll={tier.scroll}
+        data-fill={railFill}
+        style:--per-group={tier.perGroup === 5 ? 5 : null}
+      >
         <!-- Top tier: largest control circles. Option 1 spreads them across the
              full rail width and hangs an arced caption off the RIGHT of each
              bubble (the anthromes rail mirrors this to the left). -->
         <ControlBar
           side="right"
+          size={tier.ctl}
+          captionSize={tier.caption}
           items={[
             { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−',
               onclick: () => biomesChartRef?.zoomOutControl?.(), disabled: zoomIdx === 0 },
@@ -1041,8 +1119,8 @@
                       iso3={item.iso3}
                       label={SHORT_LABELS[item.iso3] ?? item.iso3}
                       {feature}
-                      size={150}
-                      labelFontSize={19}
+                      size={tier.circle}
+                      labelFontSize={tier.label}
                       ringStroke={3.4}
                       ringStrokeSelected={5}
                       selected={selectedCountryIso3 === item.iso3}
@@ -1056,17 +1134,19 @@
             </div>
           {/snippet}
 
-          {@render lifestyleRow(
-            'Westernized',
-            'Populations with more exposure to urbanization, industrialized food and medicine:',
-            westernRow
-          )}
+          <div class="ls-rows">
+            {@render lifestyleRow(
+              'Westernized',
+              'Populations with more exposure to urbanization, industrialized food and medicine:',
+              westernRow
+            )}
 
-          {@render lifestyleRow(
-            'Non-Westernized',
-            'Populations with limited exposure to urbanization and industrialized systems:',
-            nonWesternRow
-          )}
+            {@render lifestyleRow(
+              'Non-Westernized',
+              'Populations with limited exposure to urbanization and industrialized systems:',
+              nonWesternRow
+            )}
+          </div>
 
         </section>
 
@@ -1114,12 +1194,22 @@
              panel — the lead-in can push the rule down but never up, so
              anything rendered above the title puts the rule out of reach of a
              high marker. See the note on the one-liner's placement above. -->
-        <line
-          class="leader-line"
-          x1={leaderFrom.x} y1={leaderFrom.y}
-          x2={leaderTo.x}
-          y2={leaderFrom.y}
-        />
+        {#if leaderBent}
+          <!-- The rule cannot come to the marker (see leaderBent), so the line
+               goes to the rule: level out of the disk, up or down the rail's
+               empty left padding, level in to the rule's left end. -->
+          <polyline
+            class="leader-line"
+            points="{leaderFrom.x},{leaderFrom.y} {leaderElbowX},{leaderFrom.y} {leaderElbowX},{leaderTo.y} {leaderTo.x},{leaderTo.y}"
+          />
+        {:else}
+          <line
+            class="leader-line"
+            x1={leaderFrom.x} y1={leaderFrom.y}
+            x2={leaderTo.x}
+            y2={leaderFrom.y}
+          />
+        {/if}
       </svg>
     {/if}
 
@@ -1157,9 +1247,13 @@
      .ls-row-head, .rail-leadin, .mini-link) are in src/shared/rail.css; the
      control circles are ControlBar's and the info modal is InfoModal's. */
 
+  /* Margin, disk, rail. The disk column is a square of --disk-size and the
+     rail takes what is left of the window once --disk-margin — an empty column
+     beyond the disk, see DISK_ANCHOR in layoutCore.js — is set aside. On the
+     display this was drawn for that is 0 + 2000 + 1000. */
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    grid-template-columns: var(--disk-margin) var(--disk-size) minmax(0, 1fr);
     height: 100%;
     align-items: stretch;
     gap: 0;
@@ -1167,16 +1261,44 @@
 
   .rail {
     --ctl-pad-bottom: 7px;  /* see the rail rhythm note below */
-    grid-column: 2;
-    padding: 51px 61px;
+    grid-column: 3;
+    /* The var()s on this rail are the rail tiers' handles (see the foot of
+       src/shared/rail.css); each fallback is the 1000 x 2000 rail's number. */
+    padding: var(--rail-pad, 51px 61px);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 0;
     height: 100%;
-    overflow: hidden;
+    overflow: hidden var(--rail-overflow-y, hidden);
     position: relative;
     z-index: 5;
+  }
+
+  /* This side's share of the tiers: the numbers the rails differ on, and the
+     details block's compact form. */
+  .rail[data-spacing="tight"] {
+    --country-row-pad: 6px;
+    --ls-row-gap: 12px;
+  }
+
+  .rail[data-cols="8"] {
+    --ls-row-gap: 0px;
+  }
+
+  /* Off the anchor the lineage row stops reserving its four lines: that
+     constant is measured for a 705px column, and in a narrower rail a long
+     lineage runs to five and was clipped. */
+  .rail:not([data-spacing="anchor"]) {
+    --lineage-h: auto;
+  }
+
+  /* Compact details: a smaller glyph and closer rows. The one-liner's pull-up
+     is paired with the row gap (it sits 5px under the rule whatever the gap). */
+  .rail[data-detail="compact"] {
+    --glyph-size: 96px;
+    --detail-gap: 12px;
+    --oneliner-pull: -7px;
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
@@ -1191,8 +1313,8 @@
      side of a scoped `* + *`. */
   .rail > :global(* + *) {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 24px;
-    padding-top: 22px;
+    margin-top: var(--rail-div-above, 24px);
+    padding-top: var(--rail-div-below, 22px);
   }
 
   .fblock,
@@ -1201,11 +1323,12 @@
   }
 
   .detail-block {
-    flex: 1 1 auto;
+    flex: var(--detail-flex, 1 1 auto);
     min-height: 0;
   }
 
   .viz-area {
+    grid-column: 2;
     position: relative;
     height: 100%;
     width: 100%;
@@ -1256,7 +1379,7 @@
      gap, so widening the panel's rhythm below (see .detail-block
      .panel-content) does not push the gloss off the name it glosses. */
   .detail-oneliner {
-    margin-top: -22.75px;
+    margin-top: var(--oneliner-pull, -22.75px);
   }
 
   /* Compact detail panel — `align-content: start` (see .panel-content) stacks
@@ -1280,7 +1403,7 @@
      height for every species (see .sp-country-chips), so this is exact for
      all of them, not only the one on screen at load. */
   .detail-block .panel-content {
-    gap: 27.75px;
+    gap: var(--detail-gap, 27.75px);
   }
   .detail-block .species-graphic {
     gap: 10px;
@@ -1323,13 +1446,13 @@
      label length so the grid stays uniform. */
   .country-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(var(--per-group, 4), 1fr);
     grid-auto-rows: max-content;
     row-gap: 22px;
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 10px;
+    padding-top: var(--country-row-pad, 10px);
   }
 
   /* A column, not a row: .ls-pct is a SIBLING of the circle, so while this was
@@ -1407,7 +1530,7 @@
 
   /* ===== Options 1-3: Western / Non-Western lifestyle rows ===== */
   .ls-row + .ls-row {
-    margin-top: 20px;       /* breathing room between the two groups; mirrored */
+    margin-top: var(--ls-row-gap, 20px);  /* breathing room between the two groups; mirrored */
   }
 
   .ls-row-desc {
@@ -1490,7 +1613,7 @@
   .detail-scroll {
     flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
+    overflow: var(--detail-overflow, auto);
   }
 
   .panel-content {
@@ -1505,7 +1628,7 @@
        under each heading rather than as space at the foot of the panel. */
     align-content: start;
     gap: 14px;              /* looser than the anthromes detail panel's 11px */
-    overflow: auto;
+    overflow: var(--detail-overflow, auto);
   }
 
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/

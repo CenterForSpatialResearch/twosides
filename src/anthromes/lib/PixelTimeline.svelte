@@ -37,6 +37,7 @@
   //   width, height — the box to fill, in design px
 
   import { untrack } from 'svelte';
+  import { layout as stageLayout } from '../../shared/stage.svelte.js';
   import {
     SWAP_MS,
     SWAP_PHASE_MS,
@@ -83,6 +84,13 @@
     // never passes rowsMode.
     rowsMode = 1,
     cellCount = null,
+    // The cell size to stay near, in design px (stack mode). The field always
+    // spans the full width and has one column per sampled year, so a wider box
+    // means wider year-columns; past ~1.4x this size a year-column is split
+    // into 2, 3, ... cells across, and the row count follows the split cell,
+    // so the field gains cells instead of growing them. Null = one cell per
+    // year whatever the width.
+    targetCell = null,
     width = 800,
     height = 300
   } = $props();
@@ -91,7 +99,7 @@
   const MARKER_H = 16;    // strip above it for the selected-year callout
   const CELL_GAP = 0.9;   // inset per cell, so the field reads as pixels
   const MIN_ROWS = 8;
-  const MAX_ROWS = 48;
+  const MAX_ROWS = 96;    // a tall dock adds rows rather than stretching its cells
   const LADDER_GUTTER = 152; // left strip for the ladder's band labels
   const LADDER_DIM = 0.26;   // opacity of the fill below the year's own class
   const FILTER_DIM = 0.05;   // opacity of a code the anthrome filter excludes
@@ -230,11 +238,36 @@
   );
   const ladderIndex = $derived(new Map(ladderCodes.map((c, i) => [c, i])));
 
+  // Cells across one year-column (see targetCell): whichever of n and n + 1
+  // leaves the cell closer, as a ratio, to the target. 1 at the target width.
+  const subCols = $derived.by(() => {
+    if (isLadder || !targetCell) return 1;
+    const r = cellW / targetCell;
+    const n = Math.max(1, Math.floor(r));
+    return r / n > (n + 1) / r ? n + 1 : n;
+  });
+  const subW = $derived(cellW / subCols);
+
   // Stack mode picks a row count that keeps cells roughly square, then divides
   // the exact height evenly so the field fills its box top to bottom.
   const squareRows = $derived(
-    Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.round(fieldH / Math.max(1, cellW))))
+    Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.round(fieldH / Math.max(1, subW))))
   );
+
+  // The splits inside each year-column, as one path: a gap-wide stroke in the
+  // field's own ground, drawn over the cells. One element instead of doubling
+  // the rect count, and nothing the swap animation has to know about.
+  const splitPath = $derived.by(() => {
+    if (subCols < 2 || !yearOrder.length) return '';
+    let d = '';
+    for (let i = 0; i < yearOrder.length; i++) {
+      for (let k = 1; k < subCols; k++) {
+        const x = fieldLeft + i * cellW + k * subW;
+        d += `M${x},${fieldTop}V${fieldTop + fieldH}`;
+      }
+    }
+    return d;
+  });
   const rows = $derived.by(() => {
     if (isLadder) return Math.max(1, ladderCodes.length);
     if (rowsMode === 1 || !cellCount) return squareRows;
@@ -543,6 +576,11 @@
     </g>
   {/each}
 
+  {#if splitPath}
+    <path d={splitPath} class="col-split col-split--ground" stroke-width={CELL_GAP} />
+    <path d={splitPath} class="col-split col-split--tint" stroke-width={CELL_GAP} />
+  {/if}
+
   <!-- Pick targets: one invisible bar per column, spanning the full field so
        the short columns of a low-intensity cell are as easy to hit as the tall
        ones. Drawn after the pixels so they sit on top, and keyed off `columns`
@@ -571,21 +609,29 @@
 
   <!-- Era baseline. Ticks are positioned by column index, not by date. -->
   <line x1={fieldLeft} x2={width} y1={fieldTop + fieldH} y2={fieldTop + fieldH} class="axis-line" />
-  {#each eraTicks as t (t.idx)}
-    <line
-      x1={t.x}
-      x2={t.x}
-      y1={fieldTop + fieldH}
-      y2={fieldTop + fieldH + 4}
-      class="axis-tick"
-    />
-    <text
-      x={t.x}
-      y={fieldTop + fieldH + 16}
-      class="axis-label"
-      text-anchor={t.anchor}
-    >{t.label}</text>
-  {/each}
+  <!-- Remounted whenever the chart's box or the stage scale changes. Chromium
+       keeps painting SVG text where it first laid it out when its x/y change
+       during a window resize (the attributes and the DOM rects are right, the
+       pixels are not), so labels that survived a resize were left scattered
+       over the field at their old positions. New nodes always paint correctly.
+       Same family as the textPath note in stage.svelte.js. -->
+  {#key `${width}x${height}:${stageLayout.textEpoch}`}
+    {#each eraTicks as t (t.idx)}
+      <line
+        x1={t.x}
+        x2={t.x}
+        y1={fieldTop + fieldH}
+        y2={fieldTop + fieldH + 4}
+        class="axis-tick"
+      />
+      <text
+        x={t.x}
+        y={fieldTop + fieldH + 16}
+        class="axis-label"
+        text-anchor={t.anchor}
+      >{t.label}</text>
+    {/each}
+  {/key}
 
   <!-- Selected-year marker: brackets the column rather than drawing over it,
        so the pixels underneath stay readable. -->
@@ -618,6 +664,21 @@
 
   .field-bg {
     fill: rgba(255, 255, 255, 0.06);
+  }
+
+  /* The two strokes rebuild what shows between cells: the page ground, then
+     the field's tint over it. */
+  .col-split {
+    fill: none;
+    pointer-events: none;
+  }
+
+  .col-split--ground {
+    stroke: var(--bg);
+  }
+
+  .col-split--tint {
+    stroke: rgba(255, 255, 255, 0.06);
   }
 
   .col-hit {

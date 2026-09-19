@@ -6,12 +6,18 @@
 // them — they are the first paint of the piece and load before any bundle the
 // visualizations need. Both are thin wrappers over layoutCore.js, which holds
 // the numbers.
-import { DESIGN_W, DESIGN_H, computeSplashLayout, applyLayoutVars } from './layoutCore.js';
+import {
+  DESIGN_W, DESIGN_H, computeSplashLayout, applyLayoutVars, loadOverrides, insetLayout
+} from './layoutCore.js';
 
 export { DESIGN_W, DESIGN_H };
 
+// Only the safe margin applies here (?margin=, see layoutCore.js); loading it
+// on these pages too is also what lets an exhibition set it on the splash URL.
+const overrides = loadOverrides();
+
 function fit() {
-  const L = computeSplashLayout(window.innerWidth, window.innerHeight);
+  const L = insetLayout(window.innerWidth, window.innerHeight, overrides.margin, computeSplashLayout);
   applyLayoutVars(L);
   return L;
 }

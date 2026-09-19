@@ -50,6 +50,13 @@ npm run build         # outputs to dist/
 npm run preview       # serves the build at http://localhost:4173
 ```
 
+### TVs and very large displays
+
+If playing on a tv or very large display (more than 40"):
+`?margin=5` keeps the piece 5% inside every edge of the screen. Add `&minBody=0` to scale the
+type in proportion rather than holding it at its minimum size. Both last for the browser tab's
+session and carry across all pages; `?margin=0` clears the margin.
+
 ## About
 
 ### Biomes

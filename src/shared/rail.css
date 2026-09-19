@@ -38,7 +38,7 @@
 .fblock {
   display: flex;
   flex-direction: column;
-  gap: 17px;
+  gap: var(--fblock-gap, 17px);
   min-width: 0;
 }
 
@@ -52,7 +52,16 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 15px;
-  margin-bottom: 8px;
+  margin-bottom: var(--headrow-gap, 8px);
+}
+
+/* The two lifestyle groups. Stacked, with .fblock's own gap between them, so
+   wrapping them changes nothing; side by side once the rail tier asks for the
+   eight circles in one row (see the tiers at the foot of this file). */
+.ls-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fblock-gap, 17px);
 }
 
 /* Lifestyle rows in the country picker: the description is the row head. */
@@ -100,4 +109,95 @@
 .mini-link.active {
   opacity: 1;
   border-bottom-color: currentColor;
+}
+
+
+/* ===== Rail tiers =====
+   Each App writes its rail's tier (src/shared/railTiers.js) onto the rail as
+   data-cols / data-spacing / data-detail / data-scroll, and the rules here
+   turn a tier into custom properties. The rules that spend them keep the
+   pixel-fitted numbers of the 1000 x 2000 rail as the var() fallback, so with
+   no tier property set — which is what the 'anchor' tier is — the rail is
+   exactly what it was. Properties rather than overriding declarations,
+   because most of the rules being adjusted are scoped to an App and would
+   outrank a plain global override.
+
+   What is set here is what the two sides agree on. Their deliberate
+   asymmetries (--country-row-pad, --ls-row-gap) and the details block's own
+   compact form are set per side, in each App. */
+
+/* Off the anchor: drop the constants that only hold in a 1000 x 2000 rail, and
+   cap the content column on very wide rails. The cap hugs the disk: the
+   anthromes rail pushes its sections to the right, the biomes rail already
+   starts them on the left. */
+:is(.rail, .filter-rail):not([data-spacing="anchor"]) {
+  --key-max-h: none;
+}
+
+:is(.rail, .filter-rail):not([data-spacing="anchor"]) > * {
+  width: 100%;
+  max-width: 1500px;
+}
+
+.filter-rail:not([data-spacing="anchor"]) > * {
+  align-self: flex-end;
+}
+
+:is(.rail, .filter-rail)[data-spacing="tight"] {
+  --rail-pad: 32px 36px;
+  --rail-div-above: 16px;
+  --rail-div-below: 14px;
+  --fblock-gap: 11px;
+  --headrow-gap: 2px;
+}
+
+/* Eight across: the two groups sit side by side, each under its own
+   description. One description wraps further than the other in most widths,
+   so the circles are pushed to the foot of their group to stay level. (Each
+   App zeroes its own --ls-row-gap here: stacked, that margin separates the
+   groups; side by side it would drop the second one.) */
+:is(.rail, .filter-rail)[data-cols="8"] .ls-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 44px;
+}
+
+:is(.rail, .filter-rail)[data-cols="8"] .ls-row {
+  justify-content: space-between;
+}
+
+/* Packed (RAIL_FILL in railTiers.js): the details block stops taking every
+   spare px, so the key moves up under it and the spare is left at the foot of
+   the rail. It can still shrink, which is what the tiers' minimum heights
+   count on. Not on the anchor rail, which has nothing spare and must not
+   move; not on the scrolling one, where every section is already its own
+   height. */
+:is(.rail, .filter-rail)[data-fill="pack"]:not([data-spacing="anchor"]):not([data-scroll="true"]) {
+  --detail-flex: 0 1 auto;
+}
+
+/* The scrolling rail. A shipped state, not an accident: on a 13" laptop the
+   type floor leaves the rail less height than its smallest tier needs. Every
+   section takes its natural height (--detail-flex / --detail-overflow are
+   spent by each App's details block) and the rail itself scrolls. */
+:is(.rail, .filter-rail)[data-scroll="true"] {
+  --rail-overflow-y: auto;
+  --detail-flex: 0 0 auto;
+  --detail-overflow: visible;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+}
+
+:is(.rail, .filter-rail)[data-scroll="true"]::-webkit-scrollbar {
+  width: 9px;
+}
+
+:is(.rail, .filter-rail)[data-scroll="true"]::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 5px;
+}
+
+:is(.rail, .filter-rail)[data-scroll="true"]::-webkit-scrollbar-track {
+  background: transparent;
 }

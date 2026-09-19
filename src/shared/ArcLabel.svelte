@@ -30,6 +30,8 @@
   // Anchoring the right side at the bottom instead would put the word's END on
   // the shared line and leave its start floating, which read as misaligned.
 
+  import { layout } from './stage.svelte.js';
+
   let {
     text,
     side = 'right',      // 'right' (biomes rail) | 'left' (anthromes rail)
@@ -75,11 +77,16 @@
   <defs>
     <path id={uid} d={guide} fill="none" />
   </defs>
-  <text style={`font-size:${fontSize}px`}>
-    <textPath href={`#${uid}`} startOffset={startOffset} text-anchor={textAnchor}>
-      {text}
-    </textPath>
-  </text>
+  <!-- Keyed on the text epoch: text on a textPath is not re-laid-out when an
+       ancestor's transform changes, so it is remounted once a resize has
+       settled (see layout.textEpoch in stage.svelte.js). -->
+  {#key layout.textEpoch}
+    <text style={`font-size:${fontSize}px`}>
+      <textPath href={`#${uid}`} startOffset={startOffset} text-anchor={textAnchor}>
+        {text}
+      </textPath>
+    </text>
+  {/key}
 </svg>
 
 <style>

@@ -10,7 +10,8 @@
   import CountryCircle from '../shared/CountryCircle.svelte';
   import ControlBar from '../shared/ControlBar.svelte';
   import InfoModal from '../shared/InfoModal.svelte';
-  import { initStage, screenToDesign } from '../shared/stage.svelte.js';
+  import { initStage, screenToDesign, layout } from '../shared/stage.svelte.js';
+  import { railTier, readTierOverride, readFillOverride, readFiveOverride, RAIL_FILL } from '../shared/railTiers.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -18,6 +19,15 @@
     if (!stageEl) return;
     return initStage(stageEl);
   });
+
+  // How much the rail has to give up at this window size: circle sizes, one row
+  // of eight or two of four, spacing, whether it scrolls. See railTiers.js.
+  const tierOverride = readTierOverride(globalThis.location?.search);
+  const railFill = readFillOverride(globalThis.location?.search) ?? RAIL_FILL;
+  const fiveOverride = readFiveOverride(globalThis.location?.search);
+  const tier = $derived(
+    railTier('anthromes', layout.railW, layout.railH, tierOverride, { large: layout.large, five: fiveOverride })
+  );
 
   const LEGEND_CATEGORIES = [
     { name: 'Dense Settlements', codes: [11, 12] },
@@ -58,11 +68,27 @@
   // The picker groups by it, in this order.
   const WESTERN_ISOS = ['SWE', 'GBR', 'USA', 'CHN'];
   const NONWESTERN_ISOS = ['MDG', 'FJI', 'PER', 'TZA'];
+  // On a large window each group gains a fifth country, set in the middle of
+  // its row (tier.perGroup, see railTiers.js). Italy is Westernized throughout
+  // the biomes study. Mongolia is the one country it samples under both labels
+  // (agro-pastoral herders and Ulaanbaatar); the biomes side draws only the
+  // herders' cohort, which is what files it in this group.
+  const FIFTH_WESTERN = 'ITA';
+  const FIFTH_NONWESTERN = 'MNG';
+  const withFifth = (isos, extra) => [...isos.slice(0, 2), extra, ...isos.slice(2)];
+  const westernIsos = $derived(
+    tier.perGroup === 5 ? withFifth(WESTERN_ISOS, FIFTH_WESTERN) : WESTERN_ISOS
+  );
+  const nonWesternIsos = $derived(
+    tier.perGroup === 5 ? withFifth(NONWESTERN_ISOS, FIFTH_NONWESTERN) : NONWESTERN_ISOS
+  );
   const SHORT_LABELS = {
     SWE: 'Sweden',
     GBR: 'UK',
     USA: 'USA',
     CHN: 'China',
+    ITA: 'Italy',
+    MNG: 'Mongolia',
     MDG: 'Madagascar',
     FJI: 'Fiji',
     PER: 'Peru',
@@ -272,6 +298,11 @@
   let historyChartEl = $state(null);
   let historyChartW = $state(340);
 
+  // The timeline's cell size on the display this was drawn for: the rail's 878px
+  // of content over its 76 year-columns. PixelTimeline holds its cells near
+  // this in a wider rail by splitting each year into more cells across.
+  const TIMELINE_CELL = 878 / 76;
+
   // The Option 1 pixel timeline sizes to its own box in BOTH axes (the bar
   // charts take a fixed height), so it gets its own measured element.
   let pixelChartEl = $state(null);
@@ -468,6 +499,18 @@
   // Design px between the rail's inner edge and the leader's vertical kink.
   const LEADER_ELBOW_GAP = 34;
 
+  // The rail scrolls in its smallest tier, and the leader's terminus scrolls
+  // with it: the effect below re-measures on every scroll, and drops the line
+  // while the row it points at is outside the rail's visible box.
+  let railEl = $state(null);
+  let railScrollTick = $state(0);
+
+  function inRailView(y) {
+    if (!railEl) return true;
+    const r = railEl.getBoundingClientRect();
+    return y >= r.top && y <= r.bottom;
+  }
+
   $effect(() => {
     const start = connectorStart;
     const panel = detailPanelEl;
@@ -477,6 +520,7 @@
     // mounting. Under Option 1 the anchor also moves when the year changes,
     // because the anthrome name can get longer or shorter.
     barChartData; detailAnchorEl; anthromeRuleEl; detailMeta;
+    railScrollTick; tier; layout.scale;
     untrack(() => {
       if (!panel || !start || !open) {
         connectorEnd = null;
@@ -491,6 +535,11 @@
         // the end facing the map — so the leader reads as one stroke that
         // becomes the underline of the word it is calling out.
         const rr = rule.getBoundingClientRect();
+        if (!inRailView(rr.top + rr.height / 2)) {
+          connectorEnd = null;
+          connectorElbowX = null;
+          return;
+        }
         connectorEnd = screenToDesign(rr.right, rr.top + rr.height / 2);
         connectorElbowX = screenToDesign(rect.right, 0).x + LEADER_ELBOW_GAP;
         return;
@@ -505,6 +554,10 @@
         panel.querySelector('.menu-title') ||
         panel;
       const ar = anchor.getBoundingClientRect();
+      if (!inRailView(ar.top + ar.height / 2)) {
+        connectorEnd = null;
+        return;
+      }
       connectorEnd = screenToDesign(rect.right, ar.top + ar.height / 2);
     });
   });
@@ -733,8 +786,8 @@
 
 <svelte:window onclick={handleWindowClick} />
 
-<!-- .viewport fills the window and shows the letterbox; .stage is the fixed
-     3000x2000 canvas that everything below is authored against. -->
+<!-- .viewport fills the window; .stage is the design canvas that everything
+     below is authored against (see src/shared/stage.css). -->
 <div class="viewport">
 <div class="stage" bind:this={stageEl}>
 {#if error}
@@ -764,12 +817,25 @@
     />
 
     <div class="layout">
-      <div class="filter-rail">
+      <div
+        class="filter-rail"
+        bind:this={railEl}
+        onscroll={() => railScrollTick++}
+        data-cols={tier.cols}
+        data-spacing={tier.spacing}
+        data-detail={tier.detail}
+        data-scroll={tier.scroll}
+        data-fill={railFill}
+        data-key={tier.keyNames ? 'full' : 'pills'}
+        style:--per-group={tier.perGroup === 5 ? 5 : null}
+      >
         <!-- Top tier: large control circles, spread across the full rail width
              with an arced caption hung off the LEFT of each bubble (mirroring
              the biomes rail, which captions to the right). -->
         <ControlBar
           side="left"
+          size={tier.ctl}
+          captionSize={tier.caption}
           items={[
             { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
               onclick: () => openPanel = openPanel === 'info' ? null : 'info' },
@@ -808,8 +874,8 @@
                       {iso3}
                       label={SHORT_LABELS[iso3] ?? iso3}
                       {feature}
-                      size={150}
-                      labelFontSize={19}
+                      size={tier.circle}
+                      labelFontSize={tier.label}
                       ringStroke={3.4}
                       ringStrokeSelected={5}
                       selected={selectedCountryIso3 === iso3}
@@ -822,16 +888,18 @@
             </div>
           {/snippet}
 
-          {@render lifestyleRow(
-            'Westernized',
-            'Populations with more exposure to urbanization, industrialized food and medicine:',
-            WESTERN_ISOS
-          )}
-          {@render lifestyleRow(
-            'Non-Westernized',
-            'Populations with limited exposure to urbanization and industrialized systems:',
-            NONWESTERN_ISOS
-          )}
+          <div class="ls-rows">
+            {@render lifestyleRow(
+              'Westernized',
+              'Populations with more exposure to urbanization, industrialized food and medicine:',
+              westernIsos
+            )}
+            {@render lifestyleRow(
+              'Non-Westernized',
+              'Populations with limited exposure to urbanization and industrialized systems:',
+              nonWesternIsos
+            )}
+          </div>
         </section>
 
         <!-- Middle: always-visible details menu item, where Views used to be -->
@@ -894,6 +962,7 @@
                   onSelectYear={(y) => (selectedYear = y)}
                   selectedCodes={selectedAnthromes}
                   scrubbable
+                  targetCell={TIMELINE_CELL}
                   width={pixelChartW}
                   height={pixelChartH}
                 />
@@ -1048,25 +1117,81 @@
   }
 
   /* New rail + overlay styles */
+  /* Rail, disk, margin. The disk column is a square of --disk-size and the
+     rail takes what is left of the window once --disk-margin — an empty column
+     beyond the disk, see DISK_ANCHOR in layoutCore.js — is set aside. On the
+     display this was drawn for that is 1000 + 2000 + 0. */
   .layout {
     display: grid;
-    grid-template-columns: 1fr 2fr;
+    grid-template-columns: minmax(0, 1fr) var(--disk-size) var(--disk-margin);
     height: 100%;
     align-items: stretch;
   }
 
   .filter-rail {
     grid-column: 1;
-    padding: 51px 61px;
+    /* The var()s on this rail are the rail tiers' handles (see the foot of
+       src/shared/rail.css); each fallback is the 1000 x 2000 rail's number. */
+    padding: var(--rail-pad, 51px 61px);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 0;
     height: 100%;
-    overflow: hidden;
+    overflow: hidden var(--rail-overflow-y, hidden);
     position: relative;
     z-index: 5;
     --ctl-pad-bottom: 4px;  /* see the rail rhythm note below */
+  }
+
+  /* This side's share of the tiers: the two numbers the rails differ on. */
+  .filter-rail[data-spacing="regular"] {
+    --country-row-pad: 24px;
+  }
+
+  .filter-rail[data-spacing="tight"] {
+    --country-row-pad: 10px;
+    --ls-row-gap: 14px;
+  }
+
+  .filter-rail[data-cols="8"] {
+    --ls-row-gap: 0px;
+  }
+
+  /* The tight tiers drop the key's category names and its "more intensive"
+     arrow: just the pills, in one run, still in intensity order (so a drag
+     across them still selects a range). */
+  .filter-rail[data-key="pills"] .key-axis,
+  .filter-rail[data-key="pills"] .key-cat-name {
+    display: none;
+  }
+
+  .filter-rail[data-key="pills"] .key-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+  }
+
+  .filter-rail[data-key="pills"] .key-pills {
+    display: contents;
+  }
+
+  /* Packed (see rail.css): the timeline has no height of its own — it fills
+     its box — so it is given one in proportion to its width. --timeline-ratio
+     is the knob: field height over rail content width. */
+  .filter-rail[data-fill="pack"]:not([data-spacing="anchor"]):not([data-scroll="true"]) .detail-dock {
+    container-type: inline-size;
+  }
+
+  .filter-rail[data-fill="pack"]:not([data-spacing="anchor"]):not([data-scroll="true"]) .pixel-chart-box {
+    flex: 0 1 auto;
+    height: calc(var(--timeline-ratio, 0.3) * 100cqi);
+  }
+
+  /* Scrolling, the timeline no longer gets "whatever is left", so it is given
+     a height worth reading. */
+  .filter-rail[data-scroll="true"] {
+    --dock-min-h: 330px;
   }
 
   /* Thin gray divider between every menu item (details reads as just another one) */
@@ -1085,8 +1210,8 @@
      side of a scoped `* + *`. */
   .filter-rail > :global(* + *) {
     border-top: 1.3px solid rgba(255, 255, 255, 0.14);
-    margin-top: 24px;
-    padding-top: 22px;
+    margin-top: var(--rail-div-above, 24px);
+    padding-top: var(--rail-div-below, 22px);
   }
 
   /* ===== MoMA: bottom anthrome filter key (always visible) ===== */
@@ -1103,7 +1228,7 @@
     flex-direction: column;
     gap: 10px;
     min-height: 0;
-    max-height: 40%;
+    max-height: var(--key-max-h, 40%);
   }
 
   .anthrome-key-head {
@@ -1266,9 +1391,11 @@
   }
 
   /* ===== MoMA: details — styled exactly like the other menu items (no card) ===== */
+  /* The one section that flexes: it takes what the others leave, down to the
+     least the timeline can be read at (heading, lead-in and a ~130px field). */
   .detail-dock {
-    flex: 1 1 auto;
-    min-height: 0;
+    flex: var(--detail-flex, 1 1 auto);
+    min-height: var(--dock-min-h, 236px);
     width: 100%;
     display: flex;
     flex-direction: column;
@@ -1290,13 +1417,13 @@
      note), which is what lands both titles on the same y. */
   .country-row {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(var(--per-group, 4), 1fr);
     grid-auto-rows: max-content;
     row-gap: 22px;
     column-gap: 12px;
     justify-items: center;
     align-items: start;
-    padding-top: 24.3px;
+    padding-top: var(--country-row-pad, 24.3px);
   }
 
   .country-cell {
@@ -1342,7 +1469,7 @@
   /* Lifestyle rows in the country picker — mirrors biomes' promoted row head:
      the description IS the row head, full white, sized as a lead-in. */
   .ls-row + .ls-row {
-    margin-top: 36px;       /* biomes' 20px + its share of the caption line */
+    margin-top: var(--ls-row-gap, 36px);  /* biomes' 20px + its share of the caption line */
   }
 
   .ls-row-desc {
