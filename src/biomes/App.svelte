@@ -14,8 +14,6 @@
   import CountryCircle from '../shared/CountryCircle.svelte';
   import ArcLabel from '../shared/ArcLabel.svelte';
   import { initStage, screenToDesign } from '../shared/stage.svelte.js';
-  import { initIdleReset } from '../shared/idleReset.js';
-  import IdleOverlay from '../shared/IdleOverlay.svelte';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -23,18 +21,6 @@
     if (!stageEl) return;
     return initStage(stageEl);
   });
-
-  // Attract-loop guard: 30s with no input returns the visitor to the splash.
-  // A real page load, not a state reset — which is also what clears ?country=
-  // from the URL so the next visitor arrives on a clean map.
-  let idleWarning = $state(false);
-  $effect(() =>
-    initIdleReset({
-      homeHref: import.meta.env.BASE_URL,
-      onWarn: () => (idleWarning = true),
-      onCancel: () => (idleWarning = false)
-    })
-  );
 
   // State
   let loading = $state(true);
@@ -1170,9 +1156,6 @@
     {/if}
   </div>
 {/if}
-<!-- Inside .stage so it scales with the canvas, and last so it paints over the
-     rail and the chart. Any input cancels it; see initIdleReset. -->
-<IdleOverlay show={idleWarning} />
 </div>
 </div>
 

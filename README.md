@@ -102,8 +102,6 @@ twosides/
 │   │   └── lib/               # BiomesChart, dataAdapter
 │   └── shared/                # Shared components and state
 │       ├── mapProfile.js      # Pinned resolution (70km) and country set (50m)
-│       ├── idleReset.js       # Attract-loop guard (30s timeout)
-│       ├── IdleOverlay.svelte # Timeout warning UI
 │       ├── pageStage.js       # Design canvas scaling
 │       └── splashCopy.js      # Shared copy for splash and interstitial
 ├── public/
