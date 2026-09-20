@@ -1775,10 +1775,45 @@
   }
 
   /* No leftover height to fill in a rail that is as tall as its content, so
-     the timeline is given one. */
+     the timeline is given one. The dock's own floor goes with it: that is the
+     least a FLEXING dock may shrink to, and here it would only hold the
+     section open past a timeline this short. */
   :global(html[data-layout="stacked"]) .pixel-chart-box {
     flex: 0 0 auto;
-    height: var(--stacked-timeline-h, 250px);
+    height: var(--stacked-timeline-h, 219px);
+  }
+
+  :global(html[data-layout="stacked"]) .detail-dock {
+    --dock-min-h: 0px;
+  }
+
+  /* A phone's height goes to the charts: the section headlines ("MODELING
+     12,025 YEARS…", "Anthromes are patterns…") are not shown, and each section
+     opens on its lead-in instead. */
+  :global(html[data-layout="stacked"]) .detail-heading,
+  :global(html[data-layout="stacked"]) .anthrome-key-title {
+    display: none;
+  }
+
+  /* "All" shared the headline's row. Without it, it shares the share line's:
+     lead-in left, "All" right, the pills across both under them. */
+  :global(html[data-layout="stacked"]) .anthrome-key {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+  }
+
+  :global(html[data-layout="stacked"]) .key-scope {
+    grid-area: 1 / 1;
+    margin-top: 0;
+  }
+
+  :global(html[data-layout="stacked"]) .anthrome-key-head {
+    grid-area: 1 / 2;
+  }
+
+  :global(html[data-layout="stacked"]) .key-legend {
+    grid-column: 1 / -1;
   }
 
 </style>

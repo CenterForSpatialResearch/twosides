@@ -1799,4 +1799,26 @@
     touch-action: auto;
   }
 
+  /* A phone's height goes to the disk and the numbers: the section headlines
+     ("5000 LINES…", "A species is…", "Phyla group…") are not shown, nor the
+     lineage glyph and its chips. The details open on the SGB name, the key on
+     its share line. */
+  :global(html[data-layout="stacked"]) .detail-heading,
+  :global(html[data-layout="stacked"]) .detail-oneliner,
+  :global(html[data-layout="stacked"]) .detail-block .species-graphic,
+  :global(html[data-layout="stacked"]) .phylum-band-head {
+    display: none;
+  }
+
+  /* Nothing above it left to hug. */
+  :global(html[data-layout="stacked"]) .phylum-scope {
+    margin-top: 0;
+  }
+
+  /* One stat to a row: in two columns the pills under "Previously unknown
+     (uSGB)" started wherever half the panel fell, not on anything it set. */
+  :global(html[data-layout="stacked"]) .detail-block .sp-statline {
+    grid-template-columns: 1fr;
+  }
+
 </style>
