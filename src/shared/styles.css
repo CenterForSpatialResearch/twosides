@@ -566,6 +566,16 @@ textarea {
   border-color: rgba(255, 255, 255, 0.7);
 }
 
+/* In a narrow panel (a phone, or the narrowest rails) half the width is less
+   than the hero pill needs — "Previously unknown (uSGB)" is ~290px — and it
+   ran under its neighbour. There it takes a row to itself. The container is
+   the biomes details block (see .detail-block in biomes/App.svelte). */
+@container detail (max-width: 600px) {
+  .panel-content .sp-stat--hero {
+    grid-column: 1 / -1;
+  }
+}
+
 .panel-content .sp-stat-detail {
   font-weight: 500;
   color: var(--muted);

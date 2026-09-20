@@ -1,27 +1,46 @@
 <script>
-  // The rail's top tier: the row of large control circles (Info, Zoom Out,
-  // Reset, Zoom In), each with an arced caption hung off one side. Both rails
-  // use it; they differ only in the order of the buttons and in which side the
-  // captions hang from, so both are props.
+  // The control circles (Info, Zoom Out, Reset, Zoom In). Two forms:
+  //
+  //   variant="arc"   the rail's top tier: a row of large circles, each with an
+  //                   arced caption hung off one side. Both rails use it; they
+  //                   differ only in the order of the buttons and in which side
+  //                   the captions hang from, so both are props.
+  //   variant="flat"  the stacked (phone) layout's top bar, above the disk:
+  //                   smaller circles, each with an upright caption set
+  //                   vertically beside it — no textPath — and led by a Back
+  //                   link (backHref), which stands in for the nav coin there.
   //
   // items: [{ id, label, caption, glyph, onclick, active, disabled }]
   //   label    title + aria-label ("Zoom out")
-  //   caption  the arced text, if it differs from the label ("Zoom Out")
+  //   caption  the caption text, if it differs from the label ("Zoom Out")
   //   disabled leave undefined on a button that is never disabled
   //
-  // The row's padding-bottom is one of the rails' deliberate asymmetries (see
-  // the rail rhythm note in each App): set --ctl-pad-bottom on the rail.
+  // The arc row's padding-bottom is one of the rails' deliberate asymmetries
+  // (see the rail rhythm note in each App): set --ctl-pad-bottom on the rail.
   import ArcLabel from './ArcLabel.svelte';
 
   let {
+    variant = 'arc',
     side = 'right',      // which side the captions hang from: 'right' (biomes) | 'left' (anthromes)
     items = [],
+    backHref = null,     // flat only: where Back goes
     size = 118,          // button diameter, design px — the rail tier's `ctl`
-    captionSize = 19     // arced caption type size — the rail tier's `caption`
+    captionSize = 19     // caption type size — the rail tier's `caption`
   } = $props();
 </script>
 
-<div class="control-circles" style={`--ctl-size:${size}px`}>
+<div
+  class="control-circles"
+  class:control-circles--flat={variant === 'flat'}
+  data-side={side}
+  style={`--ctl-size:${size}px; --ctl-caption:${captionSize}px`}
+>
+  {#if variant === 'flat' && backHref}
+    <div class="ctl-slot">
+      <a class="ctl-btn" href={backHref} title="Back" aria-label="Back to home">←</a>
+      <span class="ctl-caption" aria-hidden="true">Back</span>
+    </div>
+  {/if}
   {#each items as item (item.id)}
     <div class="ctl-slot">
       <button
@@ -33,7 +52,11 @@
         disabled={item.disabled}
         aria-disabled={item.disabled}
       >{item.glyph}</button>
-      <ArcLabel text={item.caption ?? item.label} {side} diameter={size} fontSize={captionSize} />
+      {#if variant === 'flat'}
+        <span class="ctl-caption" aria-hidden="true">{item.caption ?? item.label}</span>
+      {:else}
+        <ArcLabel text={item.caption ?? item.label} {side} diameter={size} fontSize={captionSize} />
+      {/if}
     </div>
   {/each}
 </div>
@@ -87,6 +110,44 @@
 
   .ctl-btn:active {
     transform: scale(0.95);
+  }
+
+  /* Flat: the stacked layout's top bar. The slot is circle + caption side by
+     side; the caption is set vertically so five of them fit a phone's width,
+     reading down on the right of its circle and up on the left, the way the
+     arced captions face. */
+  .control-circles--flat {
+    padding: 0;
+  }
+
+  .control-circles--flat .ctl-slot {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .control-circles--flat[data-side="left"] .ctl-slot {
+    flex-direction: row-reverse;
+  }
+
+  .control-circles--flat .ctl-btn {
+    text-decoration: none;
+    line-height: 1;
+  }
+
+  .ctl-caption {
+    writing-mode: vertical-rl;
+    font-size: var(--ctl-caption);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    color: var(--fg);
+    user-select: none;
+  }
+
+  .control-circles--flat[data-side="left"] .ctl-caption {
+    transform: rotate(180deg);
   }
 
   .ctl-btn:disabled,

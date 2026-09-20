@@ -32,8 +32,9 @@
 </div>
 
 <style>
-  /* Centred on the stage (longer read). Percentages resolve against the
-     positioned ancestor, which on both sides is the size of .stage. */
+  /* Centred on the window (longer read). Percentages resolve against the
+     positioned ancestor: the overlay stage (src/shared/stage.css), which is
+     the window in design px. */
   .info-modal {
     position: absolute;
     top: 50%;
@@ -53,6 +54,15 @@
     pointer-events: auto;
     transform-origin: center center;
     animation: modal-pop-center 0.18s ease;
+  }
+
+  /* Stacked (phone): the card takes nearly the whole screen, with less of it
+     spent on its own frame. */
+  :global(html[data-layout="stacked"]) .info-modal {
+    max-width: calc(100% - 44px);
+    max-height: 90%;
+    padding: 26px 28px;
+    border-radius: 26px;
   }
 
   @keyframes modal-pop-center {
@@ -94,6 +104,9 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    /* Stacked, the page behind the card scrolls too; the end of this list
+       should not hand the gesture on to it. */
+    overscroll-behavior: contain;
     display: grid;
     align-content: start;
     gap: 13px;

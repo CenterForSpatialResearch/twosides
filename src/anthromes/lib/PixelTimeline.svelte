@@ -91,6 +91,10 @@
     // so the field gains cells instead of growing them. Null = one cell per
     // year whatever the width.
     targetCell = null,
+    // The stacked (phone) layout's form: a narrower ladder gutter, and a
+    // vertical swipe across the field scrolls the page instead of being
+    // swallowed by the scrubber (a horizontal one still scrubs).
+    compact = false,
     width = 800,
     height = 300
   } = $props();
@@ -101,6 +105,7 @@
   const MIN_ROWS = 8;
   const MAX_ROWS = 96;    // a tall dock adds rows rather than stretching its cells
   const LADDER_GUTTER = 152; // left strip for the ladder's band labels
+  const LADDER_GUTTER_COMPACT = 96;
   const LADDER_DIM = 0.26;   // opacity of the fill below the year's own class
   const FILTER_DIM = 0.05;   // opacity of a code the anthrome filter excludes
 
@@ -218,7 +223,7 @@
   // Ladder mode gives up a strip on the left to name its bands; stack mode has
   // nothing to name (the always-visible anthrome key below the panel carries
   // the colour legend) so it uses the full width.
-  const fieldLeft = $derived(isLadder ? LADDER_GUTTER : 0);
+  const fieldLeft = $derived(isLadder ? (compact ? LADDER_GUTTER_COMPACT : LADDER_GUTTER) : 0);
   const fieldW = $derived(Math.max(20, width - fieldLeft));
   const cellW = $derived(yearOrder.length ? fieldW / yearOrder.length : fieldW);
 
@@ -447,6 +452,7 @@
     scrubYear = yearFromPointer(e);
     window.addEventListener('pointermove', moveScrub);
     window.addEventListener('pointerup', endScrub, { once: true });
+    window.addEventListener('pointercancel', cancelScrub, { once: true });
   }
 
   function moveScrub(e) {
@@ -454,8 +460,17 @@
     if (y) scrubYear = y;
   }
 
+  // The browser took the touch for a page scroll (compact: touch-action
+  // pan-y). Nothing is committed; the marker goes back to the selected year.
+  function cancelScrub() {
+    window.removeEventListener('pointermove', moveScrub);
+    window.removeEventListener('pointerup', endScrub);
+    scrubYear = null;
+  }
+
   function endScrub(e) {
     window.removeEventListener('pointermove', moveScrub);
+    window.removeEventListener('pointercancel', cancelScrub);
     const y = yearFromPointer(e) || scrubYear;
     scrubYear = null;
     if (y) onSelectYear(y);
@@ -464,6 +479,7 @@
   $effect(() => () => {
     window.removeEventListener('pointermove', moveScrub);
     window.removeEventListener('pointerup', endScrub);
+    window.removeEventListener('pointercancel', cancelScrub);
   });
 
   const markerIndex = $derived(yearOrder.indexOf(displayYear));
@@ -594,6 +610,7 @@
       <rect
         class="col-hit"
         class:col-hit--scrub={scrubbable}
+        class:col-hit--pan={compact}
         x={col.x}
         y={fieldTop}
         width={cellW}
@@ -695,6 +712,12 @@
 
   .col-hit--scrub {
     cursor: ew-resize;
+  }
+
+  /* Compact: the page scrolls under the finger, so only the horizontal half of
+     the gesture is the scrubber's. */
+  .col-hit--pan {
+    touch-action: pan-y;
   }
 
   .axis-line {

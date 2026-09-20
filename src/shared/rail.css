@@ -201,3 +201,11 @@
 :is(.rail, .filter-rail)[data-scroll="true"]::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ===== Stacked (portrait / phone) =====
+   The app is as tall as its content and the page scrolls; see the stacked
+   block in stage.css, and each App's own for the disk and the rail. */
+html[data-layout="stacked"] .app {
+  height: auto;
+  overflow: visible;
+}

@@ -45,3 +45,56 @@
   transform: translate(var(--stage-x), var(--stage-y)) scale(var(--stage-scale));
   transform-origin: 0 0;
 }
+
+/* ===== Stacked (portrait / phone) =====
+   data-layout="stacked" is set by applyLayoutVars(); only the two
+   visualizations ever get it. The stage stops being a window-sized canvas: it
+   is one window wide (--design-w), as tall as its content, and the PAGE
+   scrolls, natively. .viewport goes back into the flow and takes the stage's
+   rendered height — --stage-h, which stage.svelte.js measures, times the
+   scale — because a transformed, absolutely positioned box gives the document
+   nothing to scroll by on its own in every browser. --design-h is still the
+   window's height in design px, so it is the stage's minimum: a short page
+   still fills the screen. */
+html[data-layout="stacked"],
+html[data-layout="stacked"] body {
+  height: auto;
+  overflow: visible;
+}
+
+html[data-layout="stacked"] body {
+  overflow-x: hidden;
+}
+
+html[data-layout="stacked"] .viewport {
+  position: relative;
+  inset: auto;
+  height: calc(var(--stage-h, var(--design-h)) * var(--stage-scale) * 1px);
+  /* styles.css turns double-tap zoom off for the whole piece; a scrolling
+     page on a phone gets the browser's own gestures back. The two disks keep
+     theirs (touch-action: none on the charts). */
+  touch-action: auto;
+}
+
+html[data-layout="stacked"] .stage {
+  height: auto;
+  min-height: calc(var(--design-h) * 1px);
+}
+
+/* ===== The overlay stage =====
+   A second stage for what has to sit over the WINDOW rather than over the
+   page: the info modal. Same size and transform as .stage when that fills the
+   window (so at 3000x2000 the modal is where it always was), but fixed, so in
+   the stacked layout it stays on screen while the page scrolls under it.
+   Empty, it takes no clicks. */
+.overlay-stage {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: calc(var(--design-w) * 1px);
+  height: calc(var(--design-h) * 1px);
+  transform: translate(var(--stage-x), var(--stage-y)) scale(var(--stage-scale));
+  transform-origin: 0 0;
+  pointer-events: none;
+  z-index: 30;
+}

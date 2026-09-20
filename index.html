@@ -309,23 +309,30 @@
     // Controller: mounts the narrative splash. Cloning the <template> rather
     // than authoring the markup inline keeps exactly one copy of each id in the
     // document, which the SVG textPath href="#..." references depend on.
-    import { initPageStage } from './src/shared/pageStage.js';
+    import { initPageStage, splashVariant } from './src/shared/pageStage.js';
     import { mountNarrative } from './src/splash/narrative.js';
 
     const host = document.getElementById('splash-host');
+    let unmount = null;
+    let ready = false;
 
+    // The splash sizes its type once per mount, for the window it is mounted
+    // in: full size, or a phone's (see splashType()). A resize that crosses
+    // between the two mounts it afresh.
     function render() {
+      unmount?.();
       const tpl = document.getElementById('tpl-narrative');
       host.replaceChildren(tpl.content.cloneNode(true));
-      mountNarrative(host);
+      unmount = mountNarrative(host, { layout: splashVariant() });
     }
 
-    initPageStage();
+    initPageStage({ onVariantChange: () => { if (ready) render(); } });
 
     // The splash measures text to fit it to an arc, so wait for the face rather
     // than measuring fallback metrics and baking in the wrong size.
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
-    else render();
+    const start = () => { ready = true; render(); };
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(start);
+    else start();
   </script>
 </body>
 </html>

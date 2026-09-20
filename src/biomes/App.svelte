@@ -15,7 +15,7 @@
   import ControlBar from '../shared/ControlBar.svelte';
   import InfoModal from '../shared/InfoModal.svelte';
   import { initStage, screenToDesign, layout } from '../shared/stage.svelte.js';
-  import { railTier, readTierOverride, readFillOverride, readFiveOverride, RAIL_FILL } from '../shared/railTiers.js';
+  import { railTier, readTierOverride, readFillOverride, readFiveOverride, RAIL_FILL, TOP_BAR } from '../shared/railTiers.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -32,6 +32,18 @@
   const tier = $derived(
     railTier('biomes', layout.railW, layout.railH, tierOverride, { large: layout.large, five: fiveOverride })
   );
+
+  // What the rail holds, and in what order, per layout. The stacked (phone)
+  // layout leads with the details because they sit right under the disk — the
+  // leader drops straight onto them — and has no 'controls': there they are a
+  // bar above the disk instead (see the markup). It has no 'country' either:
+  // the picker is dropped on a phone, which explores the whole catalog. Adding
+  // or dropping a menu is adding or deleting its id.
+  const SECTIONS = {
+    wide: ['controls', 'country', 'details', 'key'],
+    stacked: ['details', 'key']
+  };
+  const sections = $derived(SECTIONS[layout.stacked ? 'stacked' : 'wide']);
 
   // State
   let loading = $state(true);
@@ -223,7 +235,7 @@
   // the anthromes leader is: out level from the marker, a vertical run in the
   // rail's empty left padding, and in level to the rule.
   const leaderBent = $derived.by(() => {
-    if (!leaderFrom || !leaderTo || sgbLeadIn !== 0) return false;
+    if (!leaderFrom || !leaderTo || sgbLeadIn !== 0 || layout.stacked) return false;
     const dy = leaderTo.y - leaderFrom.y;
     return leadInAllowed ? dy > 1 : Math.abs(dy) > 1;
   });
@@ -238,8 +250,20 @@
 
   let railEl = $state(null);
 
+  // Stacked, the marker is at the foot of the disk and the details panel is
+  // the section right under it, so the leader is a plumb line from one to the
+  // rule along the top of the other. Only while the details ARE the first
+  // section: under anything else the line would run through that instead.
+  const leaderPlumb = $derived(layout.stacked && sections[0] === 'details');
+
   function updateLeaderTo() {
     if (!detailContent || !detailPanelEl) { leaderTo = null; return; }
+    if (layout.stacked) {
+      if (!leaderPlumb || !leaderFrom) { leaderTo = null; return; }
+      const pr = detailPanelEl.getBoundingClientRect();
+      leaderTo = { x: leaderFrom.x, y: screenToDesign(pr.left, pr.top).y };
+      return;
+    }
     // The leader points at the SGB by NAME, so it ends ON the rule under that
     // name — x comes from the rule's own left edge, not the panel's. The rule
     // sits at the rail's left padding, a few px inside the seam, so the run
@@ -274,7 +298,7 @@
   }
 
   function alignSgbToMarker() {
-    if (!leadInAllowed) { sgbLeadIn = 0; return; }
+    if (!leadInAllowed || layout.stacked) { sgbLeadIn = 0; return; }
     if (!sgbRuleEl || !leaderFrom) return;
     const rr = sgbRuleEl.getBoundingClientRect();
     const ruleY = screenToDesign(rr.left, rr.top + rr.height / 2).y;
@@ -297,7 +321,7 @@
   // observe its box so the leader endpoint tracks those late layout shifts.
   $effect(() => {
     const el = detailPanelEl;
-    detailContent; viewportW; viewportH; sgbRuleEl; leaderFrom; tier;
+    detailContent; viewportW; viewportH; sgbRuleEl; leaderFrom; tier; layout.mode; leaderPlumb;
     alignSgbToMarker();
     updateLeaderTo();
     if (!el || typeof ResizeObserver === 'undefined') return;
@@ -462,6 +486,23 @@
     openPanel = null;
     biomesChartRef?.resetControl?.();
   }
+
+  // The control circles: the rail's top tier, or the bar above the disk when
+  // stacked. The rail mirrors the anthromes one, so Info sits last there; the
+  // bar reads the same on both sides: Back, Info, Zoom Out, Reset, Zoom In.
+  const controlById = $derived({
+    'zoom-out': { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−',
+      onclick: () => biomesChartRef?.zoomOutControl?.(), disabled: zoomIdx === 0 },
+    reset: { id: 'reset', label: 'Reset', glyph: '◎', onclick: resetAll },
+    'zoom-in': { id: 'zoom-in', label: 'Zoom in', caption: 'Zoom In', glyph: '＋',
+      onclick: () => biomesChartRef?.zoomInControl?.(), disabled: zoomIdx === 2 },
+    info: { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
+      onclick: () => openPanel = openPanel === 'info' ? null : 'info' }
+  });
+  const controlItems = $derived(
+    (layout.stacked ? ['info', 'zoom-out', 'reset', 'zoom-in'] : ['zoom-out', 'reset', 'zoom-in', 'info'])
+      .map((id) => controlById[id])
+  );
 
   // Known/Unknown and Western/Non-western behave like Cohort: no "All" button.
   // All are shown by default; tap a value to isolate it, tap again to reset.
@@ -715,7 +756,7 @@
   // that toggle because the button sits in the rail, so the modal never showed.
   function handleWindowClick(e) {
     const target = e.target;
-    if (target.closest('.rail') || target.closest('.info-modal')) {
+    if (target.closest('.rail, .control-circles, .info-modal')) {
       return;
     }
     openPanel = null;
@@ -868,17 +909,36 @@
   </div>
 {:else}
   <div class="app">
-    <!-- Nav circle: switch sides + home dot -->
-    <NavCircle
-      side="left"
-      activeLabel="BIOMES"
-      linkLabel="ANTHROMES →"
-      linkHref={crossLinkHref}
-      linkAriaLabel="Go to Anthromes"
-      homeHref={import.meta.env.BASE_URL}
-    />
+    <!-- Nav circle: switch sides + home dot. Not in the stacked layout, where
+         a corner of the window is no place for it: Back, in the bar above the
+         disk, stands in. -->
+    {#if !layout.stacked}
+      <NavCircle
+        side="left"
+        activeLabel="BIOMES"
+        linkLabel="ANTHROMES →"
+        linkHref={crossLinkHref}
+        linkAriaLabel="Go to Anthromes"
+        homeHref={import.meta.env.BASE_URL}
+      />
+    {/if}
 
+    <!-- Disk and rail are stable siblings in every layout — CSS rearranges
+         them — so a window crossing into the stacked layout and back never
+         remounts the chart: the rotation, the zoom and the filters survive. -->
     <div class="layout">
+      {#if layout.stacked}
+        <div class="top-bar">
+          <ControlBar
+            variant="flat"
+            side="right"
+            size={TOP_BAR.ctl}
+            captionSize={TOP_BAR.caption}
+            backHref={import.meta.env.BASE_URL}
+            items={controlItems}
+          />
+        </div>
+      {/if}
       <div class="viz-area">
         <BiomesChart
           bind:this={biomesChartRef}
@@ -894,6 +954,7 @@
           proxyKey={null}
           studyKey={selectedStudyKey}
           countryIso3={selectedCountryIso3}
+          markerAt={layout.stacked ? 'bottom' : 'right'}
           on:detail={handleDetail}
           on:detail-close={handleDetailClose}
           on:zoomchange={handleZoomChange}
@@ -912,6 +973,10 @@
         data-fill={railFill}
         style:--per-group={tier.perGroup === 5 ? 5 : null}
       >
+        <!-- The rail's four sections, each a snippet, so that what the rail holds
+             and in what order is SECTIONS' call (see the script), not the
+             markup's. -->
+        {#snippet controls()}
         <!-- Top tier: largest control circles. Option 1 spreads them across the
              full rail width and hangs an arced caption off the RIGHT of each
              bubble (the anthromes rail mirrors this to the left). -->
@@ -919,23 +984,11 @@
           side="right"
           size={tier.ctl}
           captionSize={tier.caption}
-          items={[
-            { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−',
-              onclick: () => biomesChartRef?.zoomOutControl?.(), disabled: zoomIdx === 0 },
-            { id: 'reset', label: 'Reset', glyph: '◎', onclick: resetAll },
-            { id: 'zoom-in', label: 'Zoom in', caption: 'Zoom In', glyph: '＋',
-              onclick: () => biomesChartRef?.zoomInControl?.(), disabled: zoomIdx === 2 },
-            { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
-              onclick: () => openPanel = openPanel === 'info' ? null : 'info' }
-          ]}
+          items={controlItems}
         />
+        {/snippet}
 
-        <!-- Details panel, shared by both options but placed differently:
-             Option 6 renders it at the TOP (right below the controls) so the
-             marker leader lines up with its title; the others render it after
-             their own blocks. Defined once as a snippet, rendered per option
-             below. -->
-        {#snippet detailPanel()}
+        {#snippet detailsPanel()}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <section
@@ -1082,6 +1135,7 @@
           </section>
         {/snippet}
 
+        {#snippet countryPanel()}
         <!-- Lifestyle: the eight countries split into the two categories the
              study itself assigns, each row ranked by the share of that
              country's species previously unknown to science. The row head
@@ -1149,9 +1203,9 @@
           </div>
 
         </section>
+        {/snippet}
 
-        {@render detailPanel()}
-
+        {#snippet keyPanel()}
         <!-- Bottom tier: phylum key (bubble cluster; area ∝ SGB count) -->
         <section class="phylum-band">
           <div class="phylum-band-head">
@@ -1179,6 +1233,15 @@
             {/each}
           </div>
         </section>
+        {/snippet}
+
+        {#each sections as id (id)}
+          {#if id === 'controls'}{@render controls()}
+          {:else if id === 'country'}{@render countryPanel()}
+          {:else if id === 'details'}{@render detailsPanel()}
+          {:else if id === 'key'}{@render keyPanel()}
+          {/if}
+        {/each}
       </div>
     </div>
 
@@ -1194,7 +1257,16 @@
              panel — the lead-in can push the rule down but never up, so
              anything rendered above the title puts the rule out of reach of a
              high marker. See the note on the one-liner's placement above. -->
-        {#if leaderBent}
+        {#if layout.stacked}
+          <!-- Stacked: a plumb line from the marker at the foot of the disk to
+               the rule along the top of the details panel (see leaderPlumb). -->
+          <line
+            class="leader-line"
+            x1={leaderFrom.x} y1={leaderFrom.y}
+            x2={leaderFrom.x}
+            y2={leaderTo.y}
+          />
+        {:else if leaderBent}
           <!-- The rule cannot come to the marker (see leaderBent), so the line
                goes to the rule: level out of the disk, up or down the rail's
                empty left padding, level in to the rule's left end. -->
@@ -1212,25 +1284,32 @@
         {/if}
       </svg>
     {/if}
-
-    <!-- Info modal -->
-    {#if openPanel === 'info'}
-      <InfoModal title="BIOMES" onclose={() => openPanel = null}>
-        <p><strong>5000 Lines 5000 Species</strong></p>
-        <p>This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
-        <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
-        <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
-        <p><strong>Westernized / Non-Westernized:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
-        {#snippet citations()}
-          <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. “Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle.” <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
-          <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
-        {/snippet}
-      </InfoModal>
-    {/if}
   </div>
 {/if}
 </div>
 </div>
+
+<!-- The overlay stage: what sits over the window rather than over the page
+     (see src/shared/stage.css). Identical to .stage while that fills the
+     window; fixed, so stacked it stays put while the page scrolls under it.
+     Only there while it has something in it: an empty one is still a layer
+     over the whole window, and it shifted the anti-aliasing of what lay
+     under it. -->
+{#if openPanel === 'info' && !loading && !error}
+  <div class="overlay-stage">
+    <InfoModal title="BIOMES" onclose={() => openPanel = null}>
+      <p><strong>5000 Lines 5000 Species</strong></p>
+      <p>This visualization shows an evolution of the extensive human microbiome. It reconstructs data from the Segata Lab: 9,316 sample collections spanning 46 datasets from multiple populations and an additional cohort from Madagascar. The scientists reconstructed a catalog that greatly expands the set of 150,000 microbial genomes publicly available.</p>
+      <p>Each line represents the evolutionary pathway of a Species Level Genetic Bin (SGB), a grouping that organizes genomes based on their similarity, allowing for broader identification of species, both previously known and unknown.</p>
+      <p><strong>Known / Unknown:</strong> within this study, {unknownPct}% of bacteria species visualized and analyzed were previously unknown.</p>
+      <p><strong>Westernized / Non-Westernized:</strong> a key finding from these data is that the human microbiome is more diverse than previously understood, especially in indigenous anthromes, which has led to calls for their preservation (see back of coin).</p>
+      {#snippet citations()}
+        <p>Pasolli, Edoardo, Francesco Asnicar, Serena Manara, Moreno Zolfo, Nicolai Karcher, Federica Armanini, Francesco Beghini, et al. 2019. “Extensive Unexplored Human Microbiome Diversity Revealed by Over 150,000 Genomes from Metagenomes Spanning Age, Geography, and Lifestyle.” <em>Cell</em> 176(3): 649–662. <a href="https://doi.org/10.1016/j.cell.2019.01.001" target="_blank" rel="noopener">https://doi.org/10.1016/j.cell.2019.01.001</a></p>
+        <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+      {/snippet}
+    </InfoModal>
+  </div>
+{/if}
 
 <style>
   /* Split from .error now that it carries no text: an opaque cover in the page
@@ -1322,9 +1401,12 @@
     flex: 0 0 auto;
   }
 
+  /* A size container, so the panel's contents can answer to the panel's own
+     width rather than the window's (the stat line does, in styles.css). */
   .detail-block {
     flex: var(--detail-flex, 1 1 auto);
     min-height: 0;
+    container: detail / inline-size;
   }
 
   .viz-area {
@@ -1633,5 +1715,52 @@
 
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
      .kv/.swatch/.pill) is shared — see src/shared/styles.css. */
+
+  /* ===== Stacked (portrait / phone) =====
+     The same two siblings, rearranged: control bar, the disk at the full
+     width of the window, then the rail as tall as its content — the page
+     scrolls (see the stacked block in src/shared/stage.css). Which sections
+     the rail holds there is SECTIONS' call, in the script. */
+  :global(html[data-layout="stacked"]) .layout {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+
+  .top-bar {
+    order: 0;
+    padding: 26px 36px 4px;
+  }
+
+  /* --disk-size is the stage's width here (less on a phone held sideways,
+     where it is what the window's height leaves — hence the centring). An
+     explicit square rather than aspect-ratio, so the chart's own height: 100%
+     has a definite height to resolve against. */
+  :global(html[data-layout="stacked"]) .viz-area {
+    order: 1;
+    flex: 0 0 auto;
+    align-self: center;
+    width: var(--disk-size);
+    height: var(--disk-size);
+  }
+
+  :global(html[data-layout="stacked"]) .rail {
+    order: 2;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* The first section sits under the disk, not under the top of a rail, so it
+     takes the divider the others have — which is also the rule the leader
+     drops onto (see leaderPlumb). */
+  :global(html[data-layout="stacked"]) .rail > :global(:first-child) {
+    border-top: 1.3px solid rgba(255, 255, 255, 0.14);
+    padding-top: var(--rail-div-below, 22px);
+  }
+
+  /* A legend, not a control: the page scrolls under a finger on it. */
+  :global(html[data-layout="stacked"]) .phylum-key {
+    touch-action: auto;
+  }
 
 </style>

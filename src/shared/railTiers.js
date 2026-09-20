@@ -146,17 +146,26 @@ export function railTier(side, railW, railH, force = null, opts = {}) {
   let r;
   if (force != null && table[force]) r = table[force];
   else {
-    if (railW > ANCHOR_MAX_W) table = table.slice(1);
+    // The anchor row is the 1000 x 2000 rail: never a wider one, and never the
+    // stacked layout's, which has no height at all.
+    if (railW > ANCHOR_MAX_W || railH == null) table = table.slice(1);
     // No height to test against (the stacked layout's rail is as tall as its
-    // content): the widest-fitting row that does not scroll.
+    // content and the page scrolls, not the rail): the first row that fits the
+    // width, and never the scrolling form of it.
     const h = railH ?? Infinity;
     r = table.find((t) => railW >= t.minW && h >= t.minH) ?? table[table.length - 1];
+    if (railH == null && r.scroll) r = { ...r, scroll: false };
   }
   // The anchor rail never grows a fifth country: it has to stay what it was.
   const want = opts.five ?? opts.large;
   if (!want || r.spacing === 'anchor' || !fitsFive(r, railW)) return r;
   return { ...r, perGroup: 5 };
 }
+
+/** The stacked layout's control bar, above the disk (ControlBar's flat
+    variant): button diameter and caption size, design px. Five across a
+    580-unit stage; on a 390px phone the circles render at 46 CSS px. */
+export const TOP_BAR = { ctl: 68, caption: 14 };
 
 /** ?five=1|0 — force the fifth country on or off, whatever the window. */
 export function readFiveOverride(search = '') {

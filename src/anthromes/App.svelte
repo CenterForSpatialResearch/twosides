@@ -11,7 +11,7 @@
   import ControlBar from '../shared/ControlBar.svelte';
   import InfoModal from '../shared/InfoModal.svelte';
   import { initStage, screenToDesign, layout } from '../shared/stage.svelte.js';
-  import { railTier, readTierOverride, readFillOverride, readFiveOverride, RAIL_FILL } from '../shared/railTiers.js';
+  import { railTier, readTierOverride, readFillOverride, readFiveOverride, RAIL_FILL, TOP_BAR } from '../shared/railTiers.js';
 
   // The fixed design canvas; everything below is authored in design px inside it.
   let stageEl = $state(null);
@@ -28,6 +28,18 @@
   const tier = $derived(
     railTier('anthromes', layout.railW, layout.railH, tierOverride, { large: layout.large, five: fiveOverride })
   );
+
+  // What the rail holds, and in what order, per layout. The stacked (phone)
+  // layout leads with the details because they sit right under the disk, and
+  // has no 'controls': there they are a bar above the disk instead (see the
+  // markup). It has no 'country' either — the picker is dropped on a phone; a
+  // tap on the map still selects a country, and a second tap, the ocean or
+  // Reset lets it go. Adding or dropping a menu is adding or deleting its id.
+  const SECTIONS = {
+    wide: ['controls', 'country', 'details', 'key'],
+    stacked: ['details', 'key']
+  };
+  const sections = $derived(SECTIONS[layout.stacked ? 'stacked' : 'wide']);
 
   const LEGEND_CATEGORIES = [
     { name: 'Dense Settlements', codes: [11, 12] },
@@ -410,6 +422,18 @@
     anchorIdx = parseInt(pill.dataset.idx, 10);
     window.addEventListener('pointermove', keyPointerMove);
     window.addEventListener('pointerup', keyPointerUp, { once: true });
+    window.addEventListener('pointercancel', keyPointerCancel, { once: true });
+  }
+
+  // Stacked, a vertical swipe that starts on a pill scrolls the page (the
+  // pills are touch-action: pan-y there) and the browser cancels the pointer:
+  // that is a scroll, not a click, so nothing is toggled.
+  function keyPointerCancel() {
+    dragging = false;
+    dragMoved = false;
+    anchorIdx = null;
+    window.removeEventListener('pointermove', keyPointerMove);
+    window.removeEventListener('pointerup', keyPointerUp);
   }
 
   function keyPointerMove(e) {
@@ -430,6 +454,7 @@
     dragMoved = false;
     anchorIdx = null;
     window.removeEventListener('pointermove', keyPointerMove);
+    window.removeEventListener('pointercancel', keyPointerCancel);
     // Touching the filter at all cancels an open cell. A cell is a reading of
     // one place and a filter is a reading of the whole map, so the two cannot
     // both be the active lens — and the cell's own leader would otherwise be
@@ -745,10 +770,24 @@
   }
 
 
+  // The control circles: the rail's top tier, or the bar above the disk when
+  // stacked. One list for both.
+  const controlItems = $derived([
+    { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
+      onclick: () => openPanel = openPanel === 'info' ? null : 'info' },
+    { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−', onclick: zoomOut,
+      disabled: zoomLevel <= ZOOM_LEVELS[0] },
+    { id: 'reset', label: 'Reset', glyph: '◎', onclick: resetView },
+    { id: 'zoom-in', label: 'Zoom in', caption: 'Zoom In', glyph: '＋', onclick: zoomIn,
+      disabled: zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] }
+  ]);
+
   // Handle window click to close overlays
   function handleWindowClick(e) {
     const target = e.target;
-    if (target.closest('.filter-rail')) return;
+    // The controls count as the rail wherever they are drawn: stacked, they
+    // are a bar above the disk, outside .filter-rail.
+    if (target.closest('.filter-rail, .control-circles')) return;
     openPanel = null;
     // Close info panel and clear isolation when clicking outside chart/filter-rail.
     // Tooltip, history chart, and cell isolation always close together.
@@ -806,17 +845,36 @@
   {/if}
 
   <div class="app">
-    <!-- Nav circle: switch sides + home dot -->
-    <NavCircle
-      side="right"
-      activeLabel="ANTHROMES"
-      linkLabel="BIOMES →"
-      linkHref={crossLinkHref}
-      linkAriaLabel="Go to Biomes"
-      homeHref={import.meta.env.BASE_URL}
-    />
+    <!-- Nav circle: switch sides + home dot. Not in the stacked layout, where
+         a corner of the window is no place for it: Back, in the bar above the
+         disk, stands in. -->
+    {#if !layout.stacked}
+      <NavCircle
+        side="right"
+        activeLabel="ANTHROMES"
+        linkLabel="BIOMES →"
+        linkHref={crossLinkHref}
+        linkAriaLabel="Go to Biomes"
+        homeHref={import.meta.env.BASE_URL}
+      />
+    {/if}
 
+    <!-- Rail and disk are stable siblings in every layout — CSS rearranges
+         them — so a window crossing into the stacked layout and back never
+         remounts a chart: the year, the country and the zoom survive it. -->
     <div class="layout">
+      {#if layout.stacked}
+        <div class="top-bar">
+          <ControlBar
+            variant="flat"
+            side="right"
+            size={TOP_BAR.ctl}
+            captionSize={TOP_BAR.caption}
+            backHref={import.meta.env.BASE_URL}
+            items={controlItems}
+          />
+        </div>
+      {/if}
       <div
         class="filter-rail"
         bind:this={railEl}
@@ -826,9 +884,13 @@
         data-detail={tier.detail}
         data-scroll={tier.scroll}
         data-fill={railFill}
-        data-key={tier.keyNames ? 'full' : 'pills'}
+        data-key={tier.keyNames && !layout.stacked ? 'full' : 'pills'}
         style:--per-group={tier.perGroup === 5 ? 5 : null}
       >
+        <!-- The rail's four sections, each a snippet, so that what the rail holds
+             and in what order is SECTIONS' call (see the script), not the
+             markup's. -->
+        {#snippet controls()}
         <!-- Top tier: large control circles, spread across the full rail width
              with an arced caption hung off the LEFT of each bubble (mirroring
              the biomes rail, which captions to the right). -->
@@ -836,17 +898,11 @@
           side="left"
           size={tier.ctl}
           captionSize={tier.caption}
-          items={[
-            { id: 'info', label: 'Info', glyph: 'i', active: openPanel === 'info',
-              onclick: () => openPanel = openPanel === 'info' ? null : 'info' },
-            { id: 'zoom-out', label: 'Zoom out', caption: 'Zoom Out', glyph: '−', onclick: zoomOut,
-              disabled: zoomLevel <= ZOOM_LEVELS[0] },
-            { id: 'reset', label: 'Reset', glyph: '◎', onclick: resetView },
-            { id: 'zoom-in', label: 'Zoom in', caption: 'Zoom In', glyph: '＋', onclick: zoomIn,
-              disabled: zoomLevel >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1] }
-          ]}
+          items={controlItems}
         />
+        {/snippet}
 
+        {#snippet countryPanel()}
         <!-- Country picker (parity with biomes side): the eight countries in
              the two lifestyle groups the biomes study assigns, each led by its
              description, so the same eight read the same way on both faces. -->
@@ -901,7 +957,9 @@
             )}
           </div>
         </section>
+        {/snippet}
 
+        {#snippet detailsPanel()}
         <!-- Middle: always-visible details menu item, where Views used to be -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -963,6 +1021,7 @@
                   selectedCodes={selectedAnthromes}
                   scrubbable
                   targetCell={TIMELINE_CELL}
+                  compact={layout.stacked}
                   width={pixelChartW}
                   height={pixelChartH}
                 />
@@ -970,7 +1029,9 @@
             </div>
           </div>
         </section>
+        {/snippet}
 
+        {#snippet keyPanel()}
         <!-- Bottom tier: always-visible anthrome filter key. Click to isolate one, drag across to select a range. -->
         <section class="anthrome-key">
           <div class="anthrome-key-head">
@@ -1013,6 +1074,15 @@
             </div>
           </div>
         </section>
+        {/snippet}
+
+        {#each sections as id (id)}
+          {#if id === 'controls'}{@render controls()}
+          {:else if id === 'country'}{@render countryPanel()}
+          {:else if id === 'details'}{@render detailsPanel()}
+          {:else if id === 'key'}{@render keyPanel()}
+          {/if}
+        {/each}
       </div>
 
       <div class="viz-area">
@@ -1050,27 +1120,14 @@
     </div>
   </div>
 
-  <!-- Info modal (center-docked) -->
-  {#if openPanel === 'info'}
-    <InfoModal title="ANTHROMES" onclose={() => openPanel = null}>
-      <p><strong>More than 65% of terrestrial nature</strong> has been shaped, in very different ways, by people. <strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
-      <p>Visualized here is the <strong>Anthromes Dataset</strong> from the Anthroecology Lab. It is a “hindcast” model, projecting back in time from global population and land use data showing change over 12,025 years.</p>
-      <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong> Hence, preserving “cultured” and “wild” lands is key to preserving biodiversity.</p>
-      {#snippet citations()}
-        <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. “People have shaped most of terrestrial nature for at least 12,000 years.” <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
-        <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
-        <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
-      {/snippet}
-    </InfoModal>
-  {/if}
-
   <!-- Leader line: isolated cell → docked detail panel. Endpoints are design px.
        White arrowhead on the map (cell) side, matching the biomes disk marker.
        Gated on cell scale because WaffleChart dispatches 'detail' on hover, not
        only on pin, so without this a line is drawn during an ordinary mouse
        move — pointing at the chart title, since anthromeRuleEl is null outside
-       cell scale. -->
-  {#if detailScale === 'cell' && detailContent && connectorStart && connectorEnd}
+       cell scale. Wide layouts only: stacked, the panel is under the disk and
+       the elbow would land off-screen. -->
+  {#if detailScale === 'cell' && detailContent && connectorStart && connectorEnd && !layout.stacked}
     <svg class="connector-overlay" aria-hidden="true">
       <defs>
         <marker id="leader-arrow" markerUnits="userSpaceOnUse"
@@ -1103,6 +1160,27 @@
 {/if}
 </div>
 </div>
+
+<!-- The overlay stage: what sits over the window rather than over the page
+     (see src/shared/stage.css). Identical to .stage while that fills the
+     window; fixed, so stacked it stays put while the page scrolls under it.
+     Only there while it has something in it: an empty one is still a layer
+     over the whole window, and it shifted the anti-aliasing of what lay
+     under it. -->
+{#if openPanel === 'info' && !error}
+  <div class="overlay-stage">
+    <InfoModal title="ANTHROMES" onclose={() => openPanel = null}>
+      <p><strong>More than 65% of terrestrial nature</strong> has been shaped, in very different ways, by people. <strong>Anthromes</strong> are defined as the global ecological patterns shaped by direct human interactions with ecosystems.</p>
+      <p>Visualized here is the <strong>Anthromes Dataset</strong> from the Anthroecology Lab. It is a “hindcast” model, projecting back in time from global population and land use data showing change over 12,025 years.</p>
+      <p>As global population increases, and urbanization accelerates, <strong>biodiversity shrinks.</strong> Hence, preserving “cultured” and “wild” lands is key to preserving biodiversity.</p>
+      {#snippet citations()}
+        <p>Ellis, E.C., N. Gauthier, K. Klein Goldewijk, R. Bliege Bird, N. Boivin, S. Díaz, D. Fuller, J. Gill, J. Kaplan, N. Kingston, H. Locke, C. McMichael, D. Ranco, T. Rick, M.R. Shaw, L. Stephens, J.C. Svenning, and J.E.M. Watson. 2021. “People have shaped most of terrestrial nature for at least 12,000 years.” <em>Proceedings of the National Academy of Sciences</em> 118(17): e2023483118. <a href="https://doi.org/10.1073/pnas.2023483118" target="_blank" rel="noopener">https://doi.org/10.1073/pnas.2023483118</a></p>
+        <p>Klein Goldewijk, K. 2025. History Database of the Global Environment (HYDE 3.5). Utrecht University. <a href="https://public.yoda.uu.nl/geo/UU01/F45D44.html" target="_blank" rel="noopener">https://public.yoda.uu.nl/geo/UU01/F45D44.html</a></p>
+        <p>This project was completed by Laura Kurgan, Dan Miller and Adam Vosburgh at The Center for Spatial Research, Columbia University Graduate School of Architecture Planning and Preservation. Two Sides of the Same Coin was originally commissioned for the We the Bacteria: Notes Toward Biotic Architecture exhibition, 24th Milan Triennale International Exhibition, Inequalities, 2025. This project is open-source, and the repository is located <a href="https://github.com/CenterForSpatialResearch/twosides" target="_blank" rel="noopener">here</a>.</p>
+      {/snippet}
+    </InfoModal>
+  </div>
+{/if}
 
 <style>
   /* Rules the two rails share (.app, .error, .fblock, .fblock-headrow, .ls-row,
@@ -1158,8 +1236,9 @@
     --ls-row-gap: 0px;
   }
 
-  /* The tight tiers drop the key's category names and its "more intensive"
-     arrow: just the pills, in one run, still in intensity order (so a drag
+  /* The tight tiers — and the stacked layout at every width, a tablet's
+     included — drop the key's category names and its "more intensive" arrow:
+     just the pills, in one run, still in intensity order (so a drag
      across them still selects a range). */
   .filter-rail[data-key="pills"] .key-axis,
   .filter-rail[data-key="pills"] .key-cat-name {
@@ -1628,6 +1707,60 @@
        relayout — the disk only reaches the rail's empty right padding, so this
        doesn't cover any interactive rail element. */
     z-index: 6;
+  }
+
+  /* ===== Stacked (portrait / phone) =====
+     The same two siblings, rearranged: control bar, the disk at the full
+     width of the window, then the rail as tall as its content — the page
+     scrolls (see the stacked block in src/shared/stage.css). Which sections
+     the rail holds there is SECTIONS' call, in the script. */
+  :global(html[data-layout="stacked"]) .layout {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+  }
+
+  .top-bar {
+    order: 0;
+    padding: 26px 36px 4px;
+  }
+
+  /* --disk-size is the stage's width here (less on a phone held sideways,
+     where it is what the window's height leaves — hence the centring). An
+     explicit square rather than aspect-ratio, so the chart's own height: 100%
+     has a definite height to resolve against. */
+  :global(html[data-layout="stacked"]) .viz-area {
+    order: 1;
+    flex: 0 0 auto;
+    align-self: center;
+    width: var(--disk-size);
+    height: var(--disk-size);
+  }
+
+  :global(html[data-layout="stacked"]) .filter-rail {
+    order: 2;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* The first section sits under the disk, not under the top of a rail, so it
+     takes the divider the others have. */
+  :global(html[data-layout="stacked"]) .filter-rail > :global(:first-child) {
+    border-top: 1.3px solid rgba(255, 255, 255, 0.14);
+    padding-top: var(--rail-div-below, 22px);
+  }
+
+  /* The key is a screenful of pills on a phone: a vertical swipe across them
+     has to scroll the page. A sideways drag still sweeps a range. */
+  :global(html[data-layout="stacked"]) .key-pill {
+    touch-action: pan-y;
+  }
+
+  /* No leftover height to fill in a rail that is as tall as its content, so
+     the timeline is given one. */
+  :global(html[data-layout="stacked"]) .pixel-chart-box {
+    flex: 0 0 auto;
+    height: var(--stacked-timeline-h, 250px);
   }
 
 </style>

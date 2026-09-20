@@ -14,6 +14,9 @@
 // Modes:
 //   letterbox  the fixed 3000x2000 canvas, scaled to fit and centred, leftover
 //              space in --bg. How the exhibition build ran on every display.
+//              (The splash and the loading page carry this name too, though
+//              in a narrow window their stage is the window: see
+//              computeSplashLayout.)
 //   wide       the stage fills the window. Two scales: the disk column shrinks
 //              with the window (diskScale) while the stage transform — which is
 //              what sizes the rail's type — stops at a floor (railScale), so
@@ -42,6 +45,9 @@ export const STACKED_MAX_W = 700;
 export const STACKED_MAX_SCALE = 0.85;
 /** Stacked mode lays the stage out this many design px wide on a phone. */
 export const STACKED_DESIGN_W = 580;
+/** Stacked mode's control bar above the disk, design px (its padding plus
+    TOP_BAR.ctl in railTiers.js). */
+export const STACKED_BAR_H = 100;
 /** Where the wide layout puts the disk across the window. `?disk=` overrides.
  *    'canvas'  where the exhibition build had it: on a 3000x2000 canvas scaled
  *              to fit and centred in the window. The seam between rail and disk
@@ -188,11 +194,16 @@ export function computeLayout(w, h, opts = {}) {
   if (mode === 'stacked') {
     const scale = Math.min(w / STACKED_DESIGN_W, STACKED_MAX_SCALE);
     const designW = w / scale;
+    const designH = h / scale;
+    // The disk is the window's width — but never taller than the window has
+    // room for under the bar, so a small phone held sideways still shows the
+    // whole of it at once.
+    const diskSize = Math.max(200, Math.min(designW, designH - STACKED_BAR_H));
     return {
       mode, scale, diskScale: scale, railScale: scale,
-      designW, designH: h / scale,
-      diskSize: designW, diskMargin: 0, railW: designW, railH: null,
-      navScale: navScaleFor(designW),
+      designW, designH,
+      diskSize, diskMargin: 0, railW: designW, railH: null,
+      navScale: navScaleFor(diskSize),
       offsetX: 0, offsetY: 0
     };
   }
@@ -231,18 +242,38 @@ export function computeLayout(w, h, opts = {}) {
   };
 }
 
+/** The splash composition's width in design px: the title ring (r = 930
+    viewBox units on a 900px disk) plus the titles' own height, both sides. What
+    a portrait window has to fit; a landscape one is bounded by DESIGN_H. */
+export const SPLASH_W = 1840;
+/** Below this scale the splash sets its type a step larger, whatever the
+    window's shape: a phone held sideways is height-bound at about 0.2. */
+export const SPLASH_COMPACT_SCALE = 0.3;
+
 /**
  * Window size -> layout for the splash and the loading interstitial. One disk
  * centred on the stage, so there is one scale and no rail.
+ *
+ * The scale is bound by the window's height, or by the composition's width
+ * (SPLASH_W) where that is the tighter fit — a portrait window, or a narrow
+ * one. A window with room for the whole 3000x2000 canvas at that scale keeps
+ * it, centred, exactly as the exhibition build had it (1 at 3000x2000, 0.9 at
+ * 3340x1800); only a narrower one gives the stage the window's own size, and
+ * the disk is centred in that instead. `compact` — a portrait window, or any
+ * window small enough that the scale is under SPLASH_COMPACT_SCALE — tells the
+ * two pages to set their type a step larger (splashType() in splashCopy.js),
+ * since the scale on a phone is around 0.2.
  */
 export function computeSplashLayout(w, h) {
-  const scale = Math.min(w / DESIGN_W, h / DESIGN_H);
+  const scale = Math.min(w / SPLASH_W, h / DESIGN_H);
+  const fits = DESIGN_W * scale <= w && DESIGN_H * scale <= h;
   return {
     mode: 'letterbox', scale, diskScale: scale, railScale: scale,
-    designW: DESIGN_W, designH: DESIGN_H,
-    diskSize: DISK, diskMargin: 0, railW: 0, railH: DESIGN_H,
+    designW: fits ? DESIGN_W : w / scale, designH: fits ? DESIGN_H : h / scale,
+    diskSize: DISK, diskMargin: 0, railW: 0, railH: fits ? DESIGN_H : h / scale,
     navScale: 1,
-    ...centred(w, h, scale)
+    compact: w < h || scale < SPLASH_COMPACT_SCALE,
+    ...(fits ? centred(w, h, scale) : { offsetX: 0, offsetY: 0 })
   };
 }
 

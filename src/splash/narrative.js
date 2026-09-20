@@ -22,8 +22,8 @@
 // returns here.
 import { DESIGN_W } from '../shared/pageStage.js';
 import {
-  SIDE_COPY, BASE_FONT, TITLE_FONT, ENTER_FONT, TITLE_RING_R,
-  TITLE_DIM, TITLE_AWAY, fitToArc, buildLoadingLabel
+  SIDE_COPY, TITLE_RING_R, TITLE_DIM, TITLE_AWAY,
+  fitToArc, buildLoadingLabel, splashType, sideHref
 } from '../shared/splashCopy.js';
 
 // Two framing one-liners, the first above the disk and the second below. Each
@@ -47,8 +47,9 @@ const DICHOTOMIES = [
 // left and right, the framing lines above and below (r=760, in index.html),
 // and the titles furthest out with a "select to enter" hint just inside them
 // (both set from the canvas in updateTitleArcs).
+// Each dichotomy gets a quarter turn of its ring — more on a phone, see
+// splashType() in splashCopy.js.
 const ARC_SUB_R = 615;
-const ARC_SUB   = (Math.PI / 2) * ARC_SUB_R;  // each dichotomy gets a quarter turn
 const ENTER_GAP = 58;                         // hint radius = title radius − this
 const PERIOD   = 20000;
 const FADE_MS  = 4000;
@@ -123,14 +124,12 @@ const RING_R = TITLE_RING_R;
 // The bottom line reads upright, so its letters hang INWARD from the baseline
 // where the titles' and the top line's stand outward from it. Pushing its
 // baseline out by a cap height puts its letters in the same band as theirs.
-// splash-1/2's framing lines, a step up from the final ui's BASE_FONT now that
-// they sit on the outer ring rather than between the dichotomies and titles.
-const FRAME_FONT = 42;
-const BOTTOM_LIFT = Math.round(FRAME_FONT * 0.7);
-// The trials' dichotomy cap: BASE_FONT, so the dichotomies and the
-// subheadline that replaces them on commit share one size. Still fitted to
-// the quarter turn, so a long pair would shrink rather than run off its arc.
-const TRIAL_SUB_CAP = BASE_FONT;
+// The framing lines' size (type.frame, 42 at full size) is a step up from the
+// base tier now that they sit on the outer ring rather than between the
+// dichotomies and titles. The dichotomy cap (type.subCap) is the base tier at
+// full size, so the dichotomies and the subheadline that replaces them on
+// commit share one size; still fitted to the arc, so a long pair would shrink
+// rather than run off it.
 // A framing line that shares a step with the other one fades on a half turn's
 // envelope, as it did when each line had a half-turn step of its own.
 const FRAME_FADE_MS = FADE_MS / 2;
@@ -146,9 +145,15 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 const smoothstep = (t) => t * t * (3 - 2 * t);
 
-export function mountNarrative(root, { variant = 'final' } = {}) {
+// layout: 'full' | 'compact' — which type scale to set the screen in
+// (splashVariant() in pageStage.js). Measured once per mount; the controller
+// in index.html remounts when a resize crosses between the two.
+export function mountNarrative(root, { variant = 'final', layout = 'full' } = {}) {
   const $ = (sel) => root.querySelector(sel);
   const steps = VARIANTS[variant] ?? null;
+  const type = splashType(layout);
+  const BOTTOM_LIFT = Math.round(type.frame * 0.7);
+  const ARC_SUB = type.subSpan * ARC_SUB_R;
 
   const coin           = $('#coin');
   const labelBiomes    = $('#label-biomes');
@@ -216,6 +221,16 @@ export function mountNarrative(root, { variant = 'final' } = {}) {
     $('#arc-enter-left').setAttribute('d',  `M -${offE} ${offE} A ${re} ${re} 0 0 1 -${offE} -${offE}`);
     $('#arc-enter-right').setAttribute('d', `M ${offE} -${offE} A ${re} ${re} 0 0 1 ${offE} ${offE}`);
 
+    // The dichotomies' arcs, when they are wider than the quarter turn the
+    // markup draws: the same construction, through 9 and through 3 o'clock.
+    if (type.subSpan !== Math.PI / 2) {
+      const h = type.subSpan / 2;
+      const sx = (ARC_SUB_R * Math.cos(h)).toFixed(2);
+      const sy = (ARC_SUB_R * Math.sin(h)).toFixed(2);
+      $('#arc-sub-left').setAttribute('d',  `M -${sx} ${sy} A ${ARC_SUB_R} ${ARC_SUB_R} 0 0 1 -${sx} -${sy}`);
+      $('#arc-sub-right').setAttribute('d', `M ${sx} -${sy} A ${ARC_SUB_R} ${ARC_SUB_R} 0 0 1 ${sx} ${sy}`);
+    }
+
     if (!steps) return;
     // Framing lines on the same ring: across the top 9 -> 12 -> 3, ascenders
     // out; across the bottom 9 -> 6 -> 3, upright, lifted (see BOTTOM_LIFT).
@@ -225,20 +240,20 @@ export function mountNarrative(root, { variant = 'final' } = {}) {
   }
 
   function sizeOuterText() {
-    lineTop.setAttribute('font-size', BASE_FONT);
-    lineBottom.setAttribute('font-size', BASE_FONT);
-    frameTop.setAttribute('font-size', FRAME_FONT);
-    frameBottom.setAttribute('font-size', FRAME_FONT);
-    labelBiomes.setAttribute('font-size', TITLE_FONT);
-    labelAnthromes.setAttribute('font-size', TITLE_FONT);
-    enterBiomes.setAttribute('font-size', ENTER_FONT);
-    enterAnthromes.setAttribute('font-size', ENTER_FONT);
+    lineTop.setAttribute('font-size', type.base);
+    lineBottom.setAttribute('font-size', type.base);
+    frameTop.setAttribute('font-size', type.frame);
+    frameBottom.setAttribute('font-size', type.frame);
+    labelBiomes.setAttribute('font-size', type.title);
+    labelAnthromes.setAttribute('font-size', type.title);
+    enterBiomes.setAttribute('font-size', type.enter);
+    enterAnthromes.setAttribute('font-size', type.enter);
   }
 
   // Dichotomy — capped a step under the one-liner tier so the hierarchy reads
   // titles > one-liners > dichotomies, and fitted to its quarter turn.
   function fitSub(textEl, textPath, content) {
-    const cap = steps ? TRIAL_SUB_CAP : Math.round(BASE_FONT * 0.85);
+    const cap = steps ? type.subCap : Math.round(type.base * 0.85);
     fitToArc(textEl, textPath, content, ARC_SUB, { min: 18, max: cap, slack: 0.9 });
   }
 
@@ -346,7 +361,6 @@ export function mountNarrative(root, { variant = 'final' } = {}) {
     if (mode !== 'idle') return;
     mode = 'committing';
     side = which;
-    const d = SIDE_COPY[which];
 
     // Warm the destination while the transition plays. Both are idle-priority
     // hints: they let the browser cache the target HTML without executing it,
@@ -354,10 +368,10 @@ export function mountNarrative(root, { variant = 'final' } = {}) {
     // contention and racing double-fetches when that was tried).
     const link = document.createElement('link');
     link.rel = 'prefetch';
-    link.href = d.path;
+    link.href = sideHref(which);
     link.as = 'document';
     document.head.appendChild(link);
-    fetch(d.path, { credentials: 'same-origin' }).catch(() => {});
+    fetch(sideHref(which), { credentials: 'same-origin' }).catch(() => {});
 
     // Forward to the next angle at which the chosen side is square to the
     // screen. Never more than one turn, and no floor: a small move is the
@@ -389,7 +403,7 @@ export function mountNarrative(root, { variant = 'final' } = {}) {
       if (dotTimer) clearInterval(dotTimer);
       // href, not replace: this screen stays in the history stack, so Back from
       // the visualization returns to the splash.
-      window.location.href = d.path;
+      window.location.href = sideHref(which);
     }, total);
   }
 
@@ -408,7 +422,7 @@ export function mountNarrative(root, { variant = 'final' } = {}) {
     lineTopPath.textContent = '';
     lineBottomPath.textContent = d.subhead;
     lineBottom.setAttribute('class', 'subhead');
-    lineBottom.setAttribute('font-size', BASE_FONT);
+    lineBottom.setAttribute('font-size', type.base);
 
     // The dichotomies gave the two sides a half-sentence each; from here the
     // title and subheadline carry the entering screen on their own.

@@ -17,16 +17,9 @@ export { DESIGN_W, DESIGN_H };
 
 const overrides = loadOverrides();
 
-// The stacked layout is not built yet, so a window that would pick it (or a
-// ?layout=stacked) gets the wide one instead.
-const STACKED_READY = false;
-
 function compute(winW, winH, prevMode) {
-  return insetLayout(winW, winH, overrides.margin, (w, h) => {
-    const L = computeLayout(w, h, { ...overrides, prevMode });
-    if (L.mode !== 'stacked' || STACKED_READY) return L;
-    return computeLayout(w, h, { ...overrides, layout: 'wide' });
-  });
+  return insetLayout(winW, winH, overrides.margin, (w, h) =>
+    computeLayout(w, h, { ...overrides, prevMode }));
 }
 
 // Two copies of the current layout. `current` is the reactive one the `layout`
@@ -38,6 +31,7 @@ let current = $state.raw(last);
 let textEpoch = $state(0);
 let epochTimer = null;
 let stageEl = null;
+let stageRO = null;
 
 /**
  * The current layout, reactive: every field of computeLayout()'s result, plus
@@ -59,6 +53,9 @@ export const layout = {
   get railH() { return current.railH; },
   get navScale() { return current.navScale; },
   get large() { return !!current.large; },
+  /** The stacked (portrait / phone) layout: disk on top, rail under it, the
+      page scrolls. */
+  get stacked() { return current.mode === 'stacked'; },
   /** The disk column's side as rendered, in CSS px. */
   get diskCssPx() { return current.diskSize * current.scale; },
   get textEpoch() { return textEpoch; }
@@ -77,7 +74,8 @@ function fit() {
   const next = compute(window.innerWidth, window.innerHeight, last.mode);
   // NavCircle carries its own scale on top of the stage's, and its arced
   // labels go stale the same way when that one moves.
-  const scaleChanged = next.scale !== last.scale || next.navScale !== last.navScale;
+  const scaleChanged = next.scale !== last.scale || next.navScale !== last.navScale
+    || next.mode !== last.mode;
   last = next;
   current = next;
   applyLayoutVars(next);
@@ -111,9 +109,22 @@ export function initStage(el) {
   stageEl = el;
   fit();
   window.addEventListener('resize', onResize);
+  // Stacked, the stage is as tall as its content and the PAGE scrolls, so
+  // .viewport needs a real height to scroll by: the stage's own, which only
+  // the stage knows. Published as --stage-h (design px, unitless) and spent by
+  // stage.css in that mode alone. The stage's height does not depend on
+  // .viewport's, so this cannot feed back into itself.
+  if (typeof ResizeObserver !== 'undefined') {
+    stageRO = new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--stage-h', el.offsetHeight);
+    });
+    stageRO.observe(el);
+  }
   return () => {
     window.removeEventListener('resize', onResize);
     clearTimeout(epochTimer);
+    stageRO?.disconnect();
+    stageRO = null;
     if (stageEl === el) stageEl = null;
   };
 }

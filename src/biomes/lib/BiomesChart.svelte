@@ -57,7 +57,13 @@
     studyKey = $bindable(null),
     countryIso3 = $bindable(null),
     size = 'full',
-    tension = 0.95
+    tension = 0.95,
+    // Where the fixed selection marker sits on the rim, and with it which
+    // species is selected (the one under it), where the leader starts and
+    // which way the zoom presets push the disk:
+    //   'right'   3 o'clock, facing a rail beside the disk
+    //   'bottom'  6 o'clock, facing a details panel under it (stacked layout)
+    markerAt = 'right'
   } = $props();
 
   // State
@@ -260,16 +266,23 @@
       return base;
     }
 
+    // Both presets zoom toward the marker, so the selected species stays in
+    // view: the disk is pushed away from whichever edge the marker is on.
+    const bottom = markerAt === 'bottom';
+
     if (k === 2) {
-      // Keep center on left edge, vertically centered
-      return { x: 0, y: base.y };
+      // Keep center on the far edge (left, or top), centered on the other axis
+      return bottom ? { x: base.x, y: 0 } : { x: 0, y: base.y };
     }
 
     if (k === 7) {
-      // Position so the rightmost content (bars) is visible with a small margin.
-      // This function works in screen px (rect), so scale the design-px margin up.
-      const targetX = rect.width - outerScreen - edgeMarginPx * elementScale(svgElement, rect);
-      return { x: targetX, y: base.y };
+      // Position so the content nearest the marker (bars) is visible with a
+      // small margin. This function works in screen px (rect), so scale the
+      // design-px margin up.
+      const margin = edgeMarginPx * elementScale(svgElement, rect);
+      return bottom
+        ? { x: base.x, y: rect.height - outerScreen - margin }
+        : { x: rect.width - outerScreen - margin, y: base.y };
     }
 
     return base;
@@ -586,6 +599,10 @@
 
   const realDpr = () => window.devicePixelRatio || 1;
 
+  // The selection marker is drawn full size in a disk box this wide or wider
+  // (design px), and in proportion under it.
+  const MARKER_FULL_BOX = 1200;
+
   function resizeCanvas() {
     if (!canvasEl || !vizAreaEl) return;
     // Layout px, not getBoundingClientRect() — the latter reports the
@@ -714,17 +731,27 @@
       cctx.lineWidth = 1.5 * px; cctx.strokeStyle = backgroundColor; cctx.stroke();
     }
 
-    // 9) fixed selection marker at screen right-center (3 o'clock from disk centre)
+    // 9) fixed selection marker on the rim: screen right-center (3 o'clock from
+    //    disk centre), or bottom-center (6 o'clock) — see markerAt. (ux, uy) is
+    //    the unit vector from the centre out through it, so one construction
+    //    draws either. The marker is 16 x 18 design px where the disk has its
+    //    full margin to sit in, and shrinks with a small disk (a phone's leaves
+    //    23 design px between rim and edge).
     cctx.setTransform(1, 0, 0, 1, 0, 0);
     cctx.globalAlpha = 1;
     const cxDev = m.e, cyDev = m.f;
     const rimDev = geom.outerRadius * m.s;
-    const mx = cxDev + rimDev + 10 * dpr, my = cyDev;
+    const bottom = markerAt === 'bottom';
+    const ux = bottom ? 0 : 1, uy = bottom ? 1 : 0;
+    const ms = Math.min(1, boxW / MARKER_FULL_BOX) * dpr;
+    const mx = cxDev + ux * (rimDev + 10 * ms), my = cyDev + uy * (rimDev + 10 * ms);
+    // Base of the triangle: 16 further out, 9 to either side of the axis.
+    const bx = mx + ux * 16 * ms, by = my + uy * 16 * ms;
     cctx.fillStyle = '#fff';
     cctx.beginPath();
     cctx.moveTo(mx, my);
-    cctx.lineTo(mx + 16 * dpr, my - 9 * dpr);
-    cctx.lineTo(mx + 16 * dpr, my + 9 * dpr);
+    cctx.lineTo(bx - uy * 9 * ms, by - ux * 9 * ms);
+    cctx.lineTo(bx + uy * 9 * ms, by + ux * 9 * ms);
     cctx.closePath();
     cctx.fill();
 
@@ -734,8 +761,8 @@
     // (Marker is rotation-invariant, so only emit when it actually moves — zoom/pan/resize.)
     const cr = canvasEl.getBoundingClientRect();
     const origin = screenToDesign(cr.left, cr.top);
-    const markX = origin.x + (mx + 16 * dpr) / dpr;
-    const markY = origin.y + my / dpr;
+    const markX = origin.x + bx / dpr;
+    const markY = origin.y + by / dpr;
     if (Math.abs(markX - lastMarkerX) > 0.5 || Math.abs(markY - lastMarkerY) > 0.5) {
       lastMarkerX = markX; lastMarkerY = markY;
       dispatch('marker', { x: markX, y: markY });
@@ -843,8 +870,10 @@
   function updateSelectionFromAngle() {
     if (!selectableByAngle.length) return;
     const rot = (rotationDeg || 0) * Math.PI / 180;
-    // a leaf at .x is drawn toward screen angle (.x - π/2 + rot); we want that = 0 (screen right)
-    let target = (Math.PI / 2 - rot) % (2 * Math.PI);
+    // a leaf at .x is drawn toward screen angle (.x - π/2 + rot); we want that
+    // to be the marker's: 0 (screen right), or π/2 (screen bottom)
+    const markerAngle = markerAt === 'bottom' ? Math.PI / 2 : 0;
+    let target = (Math.PI / 2 + markerAngle - rot) % (2 * Math.PI);
     if (target < 0) target += 2 * Math.PI;
     selIndex = nearestLeafByAngle(target);
     selLeaf = selectableByAngle[selIndex] || null;
@@ -1122,6 +1151,25 @@
     if (taxonomyTree) {
       render();
     }
+  });
+
+  // The marker moved to another edge (the window crossed between the wide and
+  // the stacked layout). The rotation and the zoom level are the reader's and
+  // stay; what follows the marker is re-derived: the zoom preset's anchor, the
+  // species under the marker, and the marker position App draws its leader from.
+  let lastMarkerAt = markerAt;
+  $effect(() => {
+    const at = markerAt;
+    untrack(() => {
+      if (at === lastMarkerAt) return;
+      lastMarkerAt = at;
+      if (!svgElement || !geom) return;
+      setZoomByIndex(zoomIdx);
+      lastMarkerX = -1; lastMarkerY = -1;
+      updateSelectionFromAngle();
+      commitSelectionToPanel();
+      requestDraw();
+    });
   });
 
   // Re-apply filters when filter props change

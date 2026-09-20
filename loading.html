@@ -130,12 +130,13 @@
     // entering a side is one navigation, not two. What is left is the
     // biomes <-> anthromes hand-off, where a full page load is unavoidable and
     // this screen covers it with the destination's own framing.
-    import { initPageStage } from './src/shared/pageStage.js';
+    import { initPageStage, splashVariant } from './src/shared/pageStage.js';
     import {
-      SIDE_COPY, BASE_FONT, TITLE_FONT, TITLE_DIM, TITLE_RING_R, buildLoadingLabel
+      SIDE_COPY, TITLE_DIM, TITLE_RING_R, buildLoadingLabel, splashType, sideHref
     } from './src/shared/splashCopy.js';
 
-    initPageStage();
+    // sizeAll() is hoisted; a phone turning re-sets the type (see splashType()).
+    initPageStage({ onVariantChange: () => sizeAll() });
 
     // --- Route params -------------------------------------------------------
     // side= is the whole contract: it picks the copy and the target viz. The
@@ -144,11 +145,8 @@
     const params = new URLSearchParams(window.location.search);
     const side = params.get('side') === 'anthromes' ? 'anthromes' : 'biomes';
 
-    const BASE = document.querySelector('meta[name="base-url"]')?.content
-      || location.pathname.replace(/[^\/]*$/, '');
-
     const d = SIDE_COPY[side];
-    const target = BASE + d.path;
+    const target = sideHref(side);
 
     // --- References ---------------------------------------------------------
     const labelLeft   = document.getElementById('label-left');
@@ -184,9 +182,10 @@
 
     function sizeAll() {
       updateTitleArcs();
-      labelLeft.setAttribute('font-size',  TITLE_FONT);
-      labelRight.setAttribute('font-size', TITLE_FONT);
-      subhead.setAttribute('font-size',    BASE_FONT);
+      const type = splashType(splashVariant());
+      labelLeft.setAttribute('font-size',  type.title);
+      labelRight.setAttribute('font-size', type.title);
+      subhead.setAttribute('font-size',    type.base);
     }
 
     // --- Preload hook + fixed wait ------------------------------------------
@@ -208,8 +207,9 @@
     const MIN_WAIT_MS = 5000;
 
     function boot() {
-      // Measured once: on the fixed canvas every input to sizeAll() is a
-      // constant, and the window only changes the scale pageStage.js applies.
+      // Every input to sizeAll() is a constant but the type scale, which only
+      // changes when a phone turns (see initPageStage above); otherwise the
+      // window only changes the scale pageStage.js applies.
       sizeAll();
       const dotTimer = setInterval(tickDots, 450);
       setTimeout(() => {
