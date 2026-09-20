@@ -37,12 +37,14 @@
 //   perGroup 4 | 5  countries per lifestyle group. Not a column of the table:
 //            railTier() adds the fifth (Italy, Mongolia) on a large window
 //            when five — or ten, in the eight-across rows — fit the rail
-//   leadIn   biomes, anchor row only: the species name is pushed down level
-//            with the disk marker so the leader runs dead straight. That costs
-//            the rail whatever height lies between the two, and once the
-//            circles go eight across it opens a hole under the section head,
-//            so every other row leaves the name where it falls and lets the
-//            leader bend to it.
+//   leadIn   biomes, anchor row only: the species name is ALWAYS pushed down
+//            level with the disk marker so the leader runs dead straight. That
+//            costs the rail whatever height lies between the two. Every other
+//            row does the same only when the name falls above the marker and
+//            the details block has that height to spare (measured, see
+//            alignSgbToMarker in biomes/App.svelte); otherwise the name stays
+//            where it falls and the leader bends to it. No cap on the push:
+//            eight-across rows can open a tall gap under the section head.
 
 // What the rail does with height it has to spare. `?rail=` overrides.
 //   'stretch'  the details block takes all of it, so the rail always runs from

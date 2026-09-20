@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import BiomesChart, {
     ABUNDANT_MIN_SAMPLES,
     RARE_MAX_SAMPLES,
@@ -222,18 +222,19 @@
   let leaderTo = $state(null);   // {x, y} design px (panel left edge, mid-height)
 
   // The lead-in (see sgbLeadIn) is what keeps the leader dead straight, and it
-  // is paid for in rail height: the whole panel starts lower. Only the rail
-  // this was drawn for has that height in the right place (see `leadIn` in
-  // railTiers.js); everywhere else the title stays where the layout puts it
-  // and the leader bends to reach it instead.
+  // is paid for in rail height: the whole panel starts lower. The rail this
+  // was drawn for always pays it (see `leadIn` in railTiers.js). Every other
+  // rail pays it when it can: the rule falls ABOVE the marker and the details
+  // block has the height to spare (see leadInRoom). Otherwise the title stays
+  // where the layout puts it and the leader bends to reach it instead.
   const leadInAllowed = $derived(tier.leadIn);
 
   // The leader is a straight run while the rule can be brought to the marker.
-  // It cannot when the rule already sits BELOW the marker with no lead-in left
-  // to give back (a short rail: the disk's centre is higher than the details
-  // block), or when the lead-in is off altogether. Then it is drawn the way
-  // the anthromes leader is: out level from the marker, a vertical run in the
-  // rail's empty left padding, and in level to the rule.
+  // It cannot when the rule already sits BELOW the marker (a short rail: the
+  // disk's centre is higher than the details block — a lead-in pushes down,
+  // never up), or when the rail has no room for the lead-in. Then it is drawn
+  // the way the anthromes leader is: out level from the marker, a vertical run
+  // in the rail's empty left padding, and in level to the rule.
   const leaderBent = $derived.by(() => {
     if (!leaderFrom || !leaderTo || sgbLeadIn !== 0 || layout.stacked) return false;
     const dy = leaderTo.y - leaderFrom.y;
@@ -297,17 +298,44 @@
     leaderTo = screenToDesign(panelRect.left, r.top + r.height / 2);
   }
 
+  // Design px the details content could still move DOWN without being cut off:
+  // the slack under its last row (the block takes the rail's spare height), or
+  // under the rail's last section when the rail is packed and the spare is at
+  // its foot. None on the scrolling rail, where a lead-in only adds length.
+  function leadInRoom() {
+    if (tier.scroll) return 0;
+    const slack = (box, padBottom = 0) => {
+      const last = box?.lastElementChild;
+      if (!last) return 0;
+      const b = box.getBoundingClientRect();
+      const l = last.getBoundingClientRect();
+      return screenToDesign(b.left, b.bottom).y - screenToDesign(l.left, l.bottom).y - padBottom;
+    };
+    const inPanel = slack(detailPanelEl?.querySelector('.detail-scroll'));
+    if (railFill !== 'pack' || !railEl) return inPanel;
+    return inPanel + Math.max(0, slack(railEl, parseFloat(getComputedStyle(railEl).paddingBottom) || 0));
+  }
+
   function alignSgbToMarker() {
-    if (!leadInAllowed || layout.stacked) { sgbLeadIn = 0; return; }
+    if (layout.stacked) { sgbLeadIn = 0; return; }
     if (!sgbRuleEl || !leaderFrom) return;
     const rr = sgbRuleEl.getBoundingClientRect();
     const ruleY = screenToDesign(rr.left, rr.top + rr.height / 2).y;
-    const delta = leaderFrom.y - ruleY;
-    // Sub-pixel drift is not worth a reflow, and stopping at it is also what
-    // terminates the measure → adjust → re-measure cycle the ResizeObserver
-    // below drives. Never negative: the title cannot climb into the block above.
-    if (Math.abs(delta) < 0.5) return;
-    sgbLeadIn = Math.max(0, sgbLeadIn + delta);
+    // The lead-in the DOM carries right now, read off the title itself: state
+    // may be a flush ahead of it, and the rule was measured against the DOM.
+    const applied = (parseFloat(sgbRuleEl.parentElement?.style.marginTop) || 6) - 6;
+    // A margin translates the rule 1:1, so where the rule would sit with no
+    // lead-in gives the lead-in it needs in one step. Never negative: the title
+    // cannot climb into the block above.
+    const needed = Math.max(0, leaderFrom.y - (ruleY - applied));
+    // Everything the content can move down by, the lead-in it already has
+    // included. A lead-in that does not fit is dropped whole — a shorter one
+    // would still leave the leader bent.
+    const fits = leadInAllowed || needed <= applied + leadInRoom();
+    const next = fits ? needed : 0;
+    // Sub-pixel drift is not worth a reflow.
+    if (Math.abs(next - sgbLeadIn) < 0.5) return;
+    sgbLeadIn = next;
   }
 
   function handleMarker(event) {
@@ -321,13 +349,21 @@
   // observe its box so the leader endpoint tracks those late layout shifts.
   $effect(() => {
     const el = detailPanelEl;
-    detailContent; viewportW; viewportH; sgbRuleEl; leaderFrom; tier; layout.mode; leaderPlumb;
+    detailContent; detailMeta; viewportW; viewportH; sgbRuleEl; leaderFrom; tier; layout.mode; leaderPlumb;
     alignSgbToMarker();
     updateLeaderTo();
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => { alignSgbToMarker(); updateLeaderTo(); });
     ro.observe(el);
     return () => ro.disconnect();
+  });
+
+  // The lead-in moves the rule without resizing the panel (the panel already
+  // holds the rail's spare height), so nothing above notices: re-measure the
+  // leader's end once the new margin is in the DOM.
+  $effect(() => {
+    sgbLeadIn;
+    untrack(updateLeaderTo);
   });
 
   // Load data on mount
