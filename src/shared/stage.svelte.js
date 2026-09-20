@@ -66,6 +66,25 @@ export function stageScale() {
   return current.scale;
 }
 
+/**
+ * Backing-store scale for a canvas that sits on the stage: device px per
+ * design px.
+ *
+ * The stage transform magnifies a canvas along with everything else, so where
+ * the stage is drawn LARGER than designed (a 4K wall, or ?minBody=0 on a big
+ * display) a canvas sized by devicePixelRatio alone is stretched and goes
+ * soft; this makes up the difference. It deliberately never goes BELOW
+ * devicePixelRatio: a stage drawn smaller than designed is a canvas being
+ * supersampled, which is what keeps the anthromes grid's few-pixel cells even
+ * on a laptop. So at 3000×2000 and under, this is devicePixelRatio, unchanged.
+ *
+ * Reactive (reads the layout). Call it inside untrack() from anywhere that
+ * must not re-run on a resize.
+ */
+export function renderDpr() {
+  return (window.devicePixelRatio || 1) * Math.max(1, current.scale);
+}
+
 export function getStageEl() {
   return stageEl;
 }

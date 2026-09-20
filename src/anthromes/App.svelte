@@ -1469,6 +1469,24 @@
     opacity: 0.35;
   }
 
+  /* Mouseover: a white ring, the pill's version of .country-circle:hover .ring,
+     and a dimmed pill comes part of the way back the way a dimmed country
+     circle does. Mouse only, so a tap or a range-drag on a touchscreen never
+     leaves a pill ringed. */
+  @media (hover: hover) {
+    .key-pill {
+      transition: opacity 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .key-pill:hover {
+      box-shadow: 0 0 0 2px #fff;
+    }
+
+    .key-pill.dim:hover {
+      opacity: 0.7;
+    }
+  }
+
   /* ===== MoMA: details — styled exactly like the other menu items (no card) ===== */
   /* The one section that flexes: it takes what the others leave, down to the
      least the timeline can be read at (heading, lead-in and a ~130px field). */

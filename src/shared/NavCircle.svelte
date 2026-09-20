@@ -140,4 +140,27 @@
     text-decoration: none;
     pointer-events: auto;
   }
+
+  /* Mouseover: the cross-link comes up to the active label's white, and the
+     home dot's ring to full white — the treatment the rail's buttons share
+     (ControlBar.svelte). Mouse only, so a tap never leaves it lit. */
+  @media (hover: hover) {
+    .nav-circle__text--link {
+      transition: fill 0.18s ease;
+    }
+
+    .nav-circle__text--link:hover {
+      fill: #fff;
+    }
+
+    .nav-circle__home {
+      transition: border-color 0.18s ease, color 0.18s ease, background-color 0.18s ease;
+    }
+
+    .nav-circle__home:hover {
+      border-color: #fff;
+      color: #fff;
+      background: color-mix(in srgb, var(--bg), #fff 12%);
+    }
+  }
 </style>

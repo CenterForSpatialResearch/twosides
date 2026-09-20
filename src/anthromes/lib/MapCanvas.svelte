@@ -9,7 +9,7 @@
   } from './gridSource.js';
   import { MAP_PROFILE, COUNTRY_SET, boundaryUrl } from '../../shared/mapProfile.js';
   import { formatYearLabel } from './dataAdapter.js';
-  import { screenToDesign } from '../../shared/stage.svelte.js';
+  import { screenToDesign, renderDpr as stageRenderDpr } from '../../shared/stage.svelte.js';
 
   const EARTH_RADIUS_KM = 6371.0088;
   const EARTH_SURFACE_KM2 = 4 * Math.PI * EARTH_RADIUS_KM * EARTH_RADIUS_KM;
@@ -372,6 +372,22 @@
   let hoveredFeature = $state(null);
   let isolatedFeature = $state(null);
 
+  // Device px per design px for both canvases here (renderDpr() in
+  // stage.svelte.js). Every site reads it through this one untracked wrapper,
+  // so the projection, the pan conversion and the hit tests can never disagree,
+  // and so none of the effects that reach one of them picks up the stage scale
+  // as a dependency. The one effect that should follow it is beside the other
+  // redraw effects below.
+  const renderDpr = () => untrack(stageRenderDpr);
+
+  // Country mouseover: the iso3 under a mouse pointer, outlined on the overlay
+  // canvas and nothing more — no tooltip, no selection (handleCountryHover).
+  // boundaryByIso is filled by loadBoundaries().
+  let hoveredIso3 = $state(null);
+  let boundaryByIso = new Map();
+  let countryHoverAt = null;
+  let countryHoverFrame = 0;
+
   // Throttle pointer move for performance
   let lastPointerMoveTime = 0;
   const POINTER_MOVE_THROTTLE = 16; // ~60fps
@@ -387,7 +403,7 @@
    */
   function pointerToDevice(e) {
     const rect = canvasEl.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = renderDpr();
     const sx = rect.width ? canvasEl.width / rect.width : dpr;
     const sy = rect.height ? canvasEl.height / rect.height : dpr;
     return {
@@ -399,7 +415,7 @@
   // Resize canvas to device pixel ratio
   function resizeCanvas() {
     if (!canvasEl) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = renderDpr();
     canvasEl.width = Math.max(1, width * dpr);
     canvasEl.height = Math.max(1, height * dpr);
     canvasEl.style.width = `${width}px`;
@@ -415,13 +431,16 @@
 
   function drawOverlay() {
     if (!overlayCanvasEl || !projection) return;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = renderDpr();
     overlayCanvasEl.width = Math.max(1, width * dpr);
     overlayCanvasEl.height = Math.max(1, height * dpr);
     const ctx = overlayCanvasEl.getContext('2d');
     ctx.clearRect(0, 0, overlayCanvasEl.width, overlayCanvasEl.height);
 
-    if (!hoveredFeature && !isolatedFeature) return;
+    const hoveredCountry = hoveredIso3 && hoveredIso3 !== focusIso3
+      ? boundaryByIso.get(hoveredIso3)
+      : null;
+    if (!hoveredFeature && !isolatedFeature && !hoveredCountry) return;
 
     const circle = getCircle();
     const path = d3.geoPath(projection, ctx);
@@ -449,6 +468,17 @@
       path(hoveredFeature);
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
       ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+    }
+
+    // Same boundary feature the selection ring strokes, so the hover outline
+    // and the ring a click then draws trace the same line.
+    if (hoveredCountry) {
+      ctx.beginPath();
+      path(hoveredCountry);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.lineWidth = 2 * dpr;
+      ctx.lineJoin = 'round';
       ctx.stroke();
     }
 
@@ -617,6 +647,13 @@
       boundariesGeo = topojson.feature(topo, topo.objects[objKey]);
       boundariesSet = set;
 
+      const byIso = new Map();
+      for (const f of boundariesGeo.features) {
+        const id = f?.id ?? f?.properties?.id ?? f?.properties?.iso_a3 ?? f?.properties?.ISO_A3;
+        if (id) byIso.set(id, f);
+      }
+      boundaryByIso = byIso;
+
       // Backfill display names from the boundary features. iso3_names.json is
       // hand-maintained and inherits the same ISO_A3 gap the boundaries had, so
       // without this the tooltip prints a bare "FRA" for France. Existing
@@ -698,7 +735,7 @@
     resizeCanvas();
 
     const ctx = canvasEl.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = renderDpr();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
 
@@ -1164,7 +1201,7 @@
   function isInsideDisk(x, y) {
     const circle = getCircle();
     if (!(circle.r > 0)) return false;
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = renderDpr();
     const dx = x - (circle.cx - (mapPanX || 0)) * dpr;
     const dy = y - (circle.cy - (mapPanY || 0)) * dpr;
     const r = circle.r * dpr;
@@ -1203,6 +1240,42 @@
     // circle. Leaving focusPanApplied alone is what lets applyFocusFraming treat
     // this as a first pass and zoom.
     focusIso3 = iso3;
+  }
+
+  // Mouse-only country hover: outline the country under the pointer, the one a
+  // click there would select. Touch and pen never reach past the first line, so
+  // a tap cannot leave an outline behind it. Runs the click path's own chain
+  // (pointerToDevice → isInsideDisk → invert → findCellAt), and repaints the
+  // overlay only when the country changes.
+  function setHoveredIso3(iso3) {
+    if (iso3 === hoveredIso3) return;
+    hoveredIso3 = iso3;
+    drawOverlay();
+  }
+
+  // Coalesced to one lookup per frame on the LAST position, rather than the
+  // time throttle handlePointerMove uses: a throttle drops the final move, and
+  // the outline would rest on the country the pointer has just left.
+  function handleCountryHover(e) {
+    if (e.pointerType !== 'mouse') return;
+    // A held button is a pan (WaffleChart); the outline would only trail it.
+    countryHoverAt = e.buttons ? null : { clientX: e.clientX, clientY: e.clientY };
+    if (countryHoverFrame) return;
+    countryHoverFrame = requestAnimationFrame(() => {
+      countryHoverFrame = 0;
+      const at = countryHoverAt;
+      if (!at || !projection || !currentGeo || !canvasEl) { setHoveredIso3(null); return; }
+      const { x, y } = pointerToDevice(at);
+      if (!isInsideDisk(x, y)) { setHoveredIso3(null); return; }
+      const lnglat = projection.invert([x, y]);
+      const feature = lnglat ? findCellAt(lnglat) : null;
+      setHoveredIso3(feature?.properties?.c ?? null);
+    });
+  }
+
+  function handleCountryHoverLeave() {
+    countryHoverAt = null;
+    setHoveredIso3(null);
   }
 
   // Where the pointer went down, so a drag can be told from a click. The pan
@@ -1249,6 +1322,7 @@
 
     return () => {
       window.removeEventListener('click', handleGlobalClick);
+      if (countryHoverFrame) cancelAnimationFrame(countryHoverFrame);
     };
   });
 
@@ -1282,6 +1356,14 @@
     innerRadiusPx;
 
     scheduleDraw();
+  });
+
+  // The backing store follows the stage scale where the stage is magnified
+  // (renderDpr), so a resize that changes only the scale still needs a redraw.
+  // draw() refits the projection on a dpr change by itself.
+  $effect(() => {
+    stageRenderDpr();
+    if (initialDrawDone) scheduleDraw();
   });
 
   // Visual-only redraws (selection/legend/zoom) after first draw is done
@@ -1355,7 +1437,7 @@
     const centroid = d3.geoCentroid(feature);
     if (!Number.isFinite(centroid?.[0])) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = renderDpr();
     const circle = getCircle();
 
     const projected = projection(centroid);
@@ -1594,6 +1676,8 @@
     bind:this={canvasEl}
     aria-label="Anthromes map"
     onpointerdown={handleCanvasPointerDown}
+    onpointermove={handleCountryHover}
+    onpointerleave={handleCountryHoverLeave}
     onclick={handleCanvasClick}
   ></canvas>
 

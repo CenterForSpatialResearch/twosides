@@ -99,6 +99,18 @@
     font-weight: 500;
   }
 
+  /* Mouseover: same treatment as the control circles (ControlBar.svelte). */
+  @media (hover: hover) {
+    .chevron {
+      transition: border-color 0.18s ease, background-color 0.18s ease;
+    }
+
+    .chevron:hover {
+      border-color: #fff;
+      background: color-mix(in srgb, var(--bg), #fff 12%);
+    }
+  }
+
   /* The body scrolls under a fixed head when the text outgrows the box. */
   .info-body {
     flex: 1 1 auto;

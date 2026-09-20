@@ -1,4 +1,6 @@
 <script>
+  // @orphan hover-trace: nothing imports this component. It is the old hover
+  // tooltip, kept whole until tooltips are decided (docs/refactor.md).
   import { onMount } from 'svelte';
   import { layout } from './stage.svelte.js';
 

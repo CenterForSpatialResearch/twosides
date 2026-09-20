@@ -111,6 +111,14 @@
   border-bottom-color: currentColor;
 }
 
+/* Mouseover, mouse only (a tap must not leave it lit): the dimmed link comes
+   most of the way up to its active white. */
+@media (hover: hover) {
+  .mini-link:hover:not(.active) {
+    opacity: 0.8;
+  }
+}
+
 
 /* ===== Rail tiers =====
    Each App writes its rail's tier (src/shared/railTiers.js) onto the rail as

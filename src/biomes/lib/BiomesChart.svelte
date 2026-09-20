@@ -31,7 +31,7 @@
   import { onMount, untrack } from 'svelte';
   import * as d3 from 'd3';
   import { createEventDispatcher } from 'svelte';
-  import { screenToDesign, elementScale } from '../../shared/stage.svelte.js';
+  import { screenToDesign, elementScale, renderDpr } from '../../shared/stage.svelte.js';
   import {
     colorMapping,
     pickTextColor,
@@ -597,7 +597,11 @@
     return b;
   }
 
-  const realDpr = () => window.devicePixelRatio || 1;
+  // Device px per design px: devicePixelRatio, raised where the stage is drawn
+  // larger than designed (renderDpr() in stage.svelte.js). Untracked so that no
+  // effect reaching resizeCanvas() picks the stage scale up as a dependency;
+  // the one that follows it is with the other effects below.
+  const realDpr = () => untrack(renderDpr);
 
   // The selection marker is drawn full size in a disk box this wide or wider
   // (design px), and in proportion under it.
@@ -1168,6 +1172,22 @@
       lastMarkerX = -1; lastMarkerY = -1;
       updateSelectionFromAngle();
       commitSelectionToPanel();
+      requestDraw();
+    });
+  });
+
+  // The backing store follows the stage scale where the stage is magnified
+  // (realDpr). The ResizeObserver only sees the disk's LAYOUT box, which a
+  // resize that changes nothing but the scale leaves alone.
+  let lastRenderDpr = 0;
+  $effect(() => {
+    const d = renderDpr();
+    untrack(() => {
+      const first = lastRenderDpr === 0;
+      const same = d === lastRenderDpr;
+      lastRenderDpr = d;
+      if (first || same || !canvasEl || !geom) return;
+      resizeCanvas();
       requestDraw();
     });
   });

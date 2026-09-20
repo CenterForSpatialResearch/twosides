@@ -112,6 +112,21 @@
     transform: scale(0.95);
   }
 
+  /* Mouseover, the rail's one treatment: the ring goes to full white, as
+     .country-circle:hover .ring does, over a slight lift of the fill. Behind
+     (hover: hover) so a tap on a touchscreen never leaves a button wearing it.
+     The pressed and .active looks are untouched. */
+  @media (hover: hover) {
+    .ctl-btn {
+      transition: border-color 0.18s ease, background-color 0.18s ease;
+    }
+
+    .ctl-btn:hover:not(.active) {
+      border-color: #fff;
+      background: color-mix(in srgb, var(--bg), #fff 12%);
+    }
+  }
+
   /* Flat: the stacked layout's top bar. The slot is circle + caption side by
      side; the caption is set vertically so five of them fit a phone's width,
      reading down on the right of its circle and up on the left, the way the
