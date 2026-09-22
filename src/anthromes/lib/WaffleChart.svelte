@@ -900,10 +900,11 @@
 
     // Reposition labels: selected gets shifted outward by half the extra font height
     // so the inner edge of all labels stays flush with the same imaginary circle.
-    // The extra outward push (in SVG units) compensates for the larger CSS font size.
-    // 20 at the full-size 66-unit label; a sparse ring's larger one (see
-    // selectedYearFontSize) moves out by half of what it grew.
-    const selectedOutwardShift = 20 + (selectedYearFontSize - YEAR_SELECTED_FONT) / 2;
+    // The extra outward push (in SVG units) compensates for the larger CSS font
+    // size — 20 for the 66-unit selected label against the 49-unit rest. A
+    // constant now that the selected label holds that one size at every disk
+    // size (see YEAR_LABELS_MIN_DISK_PX).
+    const selectedOutwardShift = 20;
     const labelRadius = radius + 50;
     svg.selectAll('.year-label')
       .classed('selected', d => d === displayYear)
@@ -1028,28 +1029,22 @@
   // the ring, or scrubbing the timeline in the rail. 1286 is where the 14px
   // label tier would render under 9 CSS px (14 x 1286 / 2000). Set by eye.
   const YEAR_LABELS_MIN_DISK_PX = 1286;
-  // The selected label, in SVG units, as the stylesheet below sets it.
-  const YEAR_SELECTED_FONT = 66;
-  // On a sparse ring the one label left is held at a legible rendered size
-  // instead of shrinking with the disk — up to the cap, which is what still
-  // sits inside the handle's dome.
-  const YEAR_SELECTED_MIN_CSS_PX = 11;
-  const YEAR_SELECTED_MAX_FONT = 110;
 
+  // The selected label stays on the 19px tier (66 units) at every disk size —
+  // see the stylesheet below. It used to be scaled UP on a sparse ring, to hold
+  // it at a legible rendered size as the disk shrank, but it has nowhere to
+  // grow into: it sits inside the drag handle's dome, whose usable chord is
+  // 290 units (2 x r_dome, less the 18-unit stroke; see updateYearHighlight).
+  // The widest label, "-10000", measures 249 units at 66 and overflows the
+  // dome past about 77 — which the old rule crossed as soon as the disk fell
+  // under 1000 CSS px, and it ran to 110. So on a small disk the label was both
+  // too wide for the dome AND too small to read; growing it bought nothing.
+  // Below the tier the year is still legible in the rail's timeline.
   const yearLabelsSparse = $derived(stageLayout.diskCssPx < YEAR_LABELS_MIN_DISK_PX);
-  const selectedYearFontSize = $derived(
-    yearLabelsSparse
-      ? Math.min(
-          YEAR_SELECTED_MAX_FONT,
-          Math.max(YEAR_SELECTED_FONT, YEAR_SELECTED_MIN_CSS_PX * fullSize / stageLayout.diskCssPx)
-        )
-      : YEAR_SELECTED_FONT
-  );
 
   $effect(() => {
     if (!svgElement) return;
     svgElement.classList.toggle('years-sparse', yearLabelsSparse);
-    svgElement.style.setProperty('--year-selected-font', `${selectedYearFontSize}px`);
     untrack(() => updateYearHighlight());
   });
 
@@ -1244,9 +1239,11 @@
     pointer-events: all;
   }
 
+  /* 66 -> 19px, the `step` tier. Capped there by the drag handle's dome, which
+     the label sits inside — see YEAR_LABELS_MIN_DISK_PX above. */
   :global(.year-axis text.selected) {
     fill: var(--accent);
-    font-size: var(--year-selected-font, 66px);
+    font-size: 66px;
   }
 
   /* A small disk keeps only the selected year's label (see
