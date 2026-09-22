@@ -241,8 +241,10 @@
     return leadInAllowed ? dy > 1 : Math.abs(dy) > 1;
   });
 
-  // x of the bent leader's vertical run: midway through the rail's left
-  // padding, and never left of the marker.
+  // x of the bent leader's vertical run: midway between the disk's right edge
+  // (its left margin column plus its own width) and the rule, which is empty
+  // the whole way — the disk's right margin, then the rail's left padding.
+  // Never left of the marker.
   const leaderElbowX = $derived(
     leaderFrom && leaderTo
       ? Math.max(leaderFrom.x + 14, (layout.diskMargin + layout.diskSize + leaderTo.x) / 2)
@@ -1362,13 +1364,14 @@
      .ls-row-head, .rail-leadin, .mini-link) are in src/shared/rail.css; the
      control circles are ControlBar's and the info modal is InfoModal's. */
 
-  /* Margin, disk, rail. The disk column is a square of --disk-size and the
-     rail takes what is left of the window once --disk-margin — an empty column
-     beyond the disk, see DISK_ANCHOR in layoutCore.js — is set aside. On the
-     display this was drawn for that is 0 + 2000 + 1000. */
+  /* Margin, disk, margin, rail. The disk column is a square of --disk-size,
+     sat between two equal empty columns of --disk-margin so that it is centred
+     in what the rail leaves (see DISK_ANCHOR in layoutCore.js); the rail takes
+     everything else. On the display this was drawn for that is 0 + 2000 + 0 +
+     1000. */
   .layout {
     display: grid;
-    grid-template-columns: var(--disk-margin) var(--disk-size) minmax(0, 1fr);
+    grid-template-columns: var(--disk-margin) var(--disk-size) var(--disk-margin) minmax(0, 1fr);
     height: 100%;
     align-items: stretch;
     gap: 0;
@@ -1376,7 +1379,7 @@
 
   .rail {
     --ctl-pad-bottom: 7px;  /* see the rail rhythm note below */
-    grid-column: 3;
+    grid-column: 4;
     /* The var()s on this rail are the rail tiers' handles (see the foot of
        src/shared/rail.css); each fallback is the 1000 x 2000 rail's number. */
     padding: var(--rail-pad, 51px 61px);
@@ -1445,6 +1448,15 @@
     container: detail / inline-size;
   }
 
+  /* The disk's column: --disk-size wide, the full height of the row. Those are
+     equal wherever the disk is bound by the window's height (16:9 and wider),
+     and this box is then a square the chart fills exactly; on squarer windows
+     the disk is bound by width and the box is TALLER than it is wide. Nothing
+     here centres the chart in that leftover height — BiomesChart's <svg> is
+     100% x 100% over a square viewBox, so the default preserveAspectRatio
+     ("xMidYMid meet") fits it to the width and centres it on the long axis.
+     The horizontal slack is the layout's own, in the --disk-margin columns
+     either side (see diskMargin in layoutCore.js). */
   .viz-area {
     grid-column: 2;
     position: relative;

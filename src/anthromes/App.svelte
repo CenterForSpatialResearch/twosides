@@ -1195,13 +1195,14 @@
   }
 
   /* New rail + overlay styles */
-  /* Rail, disk, margin. The disk column is a square of --disk-size and the
-     rail takes what is left of the window once --disk-margin — an empty column
-     beyond the disk, see DISK_ANCHOR in layoutCore.js — is set aside. On the
-     display this was drawn for that is 1000 + 2000 + 0. */
+  /* Rail, margin, disk, margin. The disk column is a square of --disk-size,
+     sat between two equal empty columns of --disk-margin so that it is centred
+     in what the rail leaves (see DISK_ANCHOR in layoutCore.js); the rail takes
+     everything else. On the display this was drawn for that is 1000 + 0 +
+     2000 + 0. */
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--disk-size) var(--disk-margin);
+    grid-template-columns: minmax(0, 1fr) var(--disk-margin) var(--disk-size) var(--disk-margin);
     height: 100%;
     align-items: stretch;
   }
@@ -1716,14 +1717,23 @@
   /* Detail-panel content typography (.panel-content .title/.subtitle/.summary/
      .kv/.swatch/.pill) is shared — see src/shared/styles.css. */
 
+  /* The disk's column: --disk-size wide, the full height of the row. Those are
+     equal wherever the disk is bound by the window's height (16:9 and wider),
+     and this box is then a square the chart fills exactly; on squarer windows
+     the disk is bound by width and the box is TALLER than it is wide. Nothing
+     here centres the chart in that leftover height — WaffleChart's <svg> is
+     100% x 100% over a square viewBox, so the default preserveAspectRatio
+     ("xMidYMid meet") fits it to the width and centres it on the long axis.
+     The horizontal slack is the layout's own, in the --disk-margin columns
+     either side (see diskMargin in layoutCore.js). */
   .viz-area {
-    grid-column: 2;
+    grid-column: 3;
     position: relative;
     overflow: visible;
-    /* Above the rail (z 5): the disk's 9-o'clock year handle overflows past the
-       column seam and would otherwise be clipped under the rail. Stopgap until a
-       relayout — the disk only reaches the rail's empty right padding, so this
-       doesn't cover any interactive rail element. */
+    /* Above the rail (z 5): the disk's 9-o'clock year handle overflows the
+       column's left edge and would otherwise be clipped. It lands in the
+       --disk-margin column, and past that in the rail's empty right padding,
+       so this covers no interactive rail element. Stopgap until a relayout. */
     z-index: 6;
   }
 

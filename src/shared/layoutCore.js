@@ -17,19 +17,22 @@
 //              (The splash and the loading page carry this name too, though
 //              in a narrow window their stage is the window: see
 //              computeSplashLayout.)
-//   wide       the stage fills the window. Two scales: the disk column shrinks
-//              with the window (diskScale) while the stage transform — which is
+//   wide       the stage fills the window. Two scales: the disk shrinks with
+//              the window (diskScale) while the stage transform — which is
 //              what sizes the rail's type — stops at a floor (railScale), so
-//              body copy never renders under MIN_BODY_CSS_PX. Where the disk
-//              sits across the window is DISK_ANCHOR's call (below); the rail
-//              runs from the window's edge to the disk. At 3000x2000 both
-//              scales are 1 and the result is the letterbox canvas exactly.
+//              body copy never renders under MIN_BODY_CSS_PX. How wide the
+//              rail is comes from RAIL_SHARE_STEPS (below); it runs from the
+//              window's edge to its share of it, and the disk sits centred in
+//              what is left. Because that table ends at 1/3, a 3000x2000
+//              window still gives both scales 1 and the letterbox canvas
+//              exactly — 1000 of rail and 2000 of disk, no margin.
 //   stacked    portrait and narrow windows: disk on top at full width, rail
 //              under it, the page scrolls.
 
 export const DESIGN_W = 3000;
 export const DESIGN_H = 2000;
-/** The disk column's side at scale 1, in design px. */
+/** The disk's side at scale 1, in design px. Its COLUMN can be wider — see
+    diskMargin — but the disk itself is always this square, scaled. */
 export const DISK = 2000;
 /** Rail body copy, in design px. */
 export const BODY_PX = 17;
@@ -48,14 +51,54 @@ export const STACKED_DESIGN_W = 580;
 /** Stacked mode's control bar above the disk, design px (its padding plus
     TOP_BAR.ctl in railTiers.js). */
 export const STACKED_BAR_H = 100;
+/** ===== THE SEAM: the tuning surface for how wide the rail is. =====
+ *
+ *  Each row is [window width in CSS px, the rail's share of it]. Rows run left
+ *  to right by width. Between two rows the share ramps linearly, so dragging a
+ *  window across a break slides the seam rather than jumping it; below the
+ *  first row and above the last it holds flat. Add, move or delete rows freely
+ *  — this table is the whole rule.
+ *
+ *  Why the share falls as the window grows: a small window has already spent
+ *  its rail on the type floor (see MIN_BODY_CSS_PX), so the rail's content is
+ *  fighting for room and every point of share buys a real tier. A large window
+ *  has none of that problem — a third is plenty, and the width is worth more
+ *  to the disk. 1/3 is the exhibition composition: the 3000x2000 canvas gave
+ *  the disk 2000 and the rail 1000.
+ *
+ *  Raising a share only shrinks the disk where the disk is bound by the
+ *  window's WIDTH — aspects squarer than 1/(1 - share). On wider windows the
+ *  disk is bound by height, and what the rail gains is empty margin it would
+ *  otherwise have sat beside.
+ *
+ *  `?split=<percent>` pins one share at every width, which is how two settings
+ *  are compared without editing this.
+ */
+export const RAIL_SHARE_STEPS = [
+  [1512, 0.40],
+  [2560, 1 / 3]
+];
+
+/** The rail's share at one window width: RAIL_SHARE_STEPS, interpolated. */
+export function railShareFor(w) {
+  const first = RAIL_SHARE_STEPS[0];
+  const last = RAIL_SHARE_STEPS[RAIL_SHARE_STEPS.length - 1];
+  if (w <= first[0]) return first[1];
+  if (w >= last[0]) return last[1];
+  const i = RAIL_SHARE_STEPS.findIndex(([stepW]) => stepW > w);
+  const [w0, s0] = RAIL_SHARE_STEPS[i - 1];
+  const [w1, s1] = RAIL_SHARE_STEPS[i];
+  return s0 + (s1 - s0) * ((w - w0) / (w1 - w0));
+}
+
 /** Where the wide layout puts the disk across the window. `?disk=` overrides.
- *    'canvas'  where the exhibition build had it: on a 3000x2000 canvas scaled
- *              to fit and centred in the window. The seam between rail and disk
- *              stays put; a window wider than 3:2 leaves an empty margin beyond
- *              the disk, and the rail grows outward by the same amount.
+ *    'split'   the seam sits at railShareFor() of the window's width. The disk
+ *              is a square, so where the window is wider than the disk is tall
+ *              it cannot fill its own column; the remainder is split either
+ *              side of it (diskMargin) and the disk is centred in what it has.
  *    'edge'    hard against the window's far edge, so the rail takes every px
  *              the disk leaves. Widest rail, no empty margin. */
-export const DISK_ANCHOR = 'canvas';
+export const DISK_ANCHOR = 'split';
 /** A "large" window: from here up the country menu shows a fifth country per
     group. There is no asking a browser for inches, so this is CSS px of window
     width: a 27" display runs 2560 wide (QHD, or 4K/5K at its default scaling),
@@ -71,7 +114,8 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
  * Read the layout overrides off a query string.
  *   ?minBody=<css px>                  type floor; 0 = none
  *   ?layout=wide|stacked|letterbox     force a mode
- *   ?disk=canvas|edge                  see DISK_ANCHOR
+ *   ?disk=split|edge                   see DISK_ANCHOR
+ *   ?split=<percent>                   pin the rail's share, see RAIL_SHARE_STEPS
  *   ?margin=<percent>                  safe margin, see MAX_MARGIN_PCT
  */
 export function readOverrides(search = '') {
@@ -81,10 +125,16 @@ export function readOverrides(search = '') {
     const v = Number(params.get('minBody'));
     if (Number.isFinite(v) && v >= 0) out.minBody = v;
   }
+  if (params.has('split')) {
+    // Bounded well inside 0-100: past these the disk or the rail stops being
+    // a column at all, and RAIL_MIN_W would be doing all the work anyway.
+    const v = Number(params.get('split'));
+    if (Number.isFinite(v)) out.railShare = clamp(v, 20, 60) / 100;
+  }
   const mode = params.get('layout');
   if (mode === 'wide' || mode === 'stacked' || mode === 'letterbox') out.layout = mode;
   const disk = params.get('disk');
-  if (disk === 'canvas' || disk === 'edge') out.diskAnchor = disk;
+  if (disk === 'split' || disk === 'edge') out.diskAnchor = disk;
   if (params.has('margin')) {
     const v = Number(params.get('margin'));
     if (Number.isFinite(v) && v >= 0) out.margin = Math.min(v, MAX_MARGIN_PCT) / 100;
@@ -106,7 +156,7 @@ export const MAX_MARGIN_PCT = 20;
 // them once, on whichever URL it opens — `?margin=5&minBody=0` — and
 // `?margin=0` clears one. sessionStorage, not localStorage, so nothing sticks
 // to a machine past the tab.
-const STICKY = ['minBody', 'margin'];
+const STICKY = ['minBody', 'margin', 'railShare'];
 const STORE_KEY = 'twosides.display';
 
 /** readOverrides() for the live page, with the sticky ones remembered. */
@@ -158,18 +208,26 @@ function navScaleFor(diskSize) {
 /**
  * Window size -> layout for the two visualizations.
  *
- * opts: { minBody, layout, diskAnchor, prevMode } — the first three as
- * readOverrides() returns them, prevMode the mode of the previous result (for
- * hysteresis).
+ * opts: { minBody, layout, diskAnchor, railShare, prevMode } — the first four
+ * as readOverrides() returns them, prevMode the mode of the previous result
+ * (for hysteresis).
  *
  * Returns, all in design px unless noted:
  *   mode                 'letterbox' | 'wide' | 'stacked'
  *   scale                the stage transform (= railScale)
  *   diskScale, railScale the two scales (CSS px per design px)
  *   designW, designH     the stage's size under the transform
- *   diskSize             the disk column's side
- *   diskMargin           empty column beyond the disk, on the side away from
- *                        the rail (0 unless DISK_ANCHOR is 'canvas')
+ *   diskSize             the disk's side; its column is this plus diskMargin
+ *                        either side
+ *   diskMargin           empty column on EACH side of the disk: whatever the
+ *                        rail leaves over is split in two, so the disk is
+ *                        centred across the window (0 under DISK_ANCHOR
+ *                        'edge', and 0 wherever the disk fills its column).
+ *                        Only ever the HORIZONTAL slack — where the disk is
+ *                        bound by width instead, the leftover is vertical and
+ *                        the charts centre themselves in it (a square viewBox
+ *                        under the default preserveAspectRatio), so nothing
+ *                        here describes it
  *   railW, railH         the rail's box
  *   navScale             NavCircle's own scale, 0.6-1
  *   large                the window is LARGE_MIN_W or wider
@@ -209,9 +267,13 @@ export function computeLayout(w, h, opts = {}) {
   }
 
   const floor = (opts.minBody ?? MIN_BODY_CSS_PX) / BODY_PX;
+  const share = opts.railShare ?? railShareFor(w);
+  // The disk is the smaller of what the window's height allows and what its
+  // own column is wide — and, whichever wins, never so large that the rail is
+  // squeezed under RAIL_MIN_W at the type floor.
   const diskScale = Math.max(0.05, Math.min(
     h / DESIGN_H,
-    w / DESIGN_W,
+    (w * (1 - share)) / DISK,
     (w - RAIL_MIN_W * floor) / DISK
   ));
   const railScale = Math.max(diskScale, floor);
@@ -219,23 +281,23 @@ export function computeLayout(w, h, opts = {}) {
   const designH = h / railScale;
   const diskSize = DISK * diskScale / railScale;
 
-  // The rail's width in CSS px. 'canvas': the exhibition canvas centred in this
-  // window would put the seam 500 canvas-px off the window's centre line, so
-  // the rail is what lies between that and the window's edge — but never
-  // under its minimum, and never more than the disk leaves. Whatever is then
-  // left over is the margin beyond the disk.
-  const canvasScale = Math.min(w / DESIGN_W, h / DESIGN_H);
+  // The rail's width in CSS px. 'split': its share of the window, but never
+  // under its minimum, and never more than the disk leaves. Whatever the disk
+  // then fails to use of its own column — it is a square, so on a window wider
+  // than it is tall it cannot fill it — is split evenly either side of it,
+  // centring it in the space it has.
   const diskCss = DISK * diskScale;
   const railCss = (opts.diskAnchor ?? DISK_ANCHOR) === 'edge'
     ? w - diskCss
-    : Math.min(w - diskCss, Math.max(RAIL_MIN_W * railScale, w / 2 - 500 * canvasScale));
+    : Math.min(w - diskCss, Math.max(RAIL_MIN_W * railScale, w * share));
   const railW = railCss / railScale;
-  // Snapped: on a 3:2 window the margin is a rounding remainder, not a column.
+  // Snapped: where the disk fills its column the margin is a rounding
+  // remainder, not a pair of columns.
   const margin = designW - diskSize - railW;
   return {
     mode, scale: railScale, diskScale, railScale,
     designW, designH,
-    diskSize, diskMargin: margin > 0.01 ? margin : 0, railW, railH: designH,
+    diskSize, diskMargin: margin > 0.01 ? margin / 2 : 0, railW, railH: designH,
     large: w >= LARGE_MIN_W,
     navScale: navScaleFor(diskSize),
     offsetX: 0, offsetY: 0
